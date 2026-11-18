@@ -300,7 +300,7 @@ function CheckRow({
 }
 
 /** "Search Remotes" combobox: filters as you type, groups by owner / namespace. */
-function RepoCombobox({
+export function RepoCombobox({
   repos,
   loading,
   value,

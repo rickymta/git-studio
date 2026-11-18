@@ -9,6 +9,7 @@ import {
   GitPullRequest,
   Laptop,
   Lock,
+  Pencil,
   Plus,
   RefreshCw,
   Search,
@@ -273,29 +274,32 @@ export function Sidebar() {
               <IconButton label={t('Fetch all')} onClick={() => A.fetchAll()}>
                 <RefreshCw className="size-3.5" />
               </IconButton>
-              <Dropdown
-                items={[
-                  { label: t('Add remote by URL…'), onSelect: () => A.addRemote() },
-                  { label: t('Add remote from GitHub…'), onSelect: () => A.addRemoteFromGitHub() },
-                  ...(remotes.some((r) => r.name === 'origin')
-                    ? []
-                    : [{ label: t('Publish to GitHub…'), onSelect: () => A.publishToGitHub() }]),
-                ]}
-              >
-                <button
-                  type="button"
-                  aria-label={t('Add remote')}
-                  title={t('Add remote')}
-                  className="inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-surface-hover hover:text-foreground"
-                >
-                  <Plus className="size-3.5" />
-                </button>
-              </Dropdown>
+              <IconButton label={t('Add remote')} onClick={() => A.addRemote()}>
+                <Plus className="size-3.5" />
+              </IconButton>
             </>
           }
         >
           {remotes.length === 0 && (
-            <div className="pl-6 text-xs text-muted-foreground">{t('No remotes')}</div>
+            <div className="flex flex-col items-start gap-1 pl-6 text-xs text-muted-foreground">
+              {t('No remotes')}
+              <button
+                type="button"
+                className="text-accent hover:underline"
+                onClick={() => A.addRemote()}
+              >
+                {t('Add remote…')}
+              </button>
+              {!!useGitHub.getState().user && (
+                <button
+                  type="button"
+                  className="text-accent hover:underline"
+                  onClick={() => A.publishToGitHub()}
+                >
+                  {t('Publish to GitHub…')}
+                </button>
+              )}
+            </div>
           )}
           {remotes.map((rm) => (
             <RemoteGroup
@@ -426,9 +430,25 @@ export function Sidebar() {
   );
 }
 
+/** "github.com/owner/repo" from https / ssh / scp-style URLs; local paths unchanged. */
+function displayUrl(url: string): string {
+  const scp = /^[\w.-]+@([^:/]+):(.+?)(?:\.git)?$/.exec(url);
+  if (scp) return `${scp[1]}/${scp[2]}`;
+  try {
+    const u = new URL(url);
+    if (u.host) return `${u.host}${u.pathname.replace(/\.git$/, '')}`;
+  } catch {
+    /* not a URL */
+  }
+  return url;
+}
+
 function RemoteGroup({ name, url, refs }: { name: string; url: string; refs: GitRef[] }) {
   const [open, setOpen] = useState(true);
   const gh = useRepo((s) => s.refs?.remotes.find((r) => r.name === name)?.github);
+  const pushUrl = useRepo((s) => s.refs?.remotes.find((r) => r.name === name)?.pushUrl);
+  const branch = useRepo((s) => s.info?.status.branch ?? null);
+  const tracked = useRepo((s) => s.info?.status.upstream?.startsWith(`${name}/`) ?? false);
   return (
     <div>
       <ContextMenuWrap
@@ -437,6 +457,18 @@ function RemoteGroup({ name, url, refs }: { name: string; url: string; refs: Git
             label: t('Fetch {name}', { name }),
             onSelect: () => useRepo.getState().run(t('Fetch'), (p) => api.fetch(p, name)),
           },
+          {
+            label: t('Pull from {name}', { name }),
+            disabled: !branch,
+            onSelect: () => A.pull({ remote: name }),
+          },
+          {
+            label: t('Push {branch} to {name}', { branch: branch ?? '', name }),
+            disabled: !branch,
+            onSelect: () => A.push({ remote: name }),
+          },
+          'sep',
+          { label: t('Edit remote…'), onSelect: () => A.editRemote(name) },
           ...(gh
             ? [
                 {
@@ -458,15 +490,45 @@ function RemoteGroup({ name, url, refs }: { name: string; url: string; refs: Git
           },
         ]}
       >
-        <button
-          type="button"
-          title={url}
-          onClick={() => setOpen(!open)}
-          className="flex h-7 w-full items-center gap-1 pl-4 text-left hover:bg-surface-hover"
-        >
-          {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-          <Cloud className="size-3.5 text-muted-foreground" /> {name}
-        </button>
+        <div className="group/remote flex w-full items-center pr-1 hover:bg-surface-hover">
+          <button
+            type="button"
+            title={
+              pushUrl && pushUrl !== url
+                ? `${url}
+${t('push:')} ${pushUrl}`
+                : url
+            }
+            onClick={() => setOpen(!open)}
+            onDoubleClick={() => A.editRemote(name)}
+            className="flex min-w-0 flex-1 items-start gap-1 py-1 pl-4 text-left"
+          >
+            <span className="mt-0.5 shrink-0">
+              {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+            </span>
+            <Cloud className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-1.5">
+                {name}
+                {tracked && (
+                  <span className="rounded bg-accent-soft px-1 text-[10.5px] text-accent">
+                    {t('tracking')}
+                  </span>
+                )}
+              </span>
+              <span className="block truncate text-[11.5px] text-muted-foreground">
+                {displayUrl(url)}
+              </span>
+            </span>
+          </button>
+          <IconButton
+            label={t('Edit remote…')}
+            className="opacity-0 group-hover/remote:opacity-100 focus-visible:opacity-100"
+            onClick={() => A.editRemote(name)}
+          >
+            <Pencil className="size-3.5" />
+          </IconButton>
+        </div>
       </ContextMenuWrap>
       {open && (
         <div className="pl-3">

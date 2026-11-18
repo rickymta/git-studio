@@ -6,6 +6,7 @@ import { Button, ResizeHandle, Spinner, usePersistentWidth } from '@/components/
 import * as A from '@/features/actions';
 import { DiffView } from '@/features/diff/DiffView';
 import { GitHubSignIn } from '@/features/github/GitHubSignIn';
+import { RemotePanel } from '@/features/remotes/RemotePanel';
 import { CommitGraph } from '@/features/graph/CommitGraph';
 import { CommitPanel } from '@/features/panel/CommitPanel';
 import { WipPanel } from '@/features/panel/WipPanel';
@@ -227,11 +228,12 @@ export function App() {
             <Sidebar />
             <ResizeHandle width={sideW} onResize={setSideW} onReset={() => setSideW(300)} />
           </aside>
-          <div className="flex min-w-0 flex-1 flex-col">
+          <div className="relative flex min-w-0 flex-1 flex-col">
             <main className="min-h-0 min-w-0 flex-1 bg-background">
               {diff ? <DiffView /> : <CommitGraph />}
             </main>
             <TerminalPanel />
+            <RemotePanel onSignIn={() => setSignIn(true)} />
           </div>
           <aside
             className="relative shrink-0 border-l border-border bg-surface"

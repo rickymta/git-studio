@@ -7,6 +7,7 @@ import { copyText, pickFile, pickFolder } from '@/lib/native';
 import type { Commit, GitRef, Remote, Stash, Worktree } from '@/lib/types';
 import { useCompare } from '@/stores/compare';
 import { useGitHub } from '@/stores/github';
+import { useRemotePanel } from '@/stores/remotePanel';
 import { useRepo } from '@/stores/repo';
 import { ask, confirm, toast, type Field } from '@/stores/ui';
 
@@ -70,9 +71,23 @@ export async function fetchAll() {
   await run('Fetch', (p) => api.fetch(p), t('Fetched all remotes'));
 }
 
-export async function pull() {
-  const mode = repo().settings?.pullMode ?? 'merge';
-  await run('Pull', (p) => api.pull(p, mode), t('Pulled'));
+/** `remote`: pull from that remote instead of the branch's upstream. */
+export async function pull(opts: { mode?: string; remote?: string } = {}) {
+  const mode = opts.mode ?? repo().settings?.pullMode ?? 'merge';
+  await run(
+    'Pull',
+    (p) => api.pull(p, mode, opts.remote),
+    opts.remote ? t('Pulled from {name}', { name: opts.remote }) : t('Pulled'),
+  );
+}
+
+/** Remote the current branch tracks (`origin` for `origin/main`), if any. */
+export function upstreamRemote(): string | null {
+  const r = repo();
+  const up = r.info?.status.upstream;
+  if (!up) return null;
+  const names = (r.refs?.remotes ?? []).map((x) => x.name).sort((a, b) => b.length - a.length);
+  return names.find((n) => up.startsWith(`${n}/`)) ?? null;
 }
 
 export async function push(opts: { branch?: string; remote?: string } = {}) {
@@ -476,31 +491,49 @@ export async function popLatest() {
   await stashOp(s, 'pop');
 }
 
-export async function addRemote() {
-  const v = await ask({
-    title: t('Add remote'),
-    fields: [
-      {
-        name: 'name',
-        label: t('Name'),
-        initial: repo().refs?.remotes.length ? '' : 'origin',
-        required: true,
-      },
-      {
-        name: 'url',
-        label: 'URL',
-        placeholder: 'https://github.com/owner/repo.git',
-        required: true,
-      },
-    ],
-    confirmLabel: t('Add'),
-  });
-  if (v) {
-    const ok = await run('Add remote', (p) =>
-      api.addRemote(p, (v.name as string).trim(), (v.url as string).trim()),
-    );
-    if (ok) await fetchAll();
-  }
+/** Open the Add Remote panel (URL / GitHub / GitLab). */
+export function addRemote(source: 'url' | 'github' | 'gitlab' = 'url') {
+  useRemotePanel.getState().openAdd(source);
+}
+
+/** Open the remote panel to rename it or change its fetch / push URLs. */
+export function editRemote(name: string) {
+  useRemotePanel.getState().openEdit(name);
+}
+
+/** Add `name` → `url` (and a separate push URL when given), then fetch it. */
+export async function createRemote(name: string, url: string, pushUrl = '') {
+  const ok = await run(
+    'Add remote',
+    async (p) => {
+      await api.addRemote(p, name, url);
+      if (pushUrl && pushUrl !== url) await api.setRemoteUrl(p, name, pushUrl, true);
+    },
+    t('Added {name}', { name }),
+  );
+  if (ok) await run('Fetch', (p) => api.fetch(p, name));
+  return ok;
+}
+
+/** Apply edits from the remote panel: rename, fetch URL, push URL (empty = same as fetch). */
+export async function updateRemote(
+  r: Remote,
+  next: { name: string; url: string; pushUrl: string },
+) {
+  const pushUrl = next.pushUrl || next.url;
+  const oldPush = r.pushUrl || r.url;
+  if (next.name === r.name && next.url === r.url && pushUrl === oldPush) return true;
+  return run(
+    'Edit remote',
+    async (p) => {
+      if (next.name !== r.name) await api.renameRemote(p, r.name, next.name);
+      if (next.url !== r.url) await api.setRemoteUrl(p, next.name, next.url);
+      // `set-url` leaves an explicit pushurl alone; keep it in step with what was asked.
+      if (pushUrl !== oldPush || next.url !== r.url)
+        await api.setRemoteUrl(p, next.name, pushUrl, true);
+    },
+    t('Remote {name} updated', { name: next.name }),
+  );
 }
 
 export async function removeRemote(name: string) {
@@ -617,54 +650,8 @@ export async function createPullRequest(branch?: string) {
 const preferSsh = () => repo().settings?.preferSsh ?? false;
 
 /** Add a remote pointing at one of your GitHub repositories (e.g. a fork or upstream). */
-export async function addRemoteFromGitHub() {
-  const gh = useGitHub.getState();
-  if (!gh.user) {
-    toast('info', t('Connect GitHub first (Preferences → Integrations)'));
-    return;
-  }
-  if (!gh.repos) {
-    try {
-      await gh.loadRepos();
-    } catch (e) {
-      toast('error', t('Could not list your GitHub repositories'), (e as Error).message);
-      return;
-    }
-  }
-  const repos = useGitHub.getState().repos ?? [];
-  if (repos.length === 0) {
-    toast('info', t('No repositories on your GitHub account'));
-    return;
-  }
-  const hasOrigin = repo().refs?.remotes.some((r) => r.name === 'origin');
-  const v = await ask({
-    title: t('Add remote from GitHub'),
-    fields: [
-      {
-        name: 'repo',
-        label: t('Repository'),
-        type: 'select',
-        options: repos.map((r) => ({ value: r.fullName, label: r.fullName })),
-      },
-      {
-        name: 'name',
-        label: t('Remote name'),
-        initial: hasOrigin ? 'upstream' : 'origin',
-        required: true,
-      },
-      { name: 'ssh', label: t('Use SSH URL'), type: 'checkbox', initial: preferSsh() },
-    ],
-    confirmLabel: t('Add remote'),
-  });
-  if (!v) return;
-  const r = repos.find((x) => x.fullName === v.repo)!;
-  const url = v.ssh ? r.sshUrl : r.cloneUrl;
-  const ok = await run(
-    'Add remote',
-    (p) => api.addRemote(p, (v.name as string).trim(), url),
-    t('Added {name}', { name: v.name as string }),
-  );
-  if (ok) await run('Fetch', (p) => api.fetch(p, (v.name as string).trim()));
+export function addRemoteFromGitHub() {
+  addRemote('github');
 }
 
 /** Create a repository on GitHub, add it as `origin` and push the current branch. */

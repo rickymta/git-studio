@@ -1,3 +1,5 @@
+import { invoke } from '@tauri-apps/api/core';
+
 import type * as T from './types';
 
 const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -24,7 +26,6 @@ function toError(e: unknown): IpcError {
 export async function call<R>(cmd: string, args: Record<string, unknown> = {}): Promise<R> {
   try {
     if (inTauri) {
-      const { invoke } = await import('@tauri-apps/api/core');
       return await invoke<R>('call', { cmd, args });
     }
     const res = await fetch(BRIDGE, {
@@ -106,8 +107,10 @@ export const api = {
   sshGenerate: (name: string, comment: string, passphrase: string) =>
     call<T.LocalKey>('ssh.generate', { name, comment, passphrase }),
   sshTest: (host = 'github.com') => call<T.SshTestResult>('ssh.test', { host }),
-  setRemoteUrl: (repo: string, name: string, url: string) =>
-    call<null>('remote.setUrl', { repo, name, url }),
+  setRemoteUrl: (repo: string, name: string, url: string, push = false) =>
+    call<null>('remote.setUrl', { repo, name, url, push }),
+  renameRemote: (repo: string, from: string, to: string) =>
+    call<null>('remote.rename', { repo, from, to }),
   ghImportToken: (source: 'gh' | 'git') => call<T.GitHubUser>('github.importToken', { source }),
   ghKeys: () => call<T.GitHubSshKey[]>('github.keys'),
   ghAddKey: (title: string, key: string) => call<T.GitHubSshKey>('github.addKey', { title, key }),
@@ -181,7 +184,8 @@ export const api = {
     call<null>('stash.op', { repo, op, index }),
 
   fetch: (repo: string, remote?: string) => call<null>('remote.fetch', { repo, remote }),
-  pull: (repo: string, mode?: string) => call<null>('remote.pull', { repo, mode }),
+  pull: (repo: string, mode?: string, remote?: string) =>
+    call<null>('remote.pull', { repo, mode, remote }),
   push: (repo: string, request: T.PushRequest = {}) => call<null>('remote.push', { repo, request }),
   addRemote: (repo: string, name: string, url: string) =>
     call<null>('remote.add', { repo, name, url }),

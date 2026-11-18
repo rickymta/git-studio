@@ -96,6 +96,12 @@ export function Toolbar() {
   const addRepos = useWorkspaces((s) => s.addRepos);
   if (!info) return null;
   const st = info.status;
+  const remotes = refs?.remotes ?? [];
+  // Remote the current branch tracks: the longest remote name that prefixes the upstream.
+  const tracked =
+    [...remotes]
+      .sort((a, b) => b.name.length - a.name.length)
+      .find((r) => st.upstream?.startsWith(`${r.name}/`))?.name ?? null;
   const hasGitHub = refs?.remotes.some((r) => r.github);
   const run = useRepo.getState().run;
 
@@ -158,6 +164,31 @@ export function Toolbar() {
       label: t('Pull (rebase)'),
       onSelect: () => run('Pull', (p) => api.pull(p, 'rebase'), t('Pulled')),
     },
+    ...(remotes.length > 0
+      ? ([
+          'sep',
+          {
+            label: t('Pull from'),
+            disabled: !st.branch,
+            items: remotes.map((r) => ({
+              label: r.name,
+              icon: r.name === tracked ? '✓' : undefined,
+              onSelect: () => A.pull({ remote: r.name }),
+            })),
+          },
+        ] satisfies MenuItem[])
+      : []),
+  ];
+
+  const pushMenu: MenuItem[] = [
+    ...remotes.map((r) => ({
+      label: t('Push to {name}', { name: r.name }),
+      icon: r.name === tracked ? '✓' : undefined,
+      disabled: !st.branch,
+      onSelect: () => A.push({ remote: r.name }),
+    })),
+    ...(remotes.length ? (['sep'] as MenuItem[]) : []),
+    { label: t('Add remote…'), onSelect: () => A.addRemote() },
   ];
 
   return (
@@ -192,6 +223,7 @@ export function Toolbar() {
           <ToolButton
             icon={<ArrowDownToLine className="size-[18px]" />}
             label={t('Pull')}
+            title={st.upstream ? t('Pull from {name}', { name: st.upstream }) : t('Pull')}
             badge={st.behind}
             onClick={() => A.pull()}
             disabled={!!busy}
@@ -206,13 +238,31 @@ export function Toolbar() {
             </button>
           </Dropdown>
         </div>
-        <ToolButton
-          icon={<ArrowUpFromLine className="size-[18px]" />}
-          label={t('Push')}
-          badge={st.ahead}
-          onClick={() => A.push()}
-          disabled={!!busy || !st.branch}
-        />
+        <div className="flex">
+          <ToolButton
+            icon={<ArrowUpFromLine className="size-[18px]" />}
+            label={t('Push')}
+            title={
+              st.upstream
+                ? t('Push to {name}', { name: st.upstream })
+                : remotes.length
+                  ? t('Push and track a remote branch')
+                  : t('Push')
+            }
+            badge={st.ahead}
+            onClick={() => A.push()}
+            disabled={!!busy || !st.branch}
+          />
+          <Dropdown items={pushMenu}>
+            <button
+              type="button"
+              aria-label={t('Push options')}
+              className="flex h-12 w-4 items-start justify-center rounded-md pt-2 text-muted-foreground hover:bg-surface-hover"
+            >
+              <ChevronDown className="size-3" />
+            </button>
+          </Dropdown>
+        </div>
         <Divider />
         <ToolButton
           icon={<GitBranchPlus className="size-[18px]" />}

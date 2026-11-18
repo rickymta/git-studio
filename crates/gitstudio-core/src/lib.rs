@@ -561,7 +561,11 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
         "remote.pull" => {
             let mode: Option<String> = opt(a, "mode")?;
             let mode = mode.unwrap_or_else(|| settings::load().pull_mode);
-            repo(a).await?.pull(&mode, token().as_deref()).await?;
+            let remote: Option<String> = opt(a, "remote")?;
+            repo(a)
+                .await?
+                .pull(&mode, remote.as_deref(), token().as_deref())
+                .await?;
             return done();
         }
         "remote.push" => {
@@ -579,7 +583,18 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
         "remote.setUrl" => {
             repo(a)
                 .await?
-                .set_remote_url(&arg::<String>(a, "name")?, &arg::<String>(a, "url")?)
+                .set_remote_url(
+                    &arg::<String>(a, "name")?,
+                    &arg::<String>(a, "url")?,
+                    opt(a, "push")?.unwrap_or(false),
+                )
+                .await?;
+            return done();
+        }
+        "remote.rename" => {
+            repo(a)
+                .await?
+                .rename_remote(&arg::<String>(a, "from")?, &arg::<String>(a, "to")?)
                 .await?;
             return done();
         }

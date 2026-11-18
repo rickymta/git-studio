@@ -719,15 +719,34 @@ impl Repo {
         self.git_opts(&a, net(token)).await.map(drop)
     }
 
-    pub async fn pull(&self, mode: &str, token: Option<&str>) -> Result<()> {
+    /// `remote`: pull from that remote instead of the upstream. The branch pulled is the
+    /// upstream's branch when it lives on that remote, otherwise the current branch's name.
+    pub async fn pull(&self, mode: &str, remote: Option<&str>, token: Option<&str>) -> Result<()> {
         let flag = match mode {
             "ff-only" => "--ff-only",
             "rebase" => "--rebase",
             _ => "--no-rebase",
         };
-        self.git_opts(&["pull", "--no-edit", flag], net(token))
-            .await
-            .map(drop)
+        let mut a: Vec<String> = vec!["pull".into(), "--no-edit".into(), flag.into()];
+        if let Some(remote) = remote {
+            check_rev(remote)?;
+            let status = self.status().await?;
+            let branch = status
+                .branch
+                .clone()
+                .ok_or_else(|| Error::Invalid("HEAD is detached; nothing to pull into".into()))?;
+            let merge = status
+                .upstream
+                .as_deref()
+                .and_then(|u| u.strip_prefix(remote)?.strip_prefix('/'))
+                .map(str::to_string)
+                .unwrap_or(branch);
+            check_rev(&merge)?;
+            a.push(remote.into());
+            a.push(merge);
+        }
+        let args: Vec<&str> = a.iter().map(String::as_str).collect();
+        self.git_opts(&args, net(token)).await.map(drop)
     }
 
     pub async fn push(&self, req: &PushRequest, token: Option<&str>) -> Result<()> {
@@ -799,10 +818,23 @@ impl Repo {
         self.git(&["remote", "add", name, url]).await.map(drop)
     }
 
-    pub async fn set_remote_url(&self, name: &str, url: &str) -> Result<()> {
+    /// `push`: set the push URL (`remote.<name>.pushurl`) instead of the fetch URL.
+    pub async fn set_remote_url(&self, name: &str, url: &str, push: bool) -> Result<()> {
         check_rev(name)?;
         check_url(url)?;
-        self.git(&["remote", "set-url", name, url]).await.map(drop)
+        if push {
+            self.git(&["remote", "set-url", "--push", name, url])
+                .await
+                .map(drop)
+        } else {
+            self.git(&["remote", "set-url", name, url]).await.map(drop)
+        }
+    }
+
+    pub async fn rename_remote(&self, from: &str, to: &str) -> Result<()> {
+        check_rev(from)?;
+        check_rev(to)?;
+        self.git(&["remote", "rename", from, to]).await.map(drop)
     }
 
     pub async fn remove_remote(&self, name: &str) -> Result<()> {

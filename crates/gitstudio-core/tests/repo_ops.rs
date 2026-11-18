@@ -173,7 +173,7 @@ async fn clone_push_pull_with_local_remote() {
 
     a.fetch(None, None).await.unwrap();
     assert_eq!(a.status().await.unwrap().behind, 1);
-    a.pull("ff-only", None).await.unwrap();
+    a.pull("ff-only", None, None).await.unwrap();
     assert!(a_dir.join("y").exists());
 
     // Remote branch checkout creates a tracking branch.
@@ -185,6 +185,71 @@ async fn clone_push_pull_with_local_remote() {
         .unwrap();
     assert_eq!(a.status().await.unwrap().branch.as_deref(), Some("topic"));
     a.delete_remote_ref("origin", "topic", None).await.unwrap();
+}
+
+#[tokio::test]
+async fn pull_and_push_choose_the_remote() {
+    let tmp = tempfile::tempdir().unwrap();
+    let up = tmp.path().join("upstream.git");
+    let fork = tmp.path().join("fork.git");
+    for d in [&up, &fork] {
+        std::fs::create_dir_all(d).unwrap();
+        sh(d, &["init", "--bare", "-b", "main"]);
+    }
+
+    let a_dir = tmp.path().join("a");
+    let a = new_repo(&a_dir).await;
+    a.add_remote("origin", fork.to_str().unwrap())
+        .await
+        .unwrap();
+    a.add_remote("upstream", up.to_str().unwrap())
+        .await
+        .unwrap();
+    std::fs::write(a_dir.join("x"), "1").unwrap();
+    a.stage(&[]).await.unwrap();
+    a.commit("one", false).await.unwrap();
+    // Tracks origin; pushing to "upstream" explicitly must not touch origin.
+    a.push(&PushRequest::default(), None).await.unwrap();
+    a.push(
+        &PushRequest {
+            remote: Some("upstream".into()),
+            ..Default::default()
+        },
+        None,
+    )
+    .await
+    .unwrap();
+
+    // Someone else adds a commit on "upstream" only.
+    let b_dir = tmp.path().join("b");
+    let b = git::clone(up.to_str().unwrap(), &b_dir, None)
+        .await
+        .unwrap();
+    b.set_identity("B", "b@example.com", false).await.unwrap();
+    std::fs::write(b_dir.join("y"), "2").unwrap();
+    b.stage(&[]).await.unwrap();
+    b.commit("two", false).await.unwrap();
+    b.push(&PushRequest::default(), None).await.unwrap();
+
+    // Plain pull follows origin (nothing new); pulling from "upstream" brings the commit.
+    a.pull("ff-only", None, None).await.unwrap();
+    assert!(!a_dir.join("y").exists());
+    a.pull("ff-only", Some("upstream"), None).await.unwrap();
+    assert!(a_dir.join("y").exists());
+    assert_eq!(
+        a.status().await.unwrap().upstream.as_deref(),
+        Some("origin/main")
+    );
+
+    // Rename and a separate push URL.
+    a.rename_remote("upstream", "base").await.unwrap();
+    a.set_remote_url("base", fork.to_str().unwrap(), true)
+        .await
+        .unwrap();
+    let remotes = a.refs().await.unwrap().remotes;
+    let base = remotes.iter().find(|r| r.name == "base").unwrap();
+    assert!(base.url.contains("upstream.git"));
+    assert!(base.push_url.contains("fork.git"));
 }
 
 #[tokio::test]
