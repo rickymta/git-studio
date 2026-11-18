@@ -50,12 +50,15 @@ function ToolButton({
       className="relative flex h-12 min-w-12 flex-col items-center justify-center gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground hover:bg-surface-hover hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
     >
       <span>{label}</span>
-      {icon}
-      {!!badge && (
-        <span className="absolute -top-0.5 -right-1.5 inline-flex h-4 min-w-[22px] items-center justify-center rounded-full bg-badge px-1.5 text-[10.5px] leading-none font-semibold text-badge-foreground tabular-nums ring-2 ring-surface">
-          {badge}
-        </span>
-      )}
+      <span className="flex items-center gap-1">
+        {icon}
+        {!!badge && (
+          // Next to the icon (never over the label), a wide pill even for one digit.
+          <span className="inline-flex h-[15px] min-w-[26px] items-center justify-center rounded-full bg-badge px-2 text-[10.5px] leading-none font-semibold text-badge-foreground tabular-nums">
+            {badge}
+          </span>
+        )}
+      </span>
     </button>
   );
 }
