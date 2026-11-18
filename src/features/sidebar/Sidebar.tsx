@@ -80,8 +80,20 @@ function Section({
   );
 }
 
-function scrollToCommit(hash: string) {
-  void useRepo.getState().select({ type: 'commit', hash });
+function scrollToCommit(hash: string | null | undefined) {
+  if (hash) void useRepo.getState().reveal(hash);
+}
+
+/** A stash sits on the commit it was made from; highlight that commit in the graph. */
+async function revealStash(hash: string) {
+  const path = useRepo.getState().path;
+  if (!path) return;
+  try {
+    const base = (await api.commit(path, hash)).parents[0];
+    scrollToCommit(base);
+  } catch {
+    /* stash gone meanwhile */
+  }
 }
 
 function RefRow({ refItem, label, depth = 0 }: { refItem: GitRef; label: string; depth?: number }) {
@@ -362,7 +374,16 @@ export function Sidebar() {
                 ]}
               >
                 <div
-                  onClick={() => openUrl(pr.htmlUrl)}
+                  onClick={() =>
+                    scrollToCommit(
+                      all.find(
+                        (r) =>
+                          r.kind === 'remote' &&
+                          r.name === `${ghRemote?.name ?? 'origin'}/${pr.headRef}`,
+                      )?.target,
+                    )
+                  }
+                  onDoubleClick={() => openUrl(pr.htmlUrl)}
                   title={`#${pr.number} ${pr.title}\n${pr.headRef} → ${pr.baseRef}`}
                   className="flex cursor-default items-start gap-2 py-1 pr-2 pl-6 hover:bg-surface-hover"
                 >
@@ -416,6 +437,7 @@ export function Sidebar() {
             >
               <div
                 title={`${s.name}: ${s.message}`}
+                onClick={() => void revealStash(s.hash)}
                 onDoubleClick={() => A.stashOp(s, 'apply')}
                 className="flex h-7 cursor-default items-center gap-2 pr-2 pl-6 hover:bg-surface-hover"
               >
@@ -613,6 +635,7 @@ function WorktreesSection() {
       {worktrees?.map((w) => (
         <ContextMenuWrap key={w.path} items={() => worktreeMenu(w)}>
           <div
+            onClick={() => scrollToCommit(w.head)}
             onDoubleClick={() => !w.isCurrent && A.openWorktree(w)}
             title={w.path}
             className={cn(

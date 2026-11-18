@@ -227,7 +227,11 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
             serde_json::to_value(
                 repo(a)
                     .await?
-                    .log(limit.unwrap_or(1000).min(20_000), skip.unwrap_or(0))
+                    .log_view(
+                        limit.unwrap_or(1000).min(20_000),
+                        skip.unwrap_or(0),
+                        &opt::<git::LogView>(a, "view")?.unwrap_or_default(),
+                    )
                     .await?,
             )?
         }
@@ -294,6 +298,13 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
             repo(a)
                 .await?
                 .reword(&arg::<String>(a, "hash")?, &arg::<String>(a, "message")?)
+                .await?;
+            return done();
+        }
+        "history.move" => {
+            repo(a)
+                .await?
+                .move_commit(&arg::<String>(a, "hash")?, arg::<bool>(a, "down")?)
                 .await?;
             return done();
         }

@@ -144,6 +144,27 @@ function commitMenu(c: Commit): MenuItem[] {
       onSelect: () => A.deleteBranch(r),
     });
 
+  const isHeadCommit = info?.status.head === c.hash;
+  const isMerge = c.parents.length > 1;
+  const view = useRepo.getState().view;
+  // Branches here other than the checked-out one and the remote it tracks.
+  const others = branches.filter(
+    (r) => !r.isHead && !(headBranch && remoteOf(headBranch)?.fullName === r.fullName),
+  );
+  const viewItems = (label: string, active: string[], onSelect: (r: GitRef) => void): MenuItem[] =>
+    branches.length === 0
+      ? []
+      : [
+          {
+            label,
+            items: branches.map((r) => ({
+              label: r.name,
+              icon: active.includes(r.fullName) ? '✓' : undefined,
+              onSelect: () => onSelect(r),
+            })),
+          },
+        ];
+
   return tidy([
     ...(headBranch
       ? ([
@@ -153,19 +174,24 @@ function commitMenu(c: Commit): MenuItem[] {
           'sep',
         ] as MenuItem[])
       : []),
+    ...(cur
+      ? [
+          ...perBranch(t('Merge into {branch}', { branch: cur }), others, (r) =>
+            A.mergeInto(r.name),
+          ),
+          ...perBranch(t('Rebase {branch} onto', { branch: cur }), others, (r) =>
+            A.rebaseOnto(r.name),
+          ),
+          'sep' as const,
+        ]
+      : []),
     {
       label: t('Checkout'),
       items: [
         ...branches
           .filter((r) => !r.isHead)
-          .map((r) => ({
-            label: t('Checkout {name}', { name: r.name }),
-            onSelect: () => A.checkoutRef(r),
-          })),
-        {
-          label: t('Checkout this commit (detached)'),
-          onSelect: () => A.checkoutCommit(c.hash),
-        },
+          .map((r) => ({ label: r.name, onSelect: () => A.checkoutRef(r) })),
+        { label: t('this commit'), onSelect: () => A.checkoutCommit(c.hash) },
       ],
     },
     {
@@ -174,7 +200,11 @@ function commitMenu(c: Commit): MenuItem[] {
         ...locals
           .filter((r) => !r.isHead)
           .map((r) => ({ label: r.name, onSelect: () => A.addWorktree({ branch: r.name }) })),
-        { label: t('New branch here…'), onSelect: () => A.addWorktree({ start: c.hash }) },
+        ...remotes.map((r) => ({
+          label: r.name,
+          onSelect: () => A.addWorktree({ start: r.name }),
+        })),
+        { label: t('this commit'), onSelect: () => A.addWorktree({ start: c.hash }) },
       ],
     },
     'sep',
@@ -182,34 +212,43 @@ function commitMenu(c: Commit): MenuItem[] {
     {
       label: t('Reset {branch} to this commit', { branch: cur ?? 'HEAD' }),
       items: [
-        { label: t('Soft — keep changes staged'), onSelect: () => A.resetWithMode(c.hash, 'soft') },
+        { label: t('Soft - keep all changes'), onSelect: () => A.resetWithMode(c.hash, 'soft') },
         {
-          label: t('Mixed — keep changes in working tree'),
+          label: t('Mixed - keep working copy but reset index'),
           onSelect: () => A.resetWithMode(c.hash, 'mixed'),
         },
         {
-          label: t('Hard — discard all changes'),
+          label: t('Hard - discard all changes'),
           danger: true,
           onSelect: () => A.resetWithMode(c.hash, 'hard'),
         },
       ],
     },
-    'sep',
     {
       label: t('Edit commit message'),
       disabled: !mine,
       onSelect: () => A.editCommitMessage(c.hash),
     },
     { label: t('Revert commit'), onSelect: () => A.revertCommit(c) },
-    { label: t('Cherry pick commit'), onSelect: () => A.cherryPick(c) },
+    { label: t('Cherry pick commit'), disabled: mine, onSelect: () => A.cherryPick(c) },
+    'sep',
     { label: t('Drop commit'), danger: true, disabled: !mine, onSelect: () => A.dropCommit(c) },
+    {
+      label: t('Move commit up'),
+      disabled: !mine || isHeadCommit || isMerge,
+      onSelect: () => A.moveCommit(c, false),
+    },
+    {
+      label: t('Move commit down'),
+      disabled: !mine || isMerge || c.parents.length === 0,
+      onSelect: () => A.moveCommit(c, true),
+    },
     'sep',
     ...(hasGitHub
-      ? perBranch(t('Start a pull request…'), locals, (r) => A.createPullRequest(r.name))
+      ? perBranch(t('Start a pull request from…'), locals, (r) => A.createPullRequest(r.name))
       : []),
-    { label: t('Apply patch…'), onSelect: () => A.applyPatchFile() },
-    { label: t('Create patch from commit'), onSelect: () => A.createPatch(c.hash) },
     'sep',
+    { label: t('Apply patch…'), onSelect: () => A.applyPatchFile() },
     ...branchItems,
     'sep',
     ...perBranch(t('Copy branch name'), branches, (r) => copyText(r.name)),
@@ -217,12 +256,20 @@ function commitMenu(c: Commit): MenuItem[] {
     { label: t('Copy commit message'), onSelect: () => copyText(c.subject) },
     ...(A.hasWebRemote()
       ? [
+          ...perBranch(t('Copy link to branch'), branches, (r) => A.copyBranchLink(r)),
           {
             label: t('Copy link to this commit on remote'),
             onSelect: () => A.copyCommitLink(c.hash),
           },
-          ...perBranch(t('Copy link to branch'), branches, (r) => A.copyBranchLink(r)),
         ]
+      : []),
+    { label: t('Create patch from commit'), onSelect: () => A.createPatch(c.hash) },
+    'sep',
+    ...viewItems(t('Pin to Left'), view.pinned, A.pinRef),
+    ...viewItems(t('Solo'), view.solo, A.soloRef),
+    ...viewItems(t('Hide'), view.hidden, A.hideRef),
+    ...(view.solo.length || view.hidden.length
+      ? [{ label: t('Show all branches'), onSelect: () => A.showAllRefs() }]
       : []),
     'sep',
     {
@@ -233,6 +280,34 @@ function commitMenu(c: Commit): MenuItem[] {
     { label: t('Create tag here'), onSelect: () => A.createTag(c.hash) },
     { label: t('Create annotated tag here'), onSelect: () => A.createAnnotatedTag(c.hash) },
   ]);
+}
+
+/** Shown while the graph is filtered (Solo / Hide) or has pinned branches. */
+function ViewBar() {
+  const view = useRepo((s) => s.view);
+  const short = (full: string) => full.replace(/^refs\/(heads|remotes|tags)\//, '');
+  const parts: string[] = [];
+  if (view.solo.length) parts.push(t('Solo: {names}', { names: view.solo.map(short).join(', ') }));
+  if (view.hidden.length)
+    parts.push(t('Hidden: {names}', { names: view.hidden.map(short).join(', ') }));
+  if (view.pinned.length)
+    parts.push(t('Pinned: {names}', { names: view.pinned.map(short).join(', ') }));
+  if (!parts.length) return null;
+  return (
+    <div className="flex h-7 shrink-0 items-center gap-3 border-b border-border bg-accent-soft/60 px-3 text-xs">
+      <span className="min-w-0 flex-1 truncate">{parts.join(' · ')}</span>
+      {(view.solo.length > 0 || view.hidden.length > 0) && (
+        <button type="button" className="text-accent hover:underline" onClick={A.showAllRefs}>
+          {t('Show all branches')}
+        </button>
+      )}
+      {view.pinned.length > 0 && (
+        <button type="button" className="text-accent hover:underline" onClick={A.unpinAll}>
+          {t('Unpin all')}
+        </button>
+      )}
+    </div>
+  );
 }
 
 const laneX = (lane: number) => PAD + lane * LANE + LANE / 2;
@@ -332,6 +407,14 @@ export function CommitGraph() {
     void select({ type: 'commit', hash: commits[i]!.hash });
   };
 
+  // Keep the selected row in view when it is picked elsewhere (sidebar, parent links, …).
+  const selectedHash = selection?.type === 'commit' ? selection.hash : null;
+  const selectedIdx = selectedHash ? commits.findIndex((c) => c.hash === selectedHash) : -1;
+  useEffect(() => {
+    if (selectedIdx >= 0) virt.scrollToIndex(selectedIdx + offset, { align: 'auto' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedIdx]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'f') {
@@ -376,6 +459,7 @@ export function CommitGraph() {
 
   return (
     <div className="flex h-full min-h-0 flex-col" style={vars}>
+      <ViewBar />
       <div className="flex h-[22px] shrink-0 items-center border-b border-border bg-surface">
         <div className={cn(headerCls, 'relative h-full leading-7')} style={{ width: REFS_W }}>
           {t('Branch / Tag')}

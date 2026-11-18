@@ -171,23 +171,59 @@ impl Repo {
     // ---- history ------------------------------------------------------------------------------
 
     pub async fn log(&self, limit: u32, skip: u32) -> Result<Vec<Commit>> {
+        self.log_view(limit, skip, &LogView::default()).await
+    }
+
+    /// History for the graph. `view.solo`: only these refs; `view.hidden`: every ref but these.
+    pub async fn log_view(&self, limit: u32, skip: u32, view: &LogView) -> Result<Vec<Commit>> {
         let n = format!("-n{limit}");
         let s = format!("--skip={skip}");
-        let out = run::raw(
-            Some(&self.root),
-            &[
-                "log",
-                "--date-order",
-                "--exclude=refs/stash",
-                "--all",
-                "HEAD",
-                &n,
-                &s,
-                parse::LOG_FORMAT,
-            ],
-            Opts::default(),
-        )
-        .await?;
+        for r in view.solo.iter().chain(&view.hidden) {
+            check_rev(r)?;
+        }
+        let mut a: Vec<String> = vec![
+            "log".into(),
+            "--date-order".into(),
+            n,
+            s,
+            parse::LOG_FORMAT.to_string(),
+        ];
+        if view.solo.is_empty() && view.hidden.is_empty() {
+            a.extend(["--exclude=refs/stash".into(), "--all".into(), "HEAD".into()]);
+        } else if view.solo.is_empty() {
+            // Not `--all`: it always includes HEAD, so the checked-out branch could not be
+            // hidden. Each `--exclude` only applies to the next ref-set option.
+            // Patterns are relative to each set's namespace (`side`, not `refs/heads/side`).
+            for (set, prefix) in [
+                ("--branches", "refs/heads/"),
+                ("--remotes", "refs/remotes/"),
+                ("--tags", "refs/tags/"),
+            ] {
+                for r in &view.hidden {
+                    if let Some(name) = r.strip_prefix(prefix) {
+                        a.push(format!("--exclude={name}"));
+                    }
+                }
+                a.push(set.into());
+            }
+            // HEAD too (detached commits), unless it is the branch being hidden.
+            let head_ref = run::raw(
+                Some(&self.root),
+                &["symbolic-ref", "-q", "HEAD"],
+                Opts::default(),
+            )
+            .await
+            .map(|o| o.text().trim().to_string())
+            .unwrap_or_default();
+            if !view.hidden.contains(&head_ref) {
+                a.push("HEAD".into());
+            }
+        } else {
+            a.extend(view.solo.iter().cloned());
+            a.push("--".into());
+        }
+        let args: Vec<&str> = a.iter().map(String::as_str).collect();
+        let out = run::raw(Some(&self.root), &args, Opts::default()).await?;
         if out.code != 0 {
             // Unborn HEAD with no other refs: nothing to show yet.
             if !self.has_head().await {
@@ -656,6 +692,8 @@ impl Repo {
             "soft" => "--soft",
             "mixed" => "--mixed",
             "hard" => "--hard",
+            // Like hard, but refuses to overwrite uncommitted changes (used by Undo).
+            "keep" => "--keep",
             _ => return Err(Error::Invalid(format!("Unknown reset mode {mode}"))),
         };
         self.git(&["reset", flag, target]).await.map(drop)
@@ -1151,6 +1189,16 @@ pub enum CheckoutKind {
     Branch,
     Remote,
     Detached,
+}
+
+/// Graph filters ("Solo" / "Hide" in the commit and branch menus); full ref names.
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LogView {
+    #[serde(default)]
+    pub solo: Vec<String>,
+    #[serde(default)]
+    pub hidden: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]

@@ -338,3 +338,54 @@ async fn reword_drop_worktree_and_files() {
         eol: "lf".into(),
     };
 }
+
+#[tokio::test]
+async fn move_commits_and_filter_the_graph() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("repo");
+    let r = new_repo(&dir).await;
+    for name in ["a", "b", "c"] {
+        std::fs::write(dir.join(name), name).unwrap();
+        r.stage(&[]).await.unwrap();
+        r.commit(&format!("add {name}"), false).await.unwrap();
+    }
+    let subjects = |log: Vec<git::model::Commit>| {
+        log.into_iter()
+            .map(|c| c.subject)
+            .collect::<Vec<_>>()
+            .join(",")
+    };
+    // Newest first: c, b, a. Move "c" down → b is newest.
+    let log = r.log(10, 0).await.unwrap();
+    r.move_commit(&log[0].hash, true).await.unwrap();
+    assert_eq!(subjects(r.log(10, 0).await.unwrap()), "add b,add c,add a");
+    // Move the root commit "a" up → c, a order below b.
+    let log = r.log(10, 0).await.unwrap();
+    r.move_commit(&log[2].hash, false).await.unwrap();
+    assert_eq!(subjects(r.log(10, 0).await.unwrap()), "add b,add a,add c");
+    assert!(
+        r.move_commit(&r.log(1, 0).await.unwrap()[0].hash, false)
+            .await
+            .is_err()
+    );
+    for f in ["a", "b", "c"] {
+        assert!(dir.join(f).exists());
+    }
+
+    // Solo / hide.
+    r.create_branch("side", None, true).await.unwrap();
+    std::fs::write(dir.join("s"), "s").unwrap();
+    r.stage(&[]).await.unwrap();
+    r.commit("side work", false).await.unwrap();
+    let solo = git::LogView {
+        solo: vec!["refs/heads/main".into()],
+        hidden: vec![],
+    };
+    assert_eq!(r.log_view(10, 0, &solo).await.unwrap().len(), 3);
+    let hide = git::LogView {
+        solo: vec![],
+        hidden: vec!["refs/heads/side".into()],
+    };
+    assert_eq!(r.log_view(10, 0, &hide).await.unwrap().len(), 3);
+    assert_eq!(r.log(10, 0).await.unwrap().len(), 4);
+}

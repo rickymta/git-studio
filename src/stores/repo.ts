@@ -54,6 +54,9 @@ interface RepoStore {
   graph: GraphRow[];
   hasMore: boolean;
   refs: Refs | null;
+  view: GraphView;
+  /** Change the graph filters and reload the history. */
+  setView: (v: GraphView) => Promise<void>;
   selection: Selection | null;
   detail: CommitDetail | null;
   diff: OpenDiff | null;
@@ -78,6 +81,8 @@ interface RepoStore {
   refreshStatus: () => Promise<void>;
   loadMore: () => Promise<void>;
   select: (s: Selection | null) => Promise<void>;
+  /** Select `hash` in the graph, loading older pages if it is not loaded yet. */
+  reveal: (hash: string) => Promise<void>;
   openDiff: (request: DiffRequest) => Promise<void>;
   reloadDiff: () => Promise<void>;
   closeDiff: () => void;
@@ -114,7 +119,51 @@ function saveTabs(tabs: RepoTab[], current: string | null) {
 const samePath = (a: string, b: string) =>
   a.replace(/\\/g, '/').toLowerCase() === b.replace(/\\/g, '/').toLowerCase();
 
+/** Graph filters from the branch / commit menus (full ref names), kept per repository. */
+export interface GraphView {
+  /** Only the history of these refs. */
+  solo: string[];
+  /** Every ref but these. */
+  hidden: string[];
+  /** These branches get the leftmost lanes, in order. */
+  pinned: string[];
+}
+
+export const EMPTY_VIEW: GraphView = { solo: [], hidden: [], pinned: [] };
+
+const viewKey = (p: string) => `gitstudio.graphView.${p.replace(/\\/g, '/').toLowerCase()}`;
+
+function loadView(p: string): GraphView {
+  try {
+    const v = JSON.parse(localStorage.getItem(viewKey(p)) ?? 'null');
+    const list = (x: unknown) =>
+      Array.isArray(x) ? x.filter((s): s is string => typeof s === 'string') : [];
+    return v ? { solo: list(v.solo), hidden: list(v.hidden), pinned: list(v.pinned) } : EMPTY_VIEW;
+  } catch {
+    return EMPTY_VIEW;
+  }
+}
+
+function saveView(p: string, v: GraphView) {
+  try {
+    if (!v.solo.length && !v.hidden.length && !v.pinned.length) localStorage.removeItem(viewKey(p));
+    else localStorage.setItem(viewKey(p), JSON.stringify(v));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Commit hashes of the pinned branches, for the graph layout. */
+function pinnedTips(view: GraphView, refs: Refs | null): string[] {
+  return view.pinned
+    .map((full) => refs?.refs.find((r) => r.fullName === full)?.target)
+    .filter((h): h is string => !!h);
+}
+
+const logView = (v: GraphView) => ({ solo: v.solo, hidden: v.hidden });
+
 const emptyRepo = {
+  view: EMPTY_VIEW,
   path: null,
   info: null,
   commits: [],
@@ -144,6 +193,7 @@ export const useRepo = create<RepoStore>((set, get) => ({
   graph: [],
   hasMore: false,
   refs: null,
+  view: EMPTY_VIEW,
   selection: null,
   detail: null,
   diff: null,
@@ -246,13 +296,21 @@ export const useRepo = create<RepoStore>((set, get) => ({
     if (!path) return;
     try {
       const limit = Math.max(page(), get().commits.length);
+      const view = loadView(path);
       const [info, commits, refs] = await Promise.all([
         api.info(path),
-        api.log(path, limit),
+        api.log(path, limit, 0, logView(view)),
         api.refs(path),
       ]);
       if (get().path !== path) return;
-      set({ info, commits, graph: layoutGraph(commits), refs, hasMore: commits.length >= limit });
+      set({
+        info,
+        commits,
+        view,
+        graph: layoutGraph(commits, pinnedTips(view, refs)),
+        refs,
+        hasMore: commits.length >= limit,
+      });
       const sel = get().selection;
       if (sel?.type === 'commit') {
         if (commits.some((c) => c.hash === sel.hash)) {
@@ -290,11 +348,33 @@ export const useRepo = create<RepoStore>((set, get) => ({
   },
 
   loadMore: async () => {
-    const { path, commits } = get();
+    const { path, commits, view, refs } = get();
     if (!path) return;
-    const more = await api.log(path, page(), commits.length);
+    const more = await api.log(path, page(), commits.length, logView(view));
     const all = [...commits, ...more];
-    set({ commits: all, graph: layoutGraph(all), hasMore: more.length >= page() });
+    set({
+      commits: all,
+      graph: layoutGraph(all, pinnedTips(view, refs)),
+      hasMore: more.length >= page(),
+    });
+  },
+
+  setView: async (v) => {
+    const path = get().path;
+    if (!path) return;
+    saveView(path, v);
+    set({ view: v });
+    await get().refresh();
+  },
+
+  reveal: async (hash) => {
+    // A few pages at most; very old commits are still shown in the commit panel.
+    for (let i = 0; i < 5; i++) {
+      const { commits, hasMore } = get();
+      if (commits.some((c) => c.hash === hash) || !hasMore) break;
+      await get().loadMore();
+    }
+    await get().select({ type: 'commit', hash });
   },
 
   select: async (selection) => {

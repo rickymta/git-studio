@@ -8,6 +8,20 @@ import { useGitHub } from '@/stores/github';
 import { useRepo } from '@/stores/repo';
 import * as A from '../actions';
 
+/** Pin to Left / Solo / Hide for one ref; each toggles. */
+function viewMenu(ref: GitRef): MenuItem[] {
+  const v = useRepo.getState().view;
+  const on = (list: string[]) => list.includes(ref.fullName);
+  return [
+    {
+      label: on(v.pinned) ? t('Unpin from left') : t('Pin to Left'),
+      onSelect: () => A.pinRef(ref),
+    },
+    { label: on(v.solo) ? t('Stop solo') : t('Solo'), onSelect: () => A.soloRef(ref) },
+    { label: on(v.hidden) ? t('Show') : t('Hide'), onSelect: () => A.hideRef(ref) },
+  ];
+}
+
 /** Context-menu items for a branch or tag (shared by graph badges and the sidebar). */
 export function refMenu(ref: GitRef): MenuItem[] {
   const info = useRepo.getState().info;
@@ -21,6 +35,8 @@ export function refMenu(ref: GitRef): MenuItem[] {
       'sep',
       { label: t('Push {name} to remote', { name: ref.name }), onSelect: () => A.pushTag(ref) },
       { label: t('Copy tag name'), onSelect: () => copyText(ref.name) },
+      'sep',
+      ...viewMenu(ref),
       'sep',
       {
         label: t('Delete {name}', { name: ref.name }),
@@ -75,6 +91,7 @@ export function refMenu(ref: GitRef): MenuItem[] {
   items.push({ label: t('Copy branch name'), onSelect: () => copyText(ref.name) });
   if (A.branchUrl(ref))
     items.push({ label: t('Copy link to branch'), onSelect: () => A.copyBranchLink(ref) });
+  items.push('sep', ...viewMenu(ref));
   items.push('sep');
   if (ref.kind === 'local') {
     items.push({ label: t('Rename…'), onSelect: () => A.renameBranch(ref) });

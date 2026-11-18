@@ -64,6 +64,8 @@ export const api = {
   reword: (repo: string, hash: string, message: string) =>
     call<null>('history.reword', { repo, hash, message }),
   dropCommit: (repo: string, hash: string) => call<null>('history.drop', { repo, hash }),
+  moveCommit: (repo: string, hash: string, down: boolean) =>
+    call<null>('history.move', { repo, hash, down }),
   createPatch: (repo: string, hash: string, dest: string) =>
     call<null>('patch.create', { repo, hash, dest }),
   applyPatchFile: (repo: string, file: string) => call<null>('patch.apply', { repo, file }),
@@ -129,8 +131,8 @@ export const api = {
   clone: (url: string, dest: string, options: T.CloneOptions = {}) =>
     call<T.RepoInfo>('repo.clone', { url, dest, options }),
   info: (repo: string) => call<T.RepoInfo>('repo.info', { repo }),
-  log: (repo: string, limit: number, skip = 0) =>
-    call<T.Commit[]>('repo.log', { repo, limit, skip }),
+  log: (repo: string, limit: number, skip = 0, view?: { solo: string[]; hidden: string[] }) =>
+    call<T.Commit[]>('repo.log', { repo, limit, skip, view }),
   refs: (repo: string) => call<T.Refs>('repo.refs', { repo }),
   commit: (repo: string, hash: string) => call<T.CommitDetail>('repo.commit', { repo, hash }),
   diff: (repo: string, request: T.DiffRequest) => call<string>('repo.diff', { repo, request }),
@@ -172,7 +174,7 @@ export const api = {
     call<null>('history.cherryPick', { repo, hash, isMerge }),
   revert: (repo: string, hash: string, isMerge: boolean) =>
     call<null>('history.revert', { repo, hash, isMerge }),
-  reset: (repo: string, target: string, mode: 'soft' | 'mixed' | 'hard') =>
+  reset: (repo: string, target: string, mode: 'soft' | 'mixed' | 'hard' | 'keep') =>
     call<null>('history.reset', { repo, target, mode }),
 
   createTag: (repo: string, name: string, target: string, message?: string) =>

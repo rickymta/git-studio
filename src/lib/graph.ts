@@ -24,11 +24,22 @@ export interface GraphRow {
  * Assign every commit (children before parents, as `git log --date-order` emits them) a lane and
  * the line segments to draw in its row. Lanes keep their colour from tip to fork point.
  */
-export function layoutGraph(commits: Commit[]): GraphRow[] {
+export function layoutGraph(commits: Commit[], pinned: string[] = []): GraphRow[] {
   const lanes: (string | null)[] = [];
   const colors: number[] = [];
   let nextColor = 0;
   const rows: GraphRow[] = [];
+
+  // "Pin to Left": each pinned branch tip owns lane 0, 1, … from the top. Its lane waits empty
+  // (nothing drawn) until the tip's row, or until a child links into it.
+  const present = new Set(commits.map((c) => c.hash));
+  const waiting = new Set<number>();
+  for (const tip of pinned) {
+    if (!present.has(tip) || lanes.includes(tip)) continue;
+    waiting.add(lanes.length);
+    colors[lanes.length] = nextColor++;
+    lanes.push(tip);
+  }
 
   const freeLane = (avoid = -1) => {
     for (let i = 0; i < lanes.length; i++) if (lanes[i] === null && i !== avoid) return i;
@@ -44,6 +55,9 @@ export function layoutGraph(commits: Commit[]): GraphRow[] {
       lane = freeLane();
       lanes[lane] = c.hash;
       colors[lane] = nextColor++;
+    } else if (waiting.has(lane)) {
+      // Pinned tip: its lane starts here.
+      waiting.delete(lane);
     } else {
       segments.push({ fromLane: lane, fromY: 0, toLane: lane, toY: 1, color: colors[lane]! });
     }
@@ -58,7 +72,7 @@ export function layoutGraph(commits: Commit[]): GraphRow[] {
     }
     // Lanes passing straight through this row.
     for (let j = 0; j < lanes.length; j++) {
-      if (j !== lane && lanes[j] !== null) {
+      if (j !== lane && lanes[j] !== null && !waiting.has(j)) {
         segments.push({ fromLane: j, fromY: 0, toLane: j, toY: 2, color: colors[j]! });
       }
     }
@@ -72,6 +86,7 @@ export function layoutGraph(commits: Commit[]): GraphRow[] {
       segments.push({ fromLane: lane, fromY: 1, toLane: lane, toY: 2, color });
       for (const p of rest) {
         let k = lanes.indexOf(p);
+        waiting.delete(k);
         if (k === -1) {
           k = freeLane(lane);
           lanes[k] = p;

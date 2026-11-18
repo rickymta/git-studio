@@ -476,6 +476,110 @@ impl Repo {
         .map(drop)
     }
 
+    /// Swap `hash` with its parent (`down`, older) or with the next commit on the branch (`up`),
+    /// like GitKraken's "Move commit down / up". Uses an interactive rebase whose todo list we
+    /// write ourselves; conflicts stop it like any rebase.
+    pub async fn move_commit(&self, hash: &str, down: bool) -> Result<()> {
+        self.check_rewritable(hash).await?;
+        let rev = |r: String| async move {
+            run::raw(
+                Some(&self.root),
+                &["rev-parse", "--verify", "-q", &r],
+                Opts::default(),
+            )
+            .await
+            .ok()
+            .filter(|o| o.code == 0)
+            .map(|o| o.text().trim().to_string())
+        };
+        let full = rev(format!("{hash}^{{commit}}"))
+            .await
+            .ok_or_else(|| Error::Invalid(format!("Unknown commit {hash}")))?;
+        let (older, newer) = if down {
+            let parent = rev(format!("{full}^"))
+                .await
+                .ok_or_else(|| Error::Invalid("This is already the first commit".into()))?;
+            (parent, full)
+        } else {
+            let range = format!("{full}..HEAD");
+            let next = run::ok(
+                &self.root,
+                &["rev-list", "--reverse", "--first-parent", &range],
+                Opts::default(),
+            )
+            .await?
+            .text()
+            .lines()
+            .next()
+            .map(str::to_string)
+            .ok_or_else(|| Error::Invalid("This is already the latest commit".into()))?;
+            (full, next)
+        };
+        self.check_rewritable(&older).await?;
+        let parents = |h: String| async move {
+            run::ok(
+                &self.root,
+                &["rev-list", "--parents", "-n1", &h],
+                Opts::default(),
+            )
+            .await
+            .map(|o| o.text().split_whitespace().count().saturating_sub(1))
+        };
+        if parents(older.clone()).await? > 1 || parents(newer.clone()).await? > 1 {
+            return Err(Error::Invalid("Merge commits cannot be moved".into()));
+        }
+        let base = rev(format!("{older}^")).await;
+        let range = match &base {
+            Some(b) => format!("{b}..HEAD"),
+            None => "HEAD".into(),
+        };
+        let list = run::ok(
+            &self.root,
+            &["rev-list", "--reverse", "--first-parent", &range],
+            Opts::default(),
+        )
+        .await?
+        .text();
+        let mut todo: Vec<&str> = list.lines().filter(|l| !l.is_empty()).collect();
+        let i = todo
+            .iter()
+            .position(|h| *h == older)
+            .ok_or_else(|| Error::Invalid("Commit not found on the current branch".into()))?;
+        if todo.get(i + 1) != Some(&newer.as_str()) {
+            return Err(Error::Invalid(
+                "Commit not found on the current branch".into(),
+            ));
+        }
+        todo.swap(i, i + 1);
+        let text: String = todo.iter().map(|h| format!("pick {h}\n")).collect();
+        let file = self.git_dir.join("gitstudio-rebase-todo");
+        std::fs::write(&file, text)?;
+        let path = file.to_string_lossy().replace('\\', "/");
+        if path.contains('\'') {
+            return Err(Error::Invalid("Unsupported repository path".into()));
+        }
+        let mut args = vec!["rebase", "-i", "--autostash"];
+        match &base {
+            Some(b) => args.push(b),
+            None => args.push("--root"),
+        }
+        let res = run::ok(
+            &self.root,
+            &args,
+            Opts {
+                stdin: None,
+                env: vec![
+                    // Git runs the sequence editor through sh with the todo path appended.
+                    ("GIT_SEQUENCE_EDITOR".into(), format!("cp '{path}'")),
+                    ("GIT_EDITOR".into(), "true".into()),
+                ],
+            },
+        )
+        .await;
+        let _ = std::fs::remove_file(&file);
+        res.map(drop)
+    }
+
     /// `git format-patch` of one commit into `dest` (a file path).
     pub async fn create_patch(&self, hash: &str, dest: &Path) -> Result<()> {
         check_rev(hash)?;

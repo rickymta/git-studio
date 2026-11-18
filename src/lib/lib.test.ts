@@ -33,6 +33,18 @@ describe('layoutGraph', () => {
     const rows = layoutGraph([c('x', 'a'), c('y', 'a'), c('a')]);
     expect(rows.map((r) => r.lane)).toEqual([0, 1, 0]);
   });
+
+  it('keeps a pinned branch in the leftmost lane', () => {
+    // x is the newest tip; pinning y moves y's history to lane 0 and x to lane 1.
+    const rows = layoutGraph([c('x', 'a'), c('y', 'a'), c('a')], ['y']);
+    expect(rows.map((r) => r.lane)).toEqual([1, 0, 0]);
+    // Nothing is drawn in lane 0 above y's own row.
+    expect(rows[0]!.segments.some((s) => s.fromLane === 0 || s.toLane === 0)).toBe(false);
+    // A child whose first parent is the pinned tip joins its lane.
+    const stacked = layoutGraph([c('f', 'm'), c('m', 'a'), c('a')], ['m']);
+    expect(stacked.map((r) => r.lane)).toEqual([1, 0, 0]);
+    expect(stacked[1]!.segments.some((s) => s.fromLane === 1 && s.toLane === 0)).toBe(true);
+  });
 });
 
 describe('parseDiff', () => {

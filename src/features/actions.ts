@@ -769,6 +769,65 @@ export async function dropCommit(c: Commit) {
     );
 }
 
+/** Swap a commit with the one before it (`down`) or after it on the current branch. */
+export async function moveCommit(c: Commit, down: boolean) {
+  await journaled(
+    down ? 'Move commit down' : 'Move commit up',
+    (p) => api.moveCommit(p, c.hash, down),
+    // Undo/redo move the branch between the two histories (changes are autostashed).
+    (b, a) =>
+      b.head && a.head
+        ? {
+            undo: (p) => api.reset(p, b.head!, 'keep'),
+            redo: (p) => api.reset(p, a.head!, 'keep'),
+          }
+        : null,
+    down
+      ? t('Moved {hash} down', { hash: short(c.hash) })
+      : t('Moved {hash} up', { hash: short(c.hash) }),
+  );
+}
+
+// ---- graph view: solo / hide / pin to left --------------------------------------------------------
+
+const view = () => repo().view;
+const without = (list: string[], x: string) => list.filter((y) => y !== x);
+
+/** Show only this ref's history (toggles; several refs can be soloed together). */
+export function soloRef(ref: GitRef) {
+  const v = view();
+  const solo = v.solo.includes(ref.fullName)
+    ? without(v.solo, ref.fullName)
+    : [...v.solo, ref.fullName];
+  void repo().setView({ ...v, solo, hidden: [] });
+}
+
+/** Hide this ref from the graph (toggles). */
+export function hideRef(ref: GitRef) {
+  const v = view();
+  const hidden = v.hidden.includes(ref.fullName)
+    ? without(v.hidden, ref.fullName)
+    : [...v.hidden, ref.fullName];
+  void repo().setView({ ...v, hidden, solo: [] });
+}
+
+/** Keep this branch in the leftmost lanes of the graph (toggles). */
+export function pinRef(ref: GitRef) {
+  const v = view();
+  const pinned = v.pinned.includes(ref.fullName)
+    ? without(v.pinned, ref.fullName)
+    : [...v.pinned, ref.fullName];
+  void repo().setView({ ...v, pinned });
+}
+
+export function showAllRefs() {
+  void repo().setView({ ...view(), solo: [], hidden: [] });
+}
+
+export function unpinAll() {
+  void repo().setView({ ...view(), pinned: [] });
+}
+
 /** Delete a local branch and its remote branch in one go. */
 export async function deleteBranchAndRemote(local: GitRef, remote: GitRef) {
   const remoteName = remote.remote!;
