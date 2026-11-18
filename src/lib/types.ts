@@ -100,11 +100,81 @@ export interface RecentRepo {
   openedAt: number;
 }
 
+export interface SshSettings {
+  /** `system`: ssh's own config/agent; `key`: always use privateKey. */
+  mode: 'system' | 'key';
+  privateKey: string;
+  publicKey: string;
+}
+
 export interface Settings {
   recent: RecentRepo[];
   githubClientId: string;
   cloneDir: string;
   pullMode: 'merge' | 'rebase' | 'ff-only';
+  ssh: SshSettings;
+  preferSsh: boolean;
+  autoFetchMinutes: number;
+  autoPrune: boolean;
+  defaultBranch: string;
+  initialCommits: number;
+  rememberTabs: boolean;
+  externalEditor: string;
+  terminal: 'auto' | 'wt' | 'powershell' | 'cmd' | 'gitbash';
+}
+
+export interface LocalKey {
+  name: string;
+  privatePath: string | null;
+  publicPath: string;
+  keyType: string;
+  comment: string;
+  fingerprint: string | null;
+  publicKey: string;
+}
+
+export interface SshInfo {
+  settings: SshSettings;
+  sshDir: string;
+  sshVersion: string | null;
+  keys: LocalKey[];
+  current: LocalKey | null;
+}
+
+export interface SshTestResult {
+  ok: boolean;
+  user: string | null;
+  message: string;
+}
+
+export interface GitHubSshKey {
+  id: number;
+  key: string;
+  title: string;
+  createdAt: string | null;
+}
+
+export interface ImportedRepo {
+  path: string;
+  name: string;
+}
+
+export interface GitKrakenData {
+  repos: ImportedRepo[];
+  tabs: ImportedRepo[];
+  selectedTab: string | null;
+  sshPrivateKey: string | null;
+  sshPublicKey: string | null;
+  sshUseAgent: boolean | null;
+  theme: string | null;
+  fileView: string | null;
+  maxCommits: number | null;
+}
+
+export interface GitKrakenImport {
+  data: GitKrakenData;
+  addedRepos: number;
+  sshImported: boolean;
 }
 
 export type DiffSource = 'unstaged' | 'staged' | 'commit';
@@ -130,6 +200,8 @@ export interface GitHubUser {
   name: string | null;
   avatarUrl: string;
   htmlUrl: string;
+  /** OAuth scopes; null for fine-grained tokens. */
+  scopes?: string[] | null;
 }
 
 export interface GitHubRepo {

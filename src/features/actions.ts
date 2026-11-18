@@ -548,3 +548,117 @@ export async function createPullRequest(branch?: string) {
     toast('error', 'Could not create pull request', (e as Error).message);
   }
 }
+
+// ---- GitHub remotes -----------------------------------------------------------------------------
+
+const preferSsh = () => repo().settings?.preferSsh ?? false;
+
+/** Add a remote pointing at one of your GitHub repositories (e.g. a fork or upstream). */
+export async function addRemoteFromGitHub() {
+  const gh = useGitHub.getState();
+  if (!gh.user) {
+    toast('info', 'Connect GitHub first (Preferences → Integrations)');
+    return;
+  }
+  if (!gh.repos) {
+    try {
+      await gh.loadRepos();
+    } catch (e) {
+      toast('error', 'Could not list your GitHub repositories', (e as Error).message);
+      return;
+    }
+  }
+  const repos = useGitHub.getState().repos ?? [];
+  if (repos.length === 0) {
+    toast('info', 'No repositories on your GitHub account');
+    return;
+  }
+  const hasOrigin = repo().refs?.remotes.some((r) => r.name === 'origin');
+  const v = await ask({
+    title: 'Add remote from GitHub',
+    fields: [
+      {
+        name: 'repo',
+        label: 'Repository',
+        type: 'select',
+        options: repos.map((r) => ({ value: r.fullName, label: r.fullName })),
+      },
+      {
+        name: 'name',
+        label: 'Remote name',
+        initial: hasOrigin ? 'upstream' : 'origin',
+        required: true,
+      },
+      { name: 'ssh', label: 'Use SSH URL', type: 'checkbox', initial: preferSsh() },
+    ],
+    confirmLabel: 'Add remote',
+  });
+  if (!v) return;
+  const r = repos.find((x) => x.fullName === v.repo)!;
+  const url = v.ssh ? r.sshUrl : r.cloneUrl;
+  const ok = await run(
+    'Add remote',
+    (p) => api.addRemote(p, (v.name as string).trim(), url),
+    `Added ${v.name}`,
+  );
+  if (ok) await run('Fetch', (p) => api.fetch(p, (v.name as string).trim()));
+}
+
+/** Create a repository on GitHub, add it as `origin` and push the current branch. */
+export async function publishToGitHub() {
+  const gh = useGitHub.getState();
+  if (!gh.user) {
+    toast('info', 'Connect GitHub first (Preferences → Integrations)');
+    return;
+  }
+  const info = repo().info;
+  if (!info) return;
+  if (repo().refs?.remotes.some((r) => r.name === 'origin')) {
+    toast('info', 'This repository already has an origin remote');
+    return;
+  }
+  const v = await ask({
+    title: 'Publish to GitHub',
+    description: `Creates a repository under @${gh.user.login}, adds it as origin and pushes ${info.status.branch ?? 'HEAD'}.`,
+    fields: [
+      { name: 'name', label: 'Repository name', initial: info.name, required: true },
+      { name: 'description', label: 'Description (optional)' },
+      { name: 'private', label: 'Private repository', type: 'checkbox', initial: true },
+      { name: 'ssh', label: 'Use SSH URL for the remote', type: 'checkbox', initial: preferSsh() },
+    ],
+    confirmLabel: 'Publish',
+  });
+  if (!v) return;
+  try {
+    useRepo.setState({ busy: 'Publish' });
+    const created = await api.ghCreateRepo(
+      (v.name as string).trim(),
+      v.description as string,
+      v.private as boolean,
+    );
+    const path = repo().path!;
+    await api.addRemote(path, 'origin', v.ssh ? created.sshUrl : created.cloneUrl);
+    useRepo.setState({ busy: null });
+    if (info.status.head) await push({ remote: 'origin' });
+    toast('success', `Published to ${created.fullName}`, created.htmlUrl);
+  } catch (e) {
+    toast('error', 'Publish failed', (e as Error).message);
+  } finally {
+    useRepo.setState({ busy: null });
+    await repo().refresh();
+  }
+}
+
+/** Switch a GitHub remote between its HTTPS and SSH URL. */
+export async function switchRemoteProtocol(name: string) {
+  const r = repo().refs?.remotes.find((x) => x.name === name);
+  if (!r?.github) return;
+  const { owner, repo: rn } = r.github;
+  const toSsh = r.url.startsWith('http');
+  const url = toSsh ? `git@github.com:${owner}/${rn}.git` : `https://github.com/${owner}/${rn}.git`;
+  await run(
+    'Change remote URL',
+    (p) => api.setRemoteUrl(p, name, url),
+    `${name} now uses ${toSsh ? 'SSH' : 'HTTPS'}`,
+  );
+}

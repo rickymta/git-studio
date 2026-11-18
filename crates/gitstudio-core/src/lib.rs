@@ -4,7 +4,9 @@
 pub mod error;
 pub mod git;
 pub mod github;
+pub mod gitkraken;
 pub mod settings;
+pub mod ssh;
 pub mod workspace;
 
 use std::path::PathBuf;
@@ -50,6 +52,32 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
     Ok(match cmd {
         // ---- app ----
         "app.gitVersion" => json!(git::version().await?),
+        // ---- SSH ----
+        "ssh.info" => serde_json::to_value(ssh::info().await?)?,
+        "ssh.save" => {
+            let s: ssh::SshSettings = arg(a, "ssh")?;
+            let mut all = settings::load();
+            all.ssh = s;
+            settings::save(&all)?;
+            serde_json::to_value(ssh::info().await?)?
+        }
+        "ssh.generate" => {
+            let comment: Option<String> = opt(a, "comment")?;
+            let pass: Option<String> = opt(a, "passphrase")?;
+            serde_json::to_value(
+                ssh::generate(
+                    &arg::<String>(a, "name")?,
+                    comment.as_deref().unwrap_or(""),
+                    pass.as_deref().unwrap_or(""),
+                )
+                .await?,
+            )?
+        }
+        "ssh.test" => {
+            let host: Option<String> = opt(a, "host")?;
+            serde_json::to_value(ssh::test(host.as_deref().unwrap_or("github.com")).await?)?
+        }
+
         // ---- workspaces ----
         "workspace.list" => serde_json::to_value(workspace::load())?,
         "workspace.save" => {
@@ -71,14 +99,43 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
             serde_json::to_value(workspace::status(repos).await)?
         }
         "app.openTerminal" => {
-            git::open_terminal(&PathBuf::from(arg::<String>(a, "path")?))?;
+            git::open_terminal(&PathBuf::from(arg::<String>(a, "path")?), &settings::load().terminal)?;
             return done();
         }
         "settings.get" => serde_json::to_value(settings::load())?,
         "settings.set" => {
             let s: settings::Settings = arg(a, "settings")?;
-            settings::save(&s)?;
-            serde_json::to_value(settings::load())?
+            serde_json::to_value(settings::save_preferences(s)?)?
+        }
+        "gitconfig.get" => {
+            let keys: Vec<String> = arg(a, "keys")?;
+            let mut out = serde_json::Map::new();
+            for k in keys {
+                let v = git::global_config(&k).await?;
+                out.insert(k, json!(v));
+            }
+            Value::Object(out)
+        }
+        "gitconfig.set" => {
+            let value: Option<String> = opt(a, "value")?;
+            git::set_global_config(&arg::<String>(a, "key")?, value.as_deref()).await?;
+            return done();
+        }
+        "gitkraken.detect" => match gitkraken::read() {
+            None => Value::Null,
+            Some(d) => json!({
+                "repos": d.repos.len(),
+                "tabs": d.tabs.len(),
+                "ssh": d.ssh_private_key.is_some(),
+            }),
+        },
+        "gitkraken.import" => {
+            let ssh: Option<bool> = opt(a, "ssh")?;
+            serde_json::to_value(gitkraken::import(ssh.unwrap_or(true))?)?
+        }
+        "app.openEditor" => {
+            git::open_in_editor(&settings::load().external_editor, &PathBuf::from(arg::<String>(a, "path")?))?;
+            return done();
         }
         "settings.forgetRecent" => {
             serde_json::to_value(settings::forget_recent(&arg::<String>(a, "path")?)?)?
@@ -94,7 +151,12 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
         "repo.init" => {
             let path: String = arg(a, "path")?;
             let branch: Option<String> = opt(a, "branch")?;
-            let r = git::init(&PathBuf::from(path), branch.as_deref().unwrap_or("main")).await?;
+            let default_branch = settings::load().default_branch;
+            let r = git::init(
+                &PathBuf::from(path),
+                branch.as_deref().filter(|b| !b.is_empty()).unwrap_or(&default_branch),
+            )
+            .await?;
             let info = r.info().await?;
             settings::touch_recent(&info.path, &info.name)?;
             serde_json::to_value(info)?
@@ -315,6 +377,13 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
                 .await?;
             return done();
         }
+        "remote.setUrl" => {
+            repo(a)
+                .await?
+                .set_remote_url(&arg::<String>(a, "name")?, &arg::<String>(a, "url")?)
+                .await?;
+            return done();
+        }
         "remote.remove" => {
             repo(a).await?.remove_remote(&arg::<String>(a, "name")?).await?;
             return done();
@@ -330,6 +399,20 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
                 Err(e) => return Err(e),
             },
         },
+        "github.importToken" => {
+            let source: String = arg(a, "source")?;
+            serde_json::to_value(github::import_token(&source).await?)?
+        }
+        "github.keys" => serde_json::to_value(github::Api::stored()?.keys().await?)?,
+        "github.addKey" => serde_json::to_value(
+            github::Api::stored()?
+                .add_key(&arg::<String>(a, "title")?, &arg::<String>(a, "key")?)
+                .await?,
+        )?,
+        "github.deleteKey" => {
+            github::Api::stored()?.delete_key(arg(a, "id")?).await?;
+            return done();
+        }
         "github.signInToken" => serde_json::to_value(github::sign_in_with_token(&arg::<String>(a, "token")?).await?)?,
         "github.deviceStart" => {
             let id: Option<String> = opt(a, "clientId")?;

@@ -9,8 +9,8 @@ use crate::error::{Error, Result};
 const API: &str = "https://api.github.com";
 const KEYRING_SERVICE: &str = "dev.gitstudio.desktop";
 const KEYRING_ACCOUNT: &str = "github.com";
-/// Scopes requested by the device flow: private repos, PRs, and the user's email.
-const SCOPES: &str = "repo read:org user:email workflow";
+/// Scopes requested by the device flow: private repos, PRs, the user's email, and SSH keys.
+const SCOPES: &str = "repo read:org user:email workflow admin:public_key";
 
 fn client() -> Result<reqwest::Client> {
     Ok(reqwest::Client::builder()
@@ -146,6 +146,19 @@ pub struct User {
     pub avatar_url: String,
     #[serde(alias = "html_url")]
     pub html_url: String,
+    /// OAuth scopes of the token (classic tokens and OAuth apps; `None` for fine-grained tokens).
+    #[serde(default)]
+    pub scopes: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshKey {
+    pub id: u64,
+    pub key: String,
+    pub title: String,
+    #[serde(alias = "created_at", default)]
+    pub created_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -239,6 +252,15 @@ impl Api {
     }
 
     async fn request(&self, method: reqwest::Method, path: &str, body: Option<Value>) -> Result<Value> {
+        Ok(self.request_full(method, path, body).await?.0)
+    }
+
+    async fn request_full(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<Value>,
+    ) -> Result<(Value, reqwest::header::HeaderMap)> {
         let mut req = client()?
             .request(method, format!("{API}{path}"))
             .bearer_auth(&self.token)
@@ -249,6 +271,7 @@ impl Api {
         }
         let res = req.send().await?;
         let status = res.status();
+        let headers = res.headers().clone();
         let v: Value = res.json().await.unwrap_or(Value::Null);
         if !status.is_success() {
             let mut msg = v
@@ -270,12 +293,53 @@ impl Api {
             }
             return Err(Error::GitHub(format!("GitHub {}: {msg}", status.as_u16())));
         }
-        Ok(v)
+        Ok((v, headers))
     }
 
     pub async fn user(&self) -> Result<User> {
-        let v = self.request(reqwest::Method::GET, "/user", None).await?;
+        let (v, headers) = self.request_full(reqwest::Method::GET, "/user", None).await?;
+        let mut user: User = serde_json::from_value(v)?;
+        user.scopes = headers
+            .get("x-oauth-scopes")
+            .and_then(|h| h.to_str().ok())
+            .map(|s| {
+                s.split(',')
+                    .map(|x| x.trim().to_string())
+                    .filter(|x| !x.is_empty())
+                    .collect()
+            });
+        Ok(user)
+    }
+
+    pub async fn keys(&self) -> Result<Vec<SshKey>> {
+        let v = self
+            .request(reqwest::Method::GET, "/user/keys?per_page=100", None)
+            .await
+            .map_err(scope_hint)?;
         Ok(serde_json::from_value(v)?)
+    }
+
+    pub async fn add_key(&self, title: &str, key: &str) -> Result<SshKey> {
+        let key = key.trim();
+        if !key.starts_with("ssh-") && !key.starts_with("ecdsa-") && !key.starts_with("sk-") {
+            return Err(Error::Invalid("That does not look like an SSH public key".into()));
+        }
+        let v = self
+            .request(
+                reqwest::Method::POST,
+                "/user/keys",
+                Some(json!({ "title": title.trim(), "key": key })),
+            )
+            .await
+            .map_err(scope_hint)?;
+        Ok(serde_json::from_value(v)?)
+    }
+
+    pub async fn delete_key(&self, id: u64) -> Result<()> {
+        self.request(reqwest::Method::DELETE, &format!("/user/keys/{id}"), None)
+            .await
+            .map_err(scope_hint)?;
+        Ok(())
     }
 
     pub async fn repos(&self, page: u32) -> Result<Vec<RepoSummary>> {
@@ -330,6 +394,76 @@ impl Api {
             .await?;
         Ok(serde_json::from_value(v)?)
     }
+}
+
+/// GitHub answers 404/403 when the token lacks the SSH-key scope; say so.
+fn scope_hint(e: Error) -> Error {
+    match e {
+        Error::GitHub(m) if m.contains(" 404") || m.contains(" 403") => Error::GitHub(format!(
+            "{m}
+
+Managing SSH keys needs the admin:public_key scope (classic token or browser              sign-in), or the \"Git SSH keys\" permission (fine-grained token). Sign in again with              that permission."
+        )),
+        other => other,
+    }
+}
+
+/// Sign in with a token this machine already has: GitHub CLI (`gh`) or Git's credential helper
+/// (Git Credential Manager on Windows). Nothing is shown to the user; the token is validated and
+/// stored like a pasted one.
+pub async fn import_token(source: &str) -> Result<User> {
+    let token = match source {
+        "gh" => {
+            let mut cmd = tokio::process::Command::new("gh");
+            cmd.args(["auth", "token", "--hostname", "github.com"])
+                .stdin(std::process::Stdio::null())
+                .kill_on_drop(true);
+            #[cfg(windows)]
+            {
+                cmd.creation_flags(0x0800_0000);
+            }
+            let out = cmd
+                .output()
+                .await
+                .map_err(|_| Error::GitHub("GitHub CLI (gh) is not installed".into()))?;
+            if !out.status.success() {
+                return Err(Error::GitHub(
+                    "GitHub CLI is not signed in. Run `gh auth login` first.".into(),
+                ));
+            }
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        }
+        "git" => {
+            let out = crate::git::run::raw(
+                None,
+                &["credential", "fill"],
+                crate::git::run::Opts {
+                    stdin: Some(b"protocol=https
+host=github.com
+
+"),
+                    // Never pop up a sign-in window; only read what is already stored.
+                    env: vec![("GCM_INTERACTIVE".into(), "never".into())],
+                },
+            )
+            .await?;
+            let text = out.text();
+            let pw = text
+                .lines()
+                .find_map(|l| l.strip_prefix("password="))
+                .map(str::to_string);
+            match pw {
+                Some(p) if out.code == 0 && !p.is_empty() => p,
+                _ => {
+                    return Err(Error::GitHub(
+                        "Git has no stored GitHub credentials on this machine".into(),
+                    ));
+                }
+            }
+        }
+        _ => return Err(Error::Invalid(format!("Unknown source {source}"))),
+    };
+    sign_in_with_token(&token).await
 }
 
 /// One URL path segment (owner or repo name).

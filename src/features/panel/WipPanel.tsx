@@ -7,7 +7,7 @@ import { api } from '@/lib/ipc';
 import { copyText, revealPath } from '@/lib/native';
 import type { FileChange } from '@/lib/types';
 import { useRepo } from '@/stores/repo';
-import { confirm } from '@/stores/ui';
+import { confirm, toast } from '@/stores/ui';
 import { commitChanges } from '../actions';
 import { EmptyFiles, FileList, FilesSection, ViewToggle, useViewMode } from './FileList';
 
@@ -93,7 +93,14 @@ export function WipPanel() {
   const unstage = (paths: string[]) => run('Unstage', (p) => api.unstage(p, paths));
   const common = (f: FileChange) => [
     { label: 'Copy file path', onSelect: () => copyText(f.path) },
-    { label: 'Open file', onSelect: () => revealPath(joinPath(path, f.path)) },
+    {
+      label: 'Open in editor',
+      onSelect: () =>
+        api
+          .openEditor(joinPath(path, f.path))
+          .catch((e) => toast('error', 'Could not open editor', (e as Error).message)),
+    },
+    { label: 'Open with default app', onSelect: () => revealPath(joinPath(path, f.path)) },
   ];
 
   let commitLabel = 'Stage Changes to Commit';

@@ -116,6 +116,13 @@ export function Toolbar() {
         ]
       : []),
     { label: 'Show in file explorer', onSelect: () => revealPath(info.path) },
+    {
+      label: 'Open in editor',
+      onSelect: () =>
+        api
+          .openEditor(info.path)
+          .catch((e) => toast('error', 'Could not open editor', (e as Error).message)),
+    },
     { label: 'Close tab', onSelect: close },
   ];
 

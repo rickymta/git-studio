@@ -46,6 +46,23 @@ export const isTauri = inTauri;
 export const api = {
   gitVersion: () => call<string>('app.gitVersion'),
   openTerminal: (path: string) => call<null>('app.openTerminal', { path }),
+  openEditor: (path: string) => call<null>('app.openEditor', { path }),
+  gitConfig: (keys: string[]) => call<Record<string, string>>('gitconfig.get', { keys }),
+  setGitConfig: (key: string, value: string | null) => call<null>('gitconfig.set', { key, value }),
+  gitkrakenDetect: () =>
+    call<{ repos: number; tabs: number; ssh: boolean } | null>('gitkraken.detect'),
+  gitkrakenImport: (ssh: boolean) => call<T.GitKrakenImport>('gitkraken.import', { ssh }),
+  sshInfo: () => call<T.SshInfo>('ssh.info'),
+  saveSsh: (ssh: T.SshSettings) => call<T.SshInfo>('ssh.save', { ssh }),
+  sshGenerate: (name: string, comment: string, passphrase: string) =>
+    call<T.LocalKey>('ssh.generate', { name, comment, passphrase }),
+  sshTest: (host = 'github.com') => call<T.SshTestResult>('ssh.test', { host }),
+  setRemoteUrl: (repo: string, name: string, url: string) =>
+    call<null>('remote.setUrl', { repo, name, url }),
+  ghImportToken: (source: 'gh' | 'git') => call<T.GitHubUser>('github.importToken', { source }),
+  ghKeys: () => call<T.GitHubSshKey[]>('github.keys'),
+  ghAddKey: (title: string, key: string) => call<T.GitHubSshKey>('github.addKey', { title, key }),
+  ghDeleteKey: (id: number) => call<null>('github.deleteKey', { id }),
   workspaces: () => call<T.Workspaces>('workspace.list'),
   saveWorkspaces: (workspaces: T.Workspaces) =>
     call<T.Workspaces>('workspace.save', { workspaces }),

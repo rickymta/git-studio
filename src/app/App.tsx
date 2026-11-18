@@ -9,7 +9,7 @@ import { GitHubSignIn } from '@/features/github/GitHubSignIn';
 import { CommitGraph } from '@/features/graph/CommitGraph';
 import { CommitPanel } from '@/features/panel/CommitPanel';
 import { WipPanel } from '@/features/panel/WipPanel';
-import { SettingsDialog } from '@/features/settings/SettingsDialog';
+import { Preferences, type PrefSection } from '@/features/preferences/Preferences';
 import { Sidebar } from '@/features/sidebar/Sidebar';
 import { StatusBar, applyZoom, useZoom } from '@/features/toolbar/StatusBar';
 import { TabBar } from '@/features/toolbar/TabBar';
@@ -22,6 +22,7 @@ import { useGitHub } from '@/stores/github';
 import { useRepo } from '@/stores/repo';
 import { useUi } from '@/stores/ui';
 import { useWorkspaces } from '@/stores/workspace';
+import { api } from '@/lib/ipc';
 
 const STATE_LABEL = {
   merging: 'Merge in progress',
@@ -44,7 +45,7 @@ export function App() {
   const theme = useUi((s) => s.theme);
   const [signIn, setSignIn] = useState(false);
   const [clone, setClone] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [prefs, setPrefs] = useState<PrefSection | null>(null);
   const [booted, setBooted] = useState(false);
   const [zoom, setZoom] = useZoom();
   const [newWs, setNewWs] = useState(false);
@@ -75,11 +76,29 @@ export function App() {
       } catch {
         /* ignore */
       }
+      const remember = useRepo.getState().settings?.rememberTabs ?? true;
       const target = last ?? repo.tabs[0]?.path;
-      if (target) await repo.open(target);
+      if (remember && target) await repo.open(target);
       setBooted(true);
     })();
   }, []);
+
+  // Background fetch of the open repository (Preferences → General → Auto-Fetch Interval).
+  const autoFetch = useRepo((s) => s.settings?.autoFetchMinutes ?? 0);
+  useEffect(() => {
+    if (!autoFetch) return;
+    const id = setInterval(async () => {
+      const r = useRepo.getState();
+      if (!r.path || r.busy || document.visibilityState !== 'visible') return;
+      try {
+        await api.fetch(r.path);
+        await r.refresh();
+      } catch {
+        // Offline or no remote: stay quiet; manual Fetch shows the error.
+      }
+    }, autoFetch * 60_000);
+    return () => clearInterval(id);
+  }, [autoFetch]);
 
   // Pick up changes made outside the app: on focus and every few seconds while visible.
   useEffect(() => {
@@ -132,7 +151,16 @@ export function App() {
   }, [zoom, setZoom]);
 
   let body;
-  if (!booted || (loading && !info)) {
+  if (prefs) {
+    body = (
+      <Preferences
+        section={prefs}
+        onSection={setPrefs}
+        onExit={() => setPrefs(null)}
+        onSignIn={() => setSignIn(true)}
+      />
+    );
+  } else if (!booted || (loading && !info)) {
     body = (
       <div className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground">
         <Spinner className="size-6" />
@@ -212,7 +240,9 @@ export function App() {
     <div className="flex h-full flex-col">
       <TabBar
         onSignIn={() => setSignIn(true)}
-        onSettings={() => setSettingsOpen(true)}
+        onSettings={() => setPrefs((p) => (p ? null : 'general'))}
+        onNavigate={() => setPrefs(null)}
+        prefsOpen={!!prefs}
         onNewWorkspace={() => setNewWs(true)}
       />
       {body}
@@ -226,7 +256,6 @@ export function App() {
           setSignIn(true);
         }}
       />
-      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <NewWorkspaceDialog open={newWs} onClose={() => setNewWs(false)} />
       <PromptDialog />
       <Toasts />

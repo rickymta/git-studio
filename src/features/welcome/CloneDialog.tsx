@@ -111,12 +111,12 @@ function CloneBody({ open, onClose, onSignIn }: Props) {
                   key={r.fullName}
                   type="button"
                   onClick={() => {
-                    setUrl(r.cloneUrl);
+                    setUrl(settings?.preferSsh ? r.sshUrl : r.cloneUrl);
                     setNameTouched(false);
                   }}
                   className={cn(
                     'flex w-full items-center gap-2 border-b border-border px-3 py-2 text-left last:border-b-0 hover:bg-surface-hover',
-                    url === r.cloneUrl && 'bg-selection',
+                    (url === r.cloneUrl || url === r.sshUrl) && 'bg-selection',
                   )}
                 >
                   <div className="min-w-0 flex-1">

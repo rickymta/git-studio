@@ -26,10 +26,15 @@ export function TabBar({
   onSignIn,
   onSettings,
   onNewWorkspace,
+  onNavigate,
+  prefsOpen,
 }: {
   onSignIn: () => void;
   onSettings: () => void;
   onNewWorkspace: () => void;
+  /** Called when the user picks a tab (leaves Preferences). */
+  onNavigate: () => void;
+  prefsOpen: boolean;
 }) {
   const tabs = useRepo((s) => s.tabs);
   const path = useRepo((s) => s.path);
@@ -88,7 +93,10 @@ export function TabBar({
           type="button"
           title={`${ws.name} overview`}
           aria-label="Workspace overview"
-          onClick={() => useRepo.getState().newTab()}
+          onClick={() => {
+            onNavigate();
+            useRepo.getState().newTab();
+          }}
           className={cn(
             'relative flex w-10 shrink-0 items-center justify-center border-r border-border',
             !path ? 'bg-surface text-foreground' : 'text-muted-foreground hover:bg-surface-hover',
@@ -100,7 +108,10 @@ export function TabBar({
           <LayoutGrid className="size-4" />
         </button>
       )}
-      <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto">
+      <div
+        className="flex min-w-0 flex-1 items-stretch overflow-x-auto"
+        onClickCapture={onNavigate}
+      >
         {tabs.map((t, i) => {
           const active = same(path, t.path);
           return (
@@ -183,10 +194,11 @@ export function TabBar({
         </button>
         <button
           type="button"
-          title="Settings"
-          aria-label="Settings"
+          title="Preferences"
+          aria-label="Preferences"
+          aria-pressed={prefsOpen}
           onClick={onSettings}
-          className={iconBtn}
+          className={cn(iconBtn, prefsOpen && 'bg-accent-soft text-foreground')}
         >
           <SettingsIcon className="size-4" />
         </button>

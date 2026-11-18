@@ -29,3 +29,13 @@ export async function revealPath(path: string): Promise<void> {
 export async function copyText(text: string): Promise<void> {
   await navigator.clipboard.writeText(text);
 }
+
+/** File picker. In a plain browser (dev bridge) falls back to a text prompt. */
+export async function pickFile(title: string, defaultPath?: string): Promise<string | null> {
+  if (isTauri) {
+    const { open } = await import('@tauri-apps/plugin-dialog');
+    const r = await open({ directory: false, multiple: false, title, defaultPath });
+    return typeof r === 'string' ? r : null;
+  }
+  return window.prompt(`${title} (absolute path)`, defaultPath ?? '');
+}

@@ -36,11 +36,11 @@ pub fn github_auth_env(token: Option<&str>) -> Vec<(String, String)> {
     ]
 }
 
+/// Options for commands that talk to a remote: GitHub token for HTTPS, chosen key for SSH.
 fn net(token: Option<&str>) -> Opts<'static> {
-    Opts {
-        stdin: None,
-        env: github_auth_env(token),
-    }
+    let mut env = github_auth_env(token);
+    env.extend(crate::ssh::git_env());
+    Opts { stdin: None, env }
 }
 
 /// An opened repository (its working-tree root).
@@ -633,7 +633,10 @@ impl Repo {
     // ---- remotes ------------------------------------------------------------------------------
 
     pub async fn fetch(&self, remote: Option<&str>, token: Option<&str>) -> Result<()> {
-        let mut a = vec!["fetch", "--prune", "--tags"];
+        let mut a = vec!["fetch", "--tags"];
+        if crate::settings::load().auto_prune {
+            a.push("--prune");
+        }
         match remote {
             Some(r) => {
                 check_rev(r)?;
@@ -719,6 +722,12 @@ impl Repo {
         self.git(&["remote", "add", name, url]).await.map(drop)
     }
 
+    pub async fn set_remote_url(&self, name: &str, url: &str) -> Result<()> {
+        check_rev(name)?;
+        check_url(url)?;
+        self.git(&["remote", "set-url", name, url]).await.map(drop)
+    }
+
     pub async fn remove_remote(&self, name: &str) -> Result<()> {
         check_rev(name)?;
         self.git(&["remote", "remove", name]).await.map(drop)
@@ -773,19 +782,42 @@ pub async fn clone(url: &str, dest: &Path, token: Option<&str>) -> Result<Repo> 
     Repo::open(dest).await
 }
 
-/// Open a terminal window in `path` (Windows Terminal when available).
-pub fn open_terminal(path: &Path) -> Result<()> {
+/// Open a terminal window in `path`. `kind`: `auto` (Windows Terminal, else cmd), `wt`,
+/// `powershell`, `cmd` or `gitbash` (Windows); ignored elsewhere.
+pub fn open_terminal(path: &Path, kind: &str) -> Result<()> {
     if !path.is_dir() {
         return Err(Error::Invalid(format!("Folder not found: {}", path.display())));
     }
     #[cfg(windows)]
     {
-        let wt = std::process::Command::new("wt.exe").arg("-d").arg(path).spawn();
-        if wt.is_err() {
-            std::process::Command::new("cmd.exe")
-                .args(["/C", "start", "", "cmd.exe"])
+        use std::process::Command;
+        let start = |prog: &str, args: &[&str]| -> std::io::Result<std::process::Child> {
+            Command::new("cmd.exe")
+                .args(["/C", "start", "", prog])
+                .args(args)
                 .current_dir(path)
-                .spawn()?;
+                .spawn()
+        };
+        match kind {
+            "powershell" => drop(start("powershell.exe", &["-NoExit"])?),
+            "cmd" => drop(start("cmd.exe", &[])?),
+            "gitbash" => {
+                let bash = git_bash();
+                match bash {
+                    Some(b) => drop(
+                        Command::new(b)
+                            .arg(format!("--cd={}", path.display()))
+                            .spawn()?,
+                    ),
+                    None => return Err(Error::Invalid("Git Bash was not found".into())),
+                }
+            }
+            "wt" => drop(Command::new("wt.exe").arg("-d").arg(path).spawn()?),
+            _ => {
+                if Command::new("wt.exe").arg("-d").arg(path).spawn().is_err() {
+                    drop(start("cmd.exe", &[])?);
+                }
+            }
         }
     }
     #[cfg(target_os = "macos")]
@@ -795,6 +827,75 @@ pub fn open_terminal(path: &Path) -> Result<()> {
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         std::process::Command::new("x-terminal-emulator").current_dir(path).spawn()?;
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn git_bash() -> Option<PathBuf> {
+    let out = std::process::Command::new("git").arg("--exec-path").output().ok()?;
+    let exec = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
+    let p = exec.ancestors().nth(3)?.join("git-bash.exe");
+    p.exists().then_some(p)
+}
+
+/// Open `path` with the user's editor command (e.g. `code`, `cursor`, `subl`).
+pub fn open_in_editor(editor: &str, path: &Path) -> Result<()> {
+    let editor = editor.trim();
+    if editor.is_empty() {
+        return Err(Error::Invalid("Set an external editor in Preferences first".into()));
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // Through cmd so `code` resolves to code.cmd. The path is a separate argument.
+        std::process::Command::new("cmd.exe")
+            .args(["/C", editor])
+            .arg(path)
+            .creation_flags(0x0800_0000)
+            .spawn()
+            .map_err(|e| Error::Invalid(format!("Could not start {editor}: {e}")))?;
+    }
+    #[cfg(not(windows))]
+    {
+        std::process::Command::new(editor)
+            .arg(path)
+            .spawn()
+            .map_err(|e| Error::Invalid(format!("Could not start {editor}: {e}")))?;
+    }
+    Ok(())
+}
+
+/// Global git config values the Preferences page may read and change.
+pub const GLOBAL_KEYS: &[&str] = &[
+    "user.name",
+    "user.email",
+    "core.longpaths",
+    "core.autocrlf",
+    "init.defaultBranch",
+    "pull.rebase",
+    "commit.gpgsign",
+];
+
+pub async fn global_config(key: &str) -> Result<String> {
+    if !GLOBAL_KEYS.contains(&key) {
+        return Err(Error::Invalid(format!("{key} is not editable here")));
+    }
+    let out = run::raw(None, &["config", "--global", "--get", key], Opts::default()).await?;
+    Ok(out.text().trim().to_string())
+}
+
+pub async fn set_global_config(key: &str, value: Option<&str>) -> Result<()> {
+    if !GLOBAL_KEYS.contains(&key) {
+        return Err(Error::Invalid(format!("{key} is not editable here")));
+    }
+    let out = match value {
+        Some(v) => run::raw(None, &["config", "--global", key, v], Opts::default()).await?,
+        None => run::raw(None, &["config", "--global", "--unset", key], Opts::default()).await?,
+    };
+    // `--unset` of a missing key exits 5; that is fine.
+    if out.code != 0 && !(value.is_none() && out.code == 5) {
+        return Err(run::failure(&out));
     }
     Ok(())
 }

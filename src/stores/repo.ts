@@ -5,7 +5,8 @@ import { api } from '@/lib/ipc';
 import type { Commit, CommitDetail, DiffRequest, Refs, RepoInfo, Settings } from '@/lib/types';
 import { toast } from './ui';
 
-const PAGE = 1500;
+/** Commits per graph page: Preferences → General → Initial commits. */
+const page = () => useRepo.getState().settings?.initialCommits ?? 2000;
 /** Each workspace keeps its own open tabs; '' is "no workspace". */
 let scope = '';
 const tabsKey = () => (scope ? `gitstudio.tabs.${scope}` : 'gitstudio.tabs');
@@ -68,6 +69,8 @@ interface RepoStore {
   newTab: () => void;
   closeTab: (path: string) => void;
   moveTab: (from: number, to: number) => void;
+  /** Add tabs without opening them (e.g. imported from GitKraken). */
+  addTabs: (tabs: RepoTab[]) => void;
   close: () => void;
   refresh: () => Promise<void>;
   refreshStatus: () => Promise<void>;
@@ -209,6 +212,13 @@ export const useRepo = create<RepoStore>((set, get) => ({
     else void get().loadSettings();
   },
 
+  addTabs: (more) => {
+    const tabs = [...get().tabs];
+    for (const t of more) if (!tabs.some((x) => samePath(x.path, t.path))) tabs.push(t);
+    saveTabs(tabs, get().path);
+    set({ tabs });
+  },
+
   moveTab: (from, to) => {
     const tabs = [...get().tabs];
     const [t] = tabs.splice(from, 1);
@@ -227,7 +237,7 @@ export const useRepo = create<RepoStore>((set, get) => ({
     const path = get().path;
     if (!path) return;
     try {
-      const limit = Math.max(PAGE, get().commits.length);
+      const limit = Math.max(page(), get().commits.length);
       const [info, commits, refs] = await Promise.all([
         api.info(path),
         api.log(path, limit),
@@ -274,9 +284,9 @@ export const useRepo = create<RepoStore>((set, get) => ({
   loadMore: async () => {
     const { path, commits } = get();
     if (!path) return;
-    const more = await api.log(path, PAGE, commits.length);
+    const more = await api.log(path, page(), commits.length);
     const all = [...commits, ...more];
-    set({ commits: all, graph: layoutGraph(all), hasMore: more.length >= PAGE });
+    set({ commits: all, graph: layoutGraph(all), hasMore: more.length >= page() });
   },
 
   select: async (selection) => {

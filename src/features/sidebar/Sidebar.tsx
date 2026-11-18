@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { Avatar, ContextMenuWrap, IconButton, cn } from '@/components/ui';
+import { Avatar, ContextMenuWrap, Dropdown, IconButton, cn } from '@/components/ui';
 import { relativeTime } from '@/lib/format';
 import { api } from '@/lib/ipc';
 import { openUrl } from '@/lib/native';
@@ -266,9 +266,24 @@ export function Sidebar() {
               <IconButton label="Fetch all" onClick={() => A.fetchAll()}>
                 <RefreshCw className="size-3.5" />
               </IconButton>
-              <IconButton label="Add remote" onClick={() => A.addRemote()}>
-                <Plus className="size-3.5" />
-              </IconButton>
+              <Dropdown
+                items={[
+                  { label: 'Add remote by URL…', onSelect: () => A.addRemote() },
+                  { label: 'Add remote from GitHub…', onSelect: () => A.addRemoteFromGitHub() },
+                  ...(remotes.some((r) => r.name === 'origin')
+                    ? []
+                    : [{ label: 'Publish to GitHub…', onSelect: () => A.publishToGitHub() }]),
+                ]}
+              >
+                <button
+                  type="button"
+                  aria-label="Add remote"
+                  title="Add remote"
+                  className="inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+                >
+                  <Plus className="size-3.5" />
+                </button>
+              </Dropdown>
             </>
           }
         >
@@ -393,6 +408,7 @@ export function Sidebar() {
 
 function RemoteGroup({ name, url, refs }: { name: string; url: string; refs: GitRef[] }) {
   const [open, setOpen] = useState(true);
+  const gh = useRepo((s) => s.refs?.remotes.find((r) => r.name === name)?.github);
   return (
     <div>
       <ContextMenuWrap
@@ -401,6 +417,19 @@ function RemoteGroup({ name, url, refs }: { name: string; url: string; refs: Git
             label: `Fetch ${name}`,
             onSelect: () => useRepo.getState().run('Fetch', (p) => api.fetch(p, name)),
           },
+          ...(gh
+            ? [
+                {
+                  label: url.startsWith('http') ? 'Switch to SSH URL' : 'Switch to HTTPS URL',
+                  onSelect: () => A.switchRemoteProtocol(name),
+                },
+                {
+                  label: 'Open on GitHub',
+                  onSelect: () => openUrl(`https://github.com/${gh.owner}/${gh.repo}`),
+                },
+              ]
+            : []),
+          { label: 'Copy URL', onSelect: () => navigator.clipboard.writeText(url) },
           'sep',
           { label: `Remove ${name}`, danger: true, onSelect: () => A.removeRemote(name) },
         ]}

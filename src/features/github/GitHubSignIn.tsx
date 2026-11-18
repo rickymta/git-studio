@@ -10,7 +10,7 @@ import { useRepo } from '@/stores/repo';
 import { toast } from '@/stores/ui';
 
 const TOKEN_URL =
-  'https://github.com/settings/tokens/new?description=GitStudio&scopes=repo,read:org,user:email,workflow';
+  'https://github.com/settings/tokens/new?description=GitStudio&scopes=repo,read:org,user:email,workflow,admin:public_key';
 
 /** Sign in with the OAuth device flow (needs a client ID) or a personal access token. */
 export function GitHubSignIn({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -88,6 +88,17 @@ function SignInBody({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const reuse = async (source: 'gh' | 'git') => {
+    setBusy(true);
+    try {
+      finish(await api.ghImportToken(source));
+    } catch (e) {
+      toast('error', 'Could not reuse existing login', (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <Modal open={open} onClose={onClose} title="Connect to GitHub" width={480}>
       {mode === 'choose' && (
@@ -107,9 +118,18 @@ function SignInBody({ onClose }: { onClose: () => void }) {
           {!clientId && (
             <p className="text-xs text-muted-foreground">
               Browser sign-in needs a GitHub OAuth App client ID (with device flow enabled) in
-              Settings. Until then, use a personal access token.
+              Preferences → Integrations. Until then, use one of the options below.
             </p>
           )}
+          <div className="mt-1 text-xs text-muted-foreground">
+            Already signed in elsewhere on this computer?
+          </div>
+          <Button className="h-10" disabled={busy} onClick={() => reuse('git')}>
+            <KeyRound className="size-4" /> Use Git Credential Manager login
+          </Button>
+          <Button className="h-10" disabled={busy} onClick={() => reuse('gh')}>
+            <KeyRound className="size-4" /> Use GitHub CLI login (gh)
+          </Button>
           <Button className="h-10" onClick={() => setMode('token')}>
             <KeyRound className="size-4" /> Use a personal access token
           </Button>
@@ -155,8 +175,8 @@ function SignInBody({ onClose }: { onClose: () => void }) {
         >
           <p className="text-muted-foreground">
             Create a token with the <code>repo</code>, <code>read:org</code>,{' '}
-            <code>user:email</code> and <code>workflow</code> scopes (classic), or a fine-grained
-            token with Contents and Pull requests read/write.
+            <code>user:email</code>, <code>workflow</code> and <code>admin:public_key</code> scopes
+            (classic), or a fine-grained token with Contents and Pull requests read/write.
           </p>
           <Button size="sm" className="self-start" onClick={() => openUrl(TOKEN_URL)}>
             <ExternalLink className="size-3.5" /> Create a token on GitHub
