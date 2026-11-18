@@ -59,6 +59,12 @@ export const api = {
   fileHistory: (repo: string, path: string, limit = 500) =>
     call<T.FileHistoryEntry[]>('repo.fileHistory', { repo, path, limit }),
   listFiles: (repo: string, rev: string) => call<string[]>('repo.listFiles', { repo, rev }),
+  // durable app data (activity.jsonl, ui-state.json)
+  historyLoad: () => call<T.HistoryLoaded>('history.load'),
+  historyAppend: (entries: unknown[]) => call<T.HistoryStats>('history.append', { entries }),
+  historyClear: (repo?: string | null) => call<T.HistoryStats>('history.clear', { repo }),
+  stateLoad: () => call<Record<string, unknown>>('state.load'),
+  stateSet: (changes: Record<string, string | null>) => call<null>('state.set', { changes }),
   compareWithWorktree: (repo: string, hash: string) =>
     call<T.FileChange[]>('repo.compare', { repo, hash }),
   reword: (repo: string, hash: string, message: string) =>
@@ -180,8 +186,10 @@ export const api = {
   createTag: (repo: string, name: string, target: string, message?: string) =>
     call<null>('tag.create', { repo, name, target, message }),
   deleteTag: (repo: string, name: string) => call<null>('tag.delete', { repo, name }),
-  stashSave: (repo: string, message?: string, includeUntracked = true) =>
-    call<null>('stash.save', { repo, message, includeUntracked }),
+  stashSave: (repo: string, message?: string, includeUntracked = true, stagedOnly = false) =>
+    call<null>('stash.save', { repo, message, includeUntracked, stagedOnly }),
+  stashRename: (repo: string, index: number, message: string) =>
+    call<null>('stash.rename', { repo, index, message }),
   stashOp: (repo: string, op: 'apply' | 'pop' | 'drop', index: number) =>
     call<null>('stash.op', { repo, op, index }),
 

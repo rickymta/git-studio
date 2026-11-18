@@ -721,14 +721,74 @@ impl Repo {
     // ---- stash --------------------------------------------------------------------------------
 
     pub async fn stash_save(&self, message: Option<&str>, include_untracked: bool) -> Result<()> {
+        self.stash_save_with(message, include_untracked, false)
+            .await
+    }
+
+    /// `staged_only`: stash just the staged changes (`git stash push --staged`), like
+    /// GitKraken's "Stage Changes to Stash".
+    pub async fn stash_save_with(
+        &self,
+        message: Option<&str>,
+        include_untracked: bool,
+        staged_only: bool,
+    ) -> Result<()> {
         let mut a = vec!["stash", "push"];
-        if include_untracked {
+        if staged_only {
+            a.push("--staged");
+        } else if include_untracked {
             a.push("--include-untracked");
         }
         if let Some(m) = message.filter(|m| !m.trim().is_empty()) {
             a.extend(["-m", m]);
         }
         self.git(&a).await.map(drop)
+    }
+
+    async fn stashes(&self) -> Result<Vec<model::Stash>> {
+        let out = self.git(&["stash", "list", parse::STASH_FORMAT]).await?;
+        Ok(parse::parse_stashes(&out))
+    }
+
+    /// Change a stash's message, keeping every stash in its place. Git has no command for it:
+    /// the newer stashes and this one are dropped and stored back, oldest first.
+    pub async fn stash_rename(&self, index: u32, message: &str) -> Result<()> {
+        if message.trim().is_empty() {
+            return Err(Error::Invalid("Stash message is empty".into()));
+        }
+        let list = self.stashes().await?;
+        let target = list
+            .iter()
+            .find(|s| s.index == index)
+            .ok_or_else(|| Error::Invalid(format!("stash@{{{index}}} not found")))?;
+        // Keep git's "On <branch>: " prefix so the stash still says where it came from.
+        let prefix = target
+            .message
+            .split_once(": ")
+            .filter(|(p, _)| p.starts_with("On ") || p.starts_with("WIP on "))
+            .map(|(p, _)| format!("{p}: "))
+            .unwrap_or_default();
+        let mut top: Vec<(String, String)> = list
+            .iter()
+            .filter(|s| s.index <= index)
+            .map(|s| {
+                let msg = if s.index == index {
+                    format!("{prefix}{}", message.trim())
+                } else {
+                    s.message.clone()
+                };
+                (s.hash.clone(), msg)
+            })
+            .collect();
+        for _ in 0..top.len() {
+            self.git(&["stash", "drop", "-q", "stash@{0}"]).await?;
+        }
+        // Oldest first, so the newest ends up as stash@{0} again.
+        top.reverse();
+        for (hash, msg) in &top {
+            self.git(&["stash", "store", "-m", msg, hash]).await?;
+        }
+        Ok(())
     }
 
     pub async fn stash_op(&self, op: &str, index: u32) -> Result<()> {

@@ -203,4 +203,29 @@ export const prefs: Record<string, string> = {
     'Tạo token (classic) với các scope {scopes}, hoặc fine-grained token có quyền đọc/ghi Contents và Pull requests.',
   'Create a token on GitHub': 'Tạo token trên GitHub',
   Back: 'Quay lại',
+  'Activity history file': 'File lịch sử hoạt động',
+  'Activity history is {size} MB': 'Lịch sử hoạt động đang là {size} MB',
+  'At the size limit: the oldest entries are being dropped':
+    'Đã chạm giới hạn: các mục cũ nhất đang bị xoá',
+  'Clear history': 'Xoá lịch sử',
+  'Data & History': 'Dữ liệu & lịch sử',
+  'Delete all history': 'Xoá toàn bộ lịch sử',
+  'Delete every entry of the activity history? This cannot be undone.':
+    'Xoá toàn bộ lịch sử hoạt động? Không thể hoàn tác.',
+  'Delete history after (days)': 'Tự xoá lịch sử sau (ngày)',
+  'Entries loaded at startup': 'Số mục tải khi khởi động',
+  'Every operation (pull, push, commit, …) is appended to this file and read back when GitStudio starts.':
+    'Mọi thao tác (pull, push, commit, …) được ghi thêm vào file này và đọc lại khi GitStudio khởi động.',
+  'Lower the retention period or clear it in Preferences → Data & History.':
+    'Giảm thời gian lưu hoặc xoá bớt trong Tuỳ chọn → Dữ liệu & lịch sử.',
+  'Maximum size (MB)': 'Dung lượng tối đa (MB)',
+  'Older entries are removed when GitStudio starts. 0 keeps everything.':
+    'Các mục cũ hơn sẽ bị xoá khi GitStudio khởi động. Đặt 0 để giữ tất cả.',
+  'Only the most recent entries are loaded, so startup stays fast.':
+    'Chỉ tải các mục gần nhất để khởi động vẫn nhanh.',
+  'Over the warning size': 'Vượt ngưỡng cảnh báo',
+  'Past this size the oldest entries are dropped automatically.':
+    'Vượt quá dung lượng này, các mục cũ nhất sẽ tự động bị xoá.',
+  'Warn when larger than (MB)': 'Cảnh báo khi lớn hơn (MB)',
+  '{size} · {n} entries': '{size} · {n} mục',
 };

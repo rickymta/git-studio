@@ -389,3 +389,41 @@ async fn move_commits_and_filter_the_graph() {
     assert_eq!(r.log_view(10, 0, &hide).await.unwrap().len(), 3);
     assert_eq!(r.log(10, 0).await.unwrap().len(), 4);
 }
+
+#[tokio::test]
+async fn staged_stash_and_rename_keep_order() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("repo");
+    let r = new_repo(&dir).await;
+    for f in ["a", "b"] {
+        std::fs::write(dir.join(f), "0").unwrap();
+    }
+    r.stage(&[]).await.unwrap();
+    r.commit("init", false).await.unwrap();
+
+    std::fs::write(dir.join("a"), "1").unwrap();
+    r.stash_save(Some("first"), true).await.unwrap();
+    // Only the staged file goes into the second stash.
+    std::fs::write(dir.join("a"), "2").unwrap();
+    std::fs::write(dir.join("b"), "2").unwrap();
+    r.stage(&["b".into()]).await.unwrap();
+    r.stash_save_with(Some("Title\n\nDescription"), true, true)
+        .await
+        .unwrap();
+    assert_eq!(std::fs::read_to_string(dir.join("a")).unwrap(), "2");
+    assert_eq!(std::fs::read_to_string(dir.join("b")).unwrap(), "0");
+
+    let before = r.refs().await.unwrap().stashes;
+    assert_eq!(before.len(), 2);
+    r.stash_rename(1, "renamed").await.unwrap();
+    let after = r.refs().await.unwrap().stashes;
+    assert_eq!(after.len(), 2);
+    assert_eq!(after[0].hash, before[0].hash);
+    assert_eq!(after[1].hash, before[1].hash);
+    assert!(
+        after[1].message.ends_with("renamed"),
+        "{}",
+        after[1].message
+    );
+    assert!(after[1].message.starts_with("On main: "));
+}

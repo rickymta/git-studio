@@ -127,9 +127,11 @@ export interface GraphView {
   hidden: string[];
   /** These branches get the leftmost lanes, in order. */
   pinned: string[];
+  /** Stash hashes not drawn in the graph. */
+  hiddenStashes: string[];
 }
 
-export const EMPTY_VIEW: GraphView = { solo: [], hidden: [], pinned: [] };
+export const EMPTY_VIEW: GraphView = { solo: [], hidden: [], pinned: [], hiddenStashes: [] };
 
 const viewKey = (p: string) => `gitstudio.graphView.${p.replace(/\\/g, '/').toLowerCase()}`;
 
@@ -138,7 +140,14 @@ function loadView(p: string): GraphView {
     const v = JSON.parse(localStorage.getItem(viewKey(p)) ?? 'null');
     const list = (x: unknown) =>
       Array.isArray(x) ? x.filter((s): s is string => typeof s === 'string') : [];
-    return v ? { solo: list(v.solo), hidden: list(v.hidden), pinned: list(v.pinned) } : EMPTY_VIEW;
+    return v
+      ? {
+          solo: list(v.solo),
+          hidden: list(v.hidden),
+          pinned: list(v.pinned),
+          hiddenStashes: list(v.hiddenStashes),
+        }
+      : EMPTY_VIEW;
   } catch {
     return EMPTY_VIEW;
   }
@@ -146,7 +155,8 @@ function loadView(p: string): GraphView {
 
 function saveView(p: string, v: GraphView) {
   try {
-    if (!v.solo.length && !v.hidden.length && !v.pinned.length) localStorage.removeItem(viewKey(p));
+    if (!v.solo.length && !v.hidden.length && !v.pinned.length && !v.hiddenStashes.length)
+      localStorage.removeItem(viewKey(p));
     else localStorage.setItem(viewKey(p), JSON.stringify(v));
   } catch {
     /* ignore */
@@ -161,6 +171,9 @@ function pinnedTips(view: GraphView, refs: Refs | null): string[] {
 }
 
 const logView = (v: GraphView) => ({ solo: v.solo, hidden: v.hidden });
+/** Stashes drawn in the graph: none while soloing a branch, and never the hidden ones. */
+const shownStashes = (v: GraphView, refs: Refs | null) =>
+  v.solo.length ? [] : (refs?.stashes ?? []).filter((s) => !v.hiddenStashes.includes(s.hash));
 
 const emptyRepo = {
   view: EMPTY_VIEW,
@@ -303,7 +316,7 @@ export const useRepo = create<RepoStore>((set, get) => ({
         api.refs(path),
       ]);
       if (get().path !== path) return;
-      const rows = withStashes(commits, refs.stashes);
+      const rows = withStashes(commits, shownStashes(view, refs));
       set({
         info,
         commits: rows,
@@ -354,7 +367,7 @@ export const useRepo = create<RepoStore>((set, get) => ({
     // Stash rows are not history: page by real commits only, then re-place the stashes.
     const real = commits.filter((c) => !c.stash);
     const more = await api.log(path, page(), real.length, logView(view));
-    const all = withStashes([...real, ...more], refs?.stashes ?? []);
+    const all = withStashes([...real, ...more], shownStashes(view, refs));
     set({
       commits: all,
       graph: layoutGraph(all, pinnedTips(view, refs)),

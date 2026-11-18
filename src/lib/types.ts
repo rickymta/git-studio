@@ -125,6 +125,27 @@ export interface Settings {
   rememberTabs: boolean;
   externalEditor: string;
   terminal: 'auto' | 'wt' | 'powershell' | 'cmd' | 'gitbash';
+  /** Days of activity history kept; 0 keeps everything. */
+  historyRetentionDays: number;
+  historyWarnMb: number;
+  historyMaxMb: number;
+  historyLoadLimit: number;
+}
+
+export interface HistoryStats {
+  path: string;
+  bytes: number;
+  entries: number;
+  level: 'ok' | 'warn' | 'full';
+  warnBytes: number;
+  maxBytes: number;
+  retentionDays: number;
+}
+
+export interface HistoryLoaded {
+  entries: unknown[];
+  pruned: number;
+  stats: HistoryStats;
 }
 
 export interface LocalKey {

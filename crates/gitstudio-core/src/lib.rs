@@ -7,6 +7,7 @@ pub mod git;
 pub mod github;
 pub mod gitkraken;
 pub mod gitlab;
+pub mod history;
 pub mod settings;
 pub mod ssh;
 pub mod terminal;
@@ -112,6 +113,21 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
             return done();
         }
         "settings.get" => serde_json::to_value(settings::load())?,
+        // Activity Logs file and UI state file (see history.rs).
+        "history.load" => serde_json::to_value(history::load()?)?,
+        "history.append" => {
+            let entries: Vec<Value> = arg(a, "entries")?;
+            serde_json::to_value(history::append(&entries)?)?
+        }
+        "history.clear" => {
+            let repo: Option<String> = opt(a, "repo")?;
+            serde_json::to_value(history::clear(repo.as_deref())?)?
+        }
+        "state.load" => Value::Object(history::state_load()),
+        "state.set" => {
+            history::state_set(arg(a, "changes")?)?;
+            return done();
+        }
         "settings.set" => {
             let s: settings::Settings = arg(a, "settings")?;
             serde_json::to_value(settings::save_preferences(s)?)?
@@ -546,9 +562,21 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
         "stash.save" => {
             let msg: Option<String> = opt(a, "message")?;
             let untracked: Option<bool> = opt(a, "includeUntracked")?;
+            let staged: Option<bool> = opt(a, "stagedOnly")?;
             repo(a)
                 .await?
-                .stash_save(msg.as_deref(), untracked.unwrap_or(true))
+                .stash_save_with(
+                    msg.as_deref(),
+                    untracked.unwrap_or(true),
+                    staged.unwrap_or(false),
+                )
+                .await?;
+            return done();
+        }
+        "stash.rename" => {
+            repo(a)
+                .await?
+                .stash_rename(arg(a, "index")?, &arg::<String>(a, "message")?)
                 .await?;
             return done();
         }

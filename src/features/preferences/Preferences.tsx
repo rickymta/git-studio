@@ -3,6 +3,7 @@ import {
   Brush,
   Check,
   Copy,
+  Database,
   Download,
   ExternalLink,
   FolderGit2,
@@ -25,6 +26,7 @@ import { LANGUAGES, t, useLang, useLangStore } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import { copyText, openUrl, pickFile, pickFolder } from '@/lib/native';
 import type { GitHubSshKey, LocalKey, Settings, SshInfo, SshTestResult } from '@/lib/types';
+import { useActivity } from '@/stores/activity';
 import { useGitHub } from '@/stores/github';
 import { ensureGitLabChecked, useGitLab } from '@/stores/gitlab';
 import { CredentialsPrefs } from './Credentials';
@@ -41,6 +43,7 @@ export type PrefSection =
   | 'ui'
   | 'tools'
   | 'import'
+  | 'data'
   | 'repo';
 
 const SECTIONS: { id: PrefSection; label: string; icon: ReactNode }[] = [
@@ -52,6 +55,7 @@ const SECTIONS: { id: PrefSection; label: string; icon: ReactNode }[] = [
   { id: 'ui', label: 'UI Customization', icon: <Brush className="size-[18px]" /> },
   { id: 'tools', label: 'External Tools', icon: <Wrench className="size-[18px]" /> },
   { id: 'import', label: 'Import', icon: <Download className="size-[18px]" /> },
+  { id: 'data', label: 'Data & History', icon: <Database className="size-[18px]" /> },
 ];
 
 /** Full-page preferences, saved as you change them. */
@@ -145,6 +149,7 @@ export function Preferences({
       <div className="min-w-0 flex-1 overflow-auto">
         <div className="max-w-4xl px-14 py-8">
           {section === 'general' && <General />}
+          {section === 'data' && <DataPrefs />}
           {section === 'profile' && <Profile />}
           {section === 'ssh' && <Ssh />}
           {section === 'credentials' && <CredentialsPrefs />}
@@ -319,6 +324,131 @@ function useGitConfig(keys: string[]) {
 }
 
 // ---- sections -----------------------------------------------------------------------------------
+
+const fmtBytes = (n: number) =>
+  n >= 1024 * 1024
+    ? `${(n / 1024 / 1024).toFixed(1)} MB`
+    : `${Math.max(1, Math.round(n / 1024))} KB`;
+
+/** Where the activity history and UI state are kept, and how much of it. */
+function DataPrefs() {
+  const [s, update] = useSettings();
+  const stats = useActivity((a) => a.stats);
+  const clear = useActivity((a) => a.clear);
+  if (!s) return null;
+  const pct = stats ? Math.min(100, (stats.bytes / stats.maxBytes) * 100) : 0;
+  return (
+    <>
+      <Title>{t('Data & History')}</Title>
+      <Row
+        label={t('Activity history file')}
+        help={t(
+          'Every operation (pull, push, commit, …) is appended to this file and read back when GitStudio starts.',
+        )}
+      >
+        <div className="selectable pt-1.5 font-mono text-[12.5px] break-all">
+          {stats?.path ?? '…'}
+        </div>
+        {stats && (
+          <div className="mt-2">
+            <div className="flex items-center gap-3 text-[13px]">
+              <span>
+                {t('{size} · {n} entries', { size: fmtBytes(stats.bytes), n: stats.entries })}
+              </span>
+              {stats.level !== 'ok' && (
+                <span className={stats.level === 'full' ? 'text-danger' : 'text-warning'}>
+                  ⚠{' '}
+                  {stats.level === 'full'
+                    ? t('At the size limit: the oldest entries are being dropped')
+                    : t('Over the warning size')}
+                </span>
+              )}
+            </div>
+            <div className="mt-1.5 h-1.5 w-80 overflow-hidden rounded-full bg-surface-muted">
+              <div
+                className={cn(
+                  'h-full',
+                  stats.level === 'full'
+                    ? 'bg-danger'
+                    : stats.level === 'warn'
+                      ? 'bg-warning'
+                      : 'bg-success',
+                )}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          </div>
+        )}
+      </Row>
+      <Row
+        label={t('Delete history after (days)')}
+        help={t('Older entries are removed when GitStudio starts. 0 keeps everything.')}
+      >
+        <Field
+          value={String(s.historyRetentionDays)}
+          onSave={(v) =>
+            update({
+              historyRetentionDays: Math.max(0, Math.min(3650, Math.round(Number(v) || 0))),
+            })
+          }
+        />
+      </Row>
+      <Row label={t('Warn when larger than (MB)')}>
+        <Field
+          value={String(s.historyWarnMb)}
+          onSave={(v) =>
+            update({
+              historyWarnMb: Math.max(1, Math.min(s.historyMaxMb, Math.round(Number(v) || 5))),
+            })
+          }
+        />
+      </Row>
+      <Row
+        label={t('Maximum size (MB)')}
+        help={t('Past this size the oldest entries are dropped automatically.')}
+      >
+        <Field
+          value={String(s.historyMaxMb)}
+          onSave={(v) => {
+            const max = Math.max(1, Math.min(1024, Math.round(Number(v) || 20)));
+            return update({ historyMaxMb: max, historyWarnMb: Math.min(s.historyWarnMb, max) });
+          }}
+        />
+      </Row>
+      <Row
+        label={t('Entries loaded at startup')}
+        help={t('Only the most recent entries are loaded, so startup stays fast.')}
+      >
+        <Field
+          value={String(s.historyLoadLimit)}
+          onSave={(v) =>
+            update({
+              historyLoadLimit: Math.max(100, Math.min(100000, Math.round(Number(v) || 2000))),
+            })
+          }
+        />
+      </Row>
+      <Row label={t('Clear history')}>
+        <Button
+          variant="danger"
+          onClick={async () => {
+            if (
+              await confirm(
+                t('Clear history'),
+                t('Delete every entry of the activity history? This cannot be undone.'),
+                t('Delete'),
+                true,
+              )
+            )
+              clear('all');
+          }}
+        >
+          {t('Delete all history')}
+        </Button>
+      </Row>
+    </>
+  );
+}
 
 function General() {
   const [s, update] = useSettings();

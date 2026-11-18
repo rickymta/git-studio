@@ -19,7 +19,7 @@ import { copyText, revealPath } from '@/lib/native';
 import type { FileChange } from '@/lib/types';
 import { useRepo } from '@/stores/repo';
 import { confirm, toast } from '@/stores/ui';
-import { commitChanges, push, stash } from '../actions';
+import { commitChanges, push, stashStaged } from '../actions';
 import {
   EmptyFiles,
   FILES_DRAG,
@@ -94,6 +94,10 @@ export function WipPanel() {
   const [sort, setSort] = useFileSort();
   const [summary, setSummary] = useState('');
   const [body, setBody] = useState('');
+  /** Bottom composer: commit the staged files, or stash them (GitKraken's Stash tab). */
+  const [composer, setComposer] = useState<'commit' | 'stash'>('commit');
+  const [stashTitle, setStashTitle] = useState('');
+  const [stashBody, setStashBody] = useState('');
   const [amend, setAmend] = useState(false);
   const [identity, setIdentity] = useState<{ name: string; email: string } | null>(null);
   const [selection, setSelection] = useState<{
@@ -507,105 +511,169 @@ export function WipPanel() {
         style={{ height: commitH }}
       >
         <div className="mb-2 flex items-center gap-1 border-b border-border">
-          <span className="flex items-center gap-1.5 border-b-2 border-accent px-2 pb-1.5 font-medium">
-            <GitCommitHorizontal className="size-4" /> {t('Commit')}
-          </span>
-          <IconButton label={t('Stash changes')} className="mb-1 ml-1" onClick={() => stash()}>
-            <Archive className="size-3.5" />
-          </IconButton>
-        </div>
-        {identity && (!identity.name || !identity.email) && (
-          <div className="mb-2 rounded-md bg-warning-soft p-2 text-xs">
-            {t(
-              'Git user name/email is not set. Set it in Preferences → Profile before committing.',
-            )}
-          </div>
-        )}
-        <label className="mb-2 flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={amend}
-            onChange={(e) => toggleAmend(e.target.checked)}
-            className="accent-[var(--accent)]"
-          />
-          {t('Amend previous commit')}
-        </label>
-        <div className="flex min-h-0 flex-1 flex-col rounded-md bg-background">
-          <div className="flex items-center">
-            <input
-              className="h-10 min-w-0 flex-1 bg-transparent px-3 text-[16px] font-semibold outline-none placeholder:text-muted-foreground"
-              id="commit-summary"
-              placeholder={t('Commit summary')}
-              value={summary}
-              onChange={(e) => setSummary(e.target.value)}
-              onKeyDown={(e) => {
-                onCommitKey(e);
-              }}
-            />
-            <span
+          {(
+            [
+              ['commit', t('Commit'), <GitCommitHorizontal key="c" className="size-4" />],
+              ['stash', t('Stash'), <Archive key="s" className="size-4" />],
+            ] as const
+          ).map(([id, label, icon]) => (
+            <button
+              key={id}
+              type="button"
+              onClick={() => setComposer(id)}
               className={cn(
-                'pr-3 text-xs tabular-nums',
-                SUMMARY_MAX - summary.length < 0 ? 'text-danger' : 'text-muted-foreground',
+                'flex items-center gap-1.5 border-b-2 px-2 pb-1.5',
+                composer === id
+                  ? 'border-accent font-medium'
+                  : 'border-transparent text-muted-foreground hover:text-foreground',
               )}
-              title={t('Characters left before the 72-character guideline')}
             >
-              {SUMMARY_MAX - summary.length}
-            </span>
-          </div>
-          <textarea
-            className="min-h-0 w-full flex-1 resize-none bg-transparent px-3 py-1 outline-none placeholder:text-muted-foreground"
-            placeholder={t('Description')}
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            onKeyDown={(e) => {
-              onCommitKey(e);
-            }}
-          />
+              {icon} {label}
+            </button>
+          ))}
         </div>
-        <button
-          type="button"
-          onClick={() => setOptionsOpen(!optionsOpen)}
-          className="mt-2 flex items-center gap-1 self-start text-muted-foreground hover:text-foreground"
-        >
-          {optionsOpen ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
-          {t('Commit options')}
-          {!optionsOpen && pushAfter && (
-            <span className="ml-1 text-xs text-accent">{t('· push after committing')}</span>
-          )}
-        </button>
-        {optionsOpen && (
-          <label className="mt-1.5 ml-1 flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={pushAfter}
-              onChange={(e) => setPushAfter(e.target.checked)}
-              className="accent-[var(--accent)]"
-            />
-            {t('Push after committing')}
-            {!st.upstream && pushAfter && (
-              <span className="text-xs text-muted-foreground">
-                {t('(sets the upstream on first push)')}
-              </span>
+        {composer === 'stash' ? (
+          <>
+            <div className="flex min-h-0 flex-1 flex-col rounded-md bg-background">
+              <input
+                className="h-10 min-w-0 bg-transparent px-3 text-[16px] font-semibold outline-none placeholder:text-muted-foreground"
+                placeholder={t('Stash title')}
+                value={stashTitle}
+                onChange={(e) => setStashTitle(e.target.value)}
+              />
+              <textarea
+                className="min-h-0 w-full flex-1 resize-none bg-transparent px-3 py-1 outline-none placeholder:text-muted-foreground"
+                placeholder={t('Description')}
+                value={stashBody}
+                onChange={(e) => setStashBody(e.target.value)}
+              />
+            </div>
+            <Button
+              variant={staged.length ? 'primary' : 'ghost'}
+              className={cn(
+                'mt-2 h-9 w-full shrink-0',
+                !staged.length && 'border border-success/40 bg-success-soft/60 text-success/80',
+              )}
+              disabled={!staged.length || !!busy}
+              onClick={async () => {
+                const ok = await stashStaged(stashTitle, stashBody);
+                if (ok) {
+                  setStashTitle('');
+                  setStashBody('');
+                }
+              }}
+            >
+              <Archive className="size-4" />
+              {staged.length
+                ? staged.length === 1
+                  ? t('Stash 1 Staged File')
+                  : t('Stash {n} Staged Files', { n: staged.length })
+                : t('Stage Changes to Stash')}
+            </Button>
+          </>
+        ) : (
+          <>
+            {identity && (!identity.name || !identity.email) && (
+              <div className="mb-2 rounded-md bg-warning-soft p-2 text-xs">
+                {t(
+                  'Git user name/email is not set. Set it in Preferences → Profile before committing.',
+                )}
+              </div>
             )}
-          </label>
+            <label className="mb-2 flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={amend}
+                onChange={(e) => toggleAmend(e.target.checked)}
+                className="accent-[var(--accent)]"
+              />
+              {t('Amend previous commit')}
+            </label>
+            <div className="flex min-h-0 flex-1 flex-col rounded-md bg-background">
+              <div className="flex items-center">
+                <input
+                  className="h-10 min-w-0 flex-1 bg-transparent px-3 text-[16px] font-semibold outline-none placeholder:text-muted-foreground"
+                  id="commit-summary"
+                  placeholder={t('Commit summary')}
+                  value={summary}
+                  onChange={(e) => setSummary(e.target.value)}
+                  onKeyDown={(e) => {
+                    onCommitKey(e);
+                  }}
+                />
+                <span
+                  className={cn(
+                    'pr-3 text-xs tabular-nums',
+                    SUMMARY_MAX - summary.length < 0 ? 'text-danger' : 'text-muted-foreground',
+                  )}
+                  title={t('Characters left before the 72-character guideline')}
+                >
+                  {SUMMARY_MAX - summary.length}
+                </span>
+              </div>
+              <textarea
+                className="min-h-0 w-full flex-1 resize-none bg-transparent px-3 py-1 outline-none placeholder:text-muted-foreground"
+                placeholder={t('Description')}
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+                onKeyDown={(e) => {
+                  onCommitKey(e);
+                }}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => setOptionsOpen(!optionsOpen)}
+              className="mt-2 flex items-center gap-1 self-start text-muted-foreground hover:text-foreground"
+            >
+              {optionsOpen ? (
+                <ChevronDown className="size-4" />
+              ) : (
+                <ChevronRight className="size-4" />
+              )}
+              {t('Commit options')}
+              {!optionsOpen && pushAfter && (
+                <span className="ml-1 text-xs text-accent">{t('· push after committing')}</span>
+              )}
+            </button>
+            {optionsOpen && (
+              <label className="mt-1.5 ml-1 flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={pushAfter}
+                  onChange={(e) => setPushAfter(e.target.checked)}
+                  className="accent-[var(--accent)]"
+                />
+                {t('Push after committing')}
+                {!st.upstream && pushAfter && (
+                  <span className="text-xs text-muted-foreground">
+                    {t('(sets the upstream on first push)')}
+                  </span>
+                )}
+              </label>
+            )}
+            <Button
+              variant={canCommit ? 'primary' : 'ghost'}
+              className={cn(
+                'mt-2 h-9 w-full shrink-0',
+                !canCommit && 'border border-success/40 bg-success-soft/60 text-success/80',
+              )}
+              disabled={!canCommit || !!busy}
+              onClick={commit}
+              title="Ctrl+Enter"
+            >
+              {busy === 'Commit' ||
+              busy === 'Push' ||
+              busy === t('Commit') ||
+              busy === t('Push') ? (
+                <Spinner />
+              ) : (
+                <GitCommitHorizontal className="size-4" />
+              )}
+              {commitLabel}
+            </Button>
+          </>
         )}
-        <Button
-          variant={canCommit ? 'primary' : 'ghost'}
-          className={cn(
-            'mt-2 h-9 w-full shrink-0',
-            !canCommit && 'border border-success/40 bg-success-soft/60 text-success/80',
-          )}
-          disabled={!canCommit || !!busy}
-          onClick={commit}
-          title="Ctrl+Enter"
-        >
-          {busy === 'Commit' || busy === 'Push' || busy === t('Commit') || busy === t('Push') ? (
-            <Spinner />
-          ) : (
-            <GitCommitHorizontal className="size-4" />
-          )}
-          {commitLabel}
-        </Button>
       </div>
     </div>
   );

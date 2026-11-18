@@ -36,6 +36,14 @@ pub struct Settings {
     pub external_editor: String,
     /// `auto`, `wt`, `powershell`, `cmd` or `gitbash`.
     pub terminal: String,
+    /// Activity history older than this many days is deleted at startup; 0 keeps everything.
+    pub history_retention_days: u32,
+    /// Size of the activity file (MB) above which the app warns.
+    pub history_warn_mb: u32,
+    /// Size (MB) the activity file is never allowed to exceed: oldest entries are dropped.
+    pub history_max_mb: u32,
+    /// Most recent activity entries loaded into the app at startup.
+    pub history_load_limit: u32,
 }
 
 impl Default for Settings {
@@ -54,6 +62,10 @@ impl Default for Settings {
             remember_tabs: true,
             external_editor: "code".into(),
             terminal: "auto".into(),
+            history_retention_days: 30,
+            history_warn_mb: 5,
+            history_max_mb: 20,
+            history_load_limit: 2000,
         }
     }
 }
@@ -66,9 +78,14 @@ pub struct RecentRepo {
     pub opened_at: i64,
 }
 
-fn file() -> PathBuf {
+/// Folder holding settings.json, activity.jsonl and ui-state.json.
+pub fn dir() -> PathBuf {
     let base = dirs::config_dir().unwrap_or_else(std::env::temp_dir);
-    base.join("GitStudio").join("settings.json")
+    base.join("GitStudio")
+}
+
+fn file() -> PathBuf {
+    dir().join("settings.json")
 }
 
 pub fn load() -> Settings {
@@ -94,6 +111,10 @@ pub fn load() -> Settings {
     }
     s.initial_commits = s.initial_commits.clamp(500, 20_000);
     s.auto_fetch_minutes = s.auto_fetch_minutes.min(60);
+    s.history_retention_days = s.history_retention_days.min(3650);
+    s.history_max_mb = s.history_max_mb.clamp(1, 1024);
+    s.history_warn_mb = s.history_warn_mb.clamp(1, s.history_max_mb);
+    s.history_load_limit = s.history_load_limit.clamp(100, 100_000);
     s
 }
 

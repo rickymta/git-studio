@@ -482,6 +482,34 @@ export async function stashOp(s: Stash, op: 'apply' | 'pop' | 'drop') {
   await run(label, (p) => api.stashOp(p, op, s.index));
 }
 
+/** Stash the staged files with a title and description (the WIP panel's Stash tab). */
+export async function stashStaged(title: string, description: string) {
+  const message = [title.trim(), description.trim()].filter(Boolean).join('\n\n');
+  return run(
+    'Stash',
+    (p) => api.stashSave(p, message || undefined, false, true),
+    t('Staged changes stashed'),
+  );
+}
+
+/** Edit a stash's message (its place in the list is kept). */
+export async function editStashMessage(s: Stash) {
+  const current = s.message.replace(/^(?:WIP on|On) [^:]+: /, '');
+  const v = await ask({
+    title: t('Edit stash message'),
+    fields: [{ name: 'message', label: t('Message'), initial: current, required: true }],
+    confirmLabel: t('Save'),
+  });
+  if (!v || (v.message as string).trim() === current) return;
+  await run('Edit stash message', (p) => api.stashRename(p, s.index, (v.message as string).trim()));
+}
+
+/** Hide a stash from the graph (it stays in the sidebar list). */
+export function hideStash(s: Stash) {
+  const v = repo().view;
+  void repo().setView({ ...v, hiddenStashes: [...v.hiddenStashes, s.hash] });
+}
+
 export async function popLatest() {
   const s = repo().refs?.stashes[0];
   if (!s) {
@@ -821,7 +849,7 @@ export function pinRef(ref: GitRef) {
 }
 
 export function showAllRefs() {
-  void repo().setView({ ...view(), solo: [], hidden: [] });
+  void repo().setView({ ...view(), solo: [], hidden: [], hiddenStashes: [] });
 }
 
 export function unpinAll() {

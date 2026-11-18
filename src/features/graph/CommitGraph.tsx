@@ -96,17 +96,13 @@ function perBranch(label: string, refs: GitRef[], onSelect: (r: GitRef) => void)
 
 function stashMenu(s: Stash): MenuItem[] {
   return [
-    { label: t('Apply stash'), onSelect: () => A.stashOp(s, 'apply') },
-    {
-      label: t('Pop stash onto {branch}', {
-        branch: useRepo.getState().info?.status.branch ?? 'HEAD',
-      }),
-      onSelect: () => A.stashOp(s, 'pop'),
-    },
+    { label: t('Apply Stash'), onSelect: () => A.stashOp(s, 'apply') },
+    { label: t('Pop Stash'), onSelect: () => A.stashOp(s, 'pop') },
+    { label: t('Delete Stash'), danger: true, onSelect: () => A.stashOp(s, 'drop') },
     'sep',
-    { label: t('Copy stash message'), onSelect: () => copyText(s.message) },
+    { label: t('Edit stash message'), onSelect: () => A.editStashMessage(s) },
     'sep',
-    { label: t('Delete stash'), danger: true, onSelect: () => A.stashOp(s, 'drop') },
+    { label: t('Hide'), onSelect: () => A.hideStash(s) },
   ];
 }
 
@@ -335,13 +331,15 @@ function ViewBar() {
   if (view.solo.length) parts.push(t('Solo: {names}', { names: view.solo.map(short).join(', ') }));
   if (view.hidden.length)
     parts.push(t('Hidden: {names}', { names: view.hidden.map(short).join(', ') }));
+  if (view.hiddenStashes.length)
+    parts.push(t('{n} hidden stashes', { n: view.hiddenStashes.length }));
   if (view.pinned.length)
     parts.push(t('Pinned: {names}', { names: view.pinned.map(short).join(', ') }));
   if (!parts.length) return null;
   return (
     <div className="flex h-7 shrink-0 items-center gap-3 border-b border-border bg-accent-soft/60 px-3 text-xs">
       <span className="min-w-0 flex-1 truncate">{parts.join(' · ')}</span>
-      {(view.solo.length > 0 || view.hidden.length > 0) && (
+      {(view.solo.length > 0 || view.hidden.length > 0 || view.hiddenStashes.length > 0) && (
         <button type="button" className="text-accent hover:underline" onClick={A.showAllRefs}>
           {t('Show all branches')}
         </button>
@@ -849,8 +847,6 @@ const CommitRow = memo(function CommitRow({
       <div
         style={stack ? { ...style, zIndex: 30 } : style}
         onClick={onSelect}
-        // A stash pops straight onto the current checkout on double-click.
-        onDoubleClick={c.stash ? () => A.stashOp(c.stash!, 'pop') : undefined}
         className={cn('group relative flex cursor-default items-center', dim && 'opacity-40')}
       >
         {/* Selected row: a faint full-width highlight and a bar in the branch colour, so the
@@ -953,20 +949,6 @@ const CommitRow = memo(function CommitRow({
           </span>
           {c.body && <span className="ml-2 text-muted-foreground">{c.body}</span>}
         </div>
-        {c.stash && (
-          <button
-            type="button"
-            title={t('Pop stash onto the current checkout')}
-            onClick={(e) => {
-              e.stopPropagation();
-              void A.stashOp(c.stash!, 'pop');
-            }}
-            className="relative mr-2 hidden h-5 shrink-0 items-center rounded border px-2 text-xs font-medium group-hover:inline-flex"
-            style={{ borderColor: color, color }}
-          >
-            {t('Pop')}
-          </button>
-        )}
         <div style={{ flex: 'var(--msg-spacer)' }} />
         {cols.has('author') && (
           <div
