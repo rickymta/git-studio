@@ -152,11 +152,11 @@ export function RefBadge({ group, color }: { group: BadgeGroup; color: string })
           background: `color-mix(in oklch, ${color} ${group.head ? 60 : 42}%, var(--background))`,
         }}
       >
-        {group.head && <Check className="size-[14px] shrink-0" />}
-        {group.kind === 'tag' && <Tag className="size-[14px] shrink-0" />}
+        {group.head && <Check className="size-[15.4px] shrink-0" strokeWidth={2.4} />}
+        {group.kind === 'tag' && <Tag className="size-[15.4px] shrink-0" strokeWidth={2.4} />}
         <span className="truncate">{group.label}</span>
-        {hasLocal && <Laptop className="size-[14px] shrink-0 opacity-75" />}
-        {hasRemote && <Cloud className="size-[14px] shrink-0 opacity-75" />}
+        {hasLocal && <Laptop className="size-[15.4px] shrink-0" strokeWidth={2.4} />}
+        {hasRemote && <Cloud className="size-[15.4px] shrink-0" strokeWidth={2.4} />}
       </span>
     </ContextMenuWrap>
   );
