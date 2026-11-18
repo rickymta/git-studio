@@ -530,13 +530,8 @@ const CommitRow = memo(function CommitRow({
           onMouseLeave={() => setStack(false)}
         >
           {stack && (
-            <div
-              className="absolute top-[5px] right-1 left-2 z-10 flex flex-col items-start gap-[3px] rounded-md p-[3px] shadow-xl"
-              style={{
-                background: `color-mix(in oklch, ${color} 22%, var(--background))`,
-                outline: `1px solid ${color}`,
-              }}
-            >
+            // Just the badges, continuing downward from the row's own badge; no box around them.
+            <div className="absolute top-[5px] right-1 left-2 z-10 flex flex-col items-start gap-[3px]">
               {groups.map((g) => (
                 <RefBadge key={g.key} group={g} color={color} />
               ))}
@@ -548,7 +543,13 @@ const CommitRow = memo(function CommitRow({
               style={{ left: 8, background: color }}
             />
           )}
-          <div className="relative flex min-w-0 items-center gap-1 pl-2">
+          <div
+            className={cn(
+              'relative flex min-w-0 items-center gap-1 pl-2',
+              // The unfolded list takes the badge's place while hovering.
+              stack && 'invisible',
+            )}
+          >
             {groups.slice(0, 1).map((g) => (
               <RefBadge key={g.key} group={g} color={color} />
             ))}

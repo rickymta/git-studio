@@ -128,8 +128,36 @@ textarea,
   }
 }
 
+@keyframes toast-progress {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.toast-progress {
+  animation-name: toast-progress;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+.toast-in {
+  animation: toast-in 180ms ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  *,
+  /* The toast progress bar is a timer, not decoration: keep it running. */
+  *:not(.toast-progress),
   *::before,
   *::after {
     transition-duration: 0s !important;

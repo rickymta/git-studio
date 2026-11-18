@@ -7,6 +7,8 @@ export interface Toast {
   kind: ToastKind;
   title: string;
   detail?: string;
+  /** Auto-hide delay in ms; the toast's progress bar runs for this long (paused on hover). */
+  duration: number;
 }
 
 export type FieldType = 'text' | 'textarea' | 'checkbox' | 'select' | 'password';
@@ -63,8 +65,10 @@ export const useUi = create<UiStore>((set, get) => ({
   theme: savedTheme,
   toast: (kind, title, detail) => {
     const id = nextId++;
-    set((s) => ({ toasts: [...s.toasts.slice(-4), { id, kind, title, detail }] }));
-    setTimeout(() => get().dismiss(id), kind === 'error' ? 9000 : 3500);
+    // Errors stay longer and longer details get more reading time.
+    const base = kind === 'error' ? 9000 : kind === 'success' ? 4000 : 5000;
+    const duration = base + Math.min(6000, (detail?.length ?? 0) * 30);
+    set((s) => ({ toasts: [...s.toasts.slice(-4), { id, kind, title, detail, duration }] }));
   },
   dismiss: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
   ask: (spec) =>

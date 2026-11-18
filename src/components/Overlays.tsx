@@ -2,43 +2,76 @@ import { CheckCircle2, Info, X, XCircle } from 'lucide-react';
 import { useState } from 'react';
 
 import { useUi, type PromptValues } from '@/stores/ui';
-import { Button, Input, Modal, Textarea, cn } from './ui';
+import { Button, Input, Modal, Textarea } from './ui';
 
+const TOAST_STYLE = {
+  error: { color: 'var(--danger)', Icon: XCircle },
+  success: { color: 'var(--success)', Icon: CheckCircle2 },
+  info: { color: 'var(--accent)', Icon: Info },
+} as const;
+
+/**
+ * Bottom-left notifications. Each one hides itself when its progress bar runs out; hovering
+ * (or focusing inside) pauses the bar, so there is time to read or copy an error.
+ */
 export function Toasts() {
   const toasts = useUi((s) => s.toasts);
   const dismiss = useUi((s) => s.dismiss);
   return (
-    <div className="pointer-events-none fixed right-4 bottom-4 z-[60] flex w-96 max-w-[calc(100vw-32px)] flex-col gap-2">
-      {toasts.map((t) => (
-        <div
-          key={t.id}
-          role={t.kind === 'error' ? 'alert' : 'status'}
-          className={cn(
-            'pointer-events-auto flex gap-2.5 rounded-lg border bg-surface p-3 shadow-xl',
-            t.kind === 'error' ? 'border-danger/50' : 'border-border',
-          )}
-        >
-          {t.kind === 'error' && <XCircle className="mt-0.5 size-4 shrink-0 text-danger" />}
-          {t.kind === 'success' && <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />}
-          {t.kind === 'info' && <Info className="mt-0.5 size-4 shrink-0 text-accent" />}
-          <div className="min-w-0 flex-1">
-            <div className="font-medium">{t.title}</div>
-            {t.detail && (
-              <pre className="selectable mt-1 max-h-40 overflow-auto font-mono text-xs whitespace-pre-wrap text-muted-foreground">
-                {t.detail}
-              </pre>
-            )}
-          </div>
-          <button
-            type="button"
-            aria-label="Dismiss"
-            onClick={() => dismiss(t.id)}
-            className="self-start text-muted-foreground hover:text-foreground"
+    <div
+      aria-live="polite"
+      className="pointer-events-none fixed bottom-9 left-4 z-[60] flex w-[420px] max-w-[calc(100vw-32px)] flex-col-reverse gap-2"
+    >
+      {toasts.map((t) => {
+        const { color, Icon } = TOAST_STYLE[t.kind];
+        return (
+          <div
+            key={t.id}
+            role={t.kind === 'error' ? 'alert' : 'status'}
+            className="toast-in group pointer-events-auto relative overflow-hidden rounded-lg border shadow-2xl"
+            style={{
+              borderColor: `color-mix(in oklch, ${color} 55%, var(--border))`,
+              background: `color-mix(in oklch, ${color} 13%, var(--surface))`,
+            }}
           >
-            <X className="size-4" />
-          </button>
-        </div>
-      ))}
+            <span className="absolute inset-y-0 left-0 w-1" style={{ background: color }} />
+            <div className="flex gap-3 py-3 pr-3 pl-4">
+              <span
+                className="flex size-7 shrink-0 items-center justify-center rounded-full"
+                style={{ background: `color-mix(in oklch, ${color} 25%, transparent)`, color }}
+              >
+                <Icon className="size-4" />
+              </span>
+              <div className="min-w-0 flex-1 pt-0.5">
+                <div className="text-[14px] leading-5 font-semibold">{t.title}</div>
+                {t.detail && (
+                  <pre className="selectable mt-1 max-h-40 overflow-auto font-mono text-xs whitespace-pre-wrap text-muted-foreground">
+                    {t.detail}
+                  </pre>
+                )}
+              </div>
+              <button
+                type="button"
+                aria-label="Dismiss"
+                onClick={() => dismiss(t.id)}
+                className="flex size-6 shrink-0 items-center justify-center self-start rounded text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+            <div
+              className="h-[3px] w-full"
+              style={{ background: `color-mix(in oklch, ${color} 18%, transparent)` }}
+            >
+              <div
+                className="toast-progress h-full origin-left group-focus-within:[animation-play-state:paused] group-hover:[animation-play-state:paused]"
+                style={{ background: color, animationDuration: `${t.duration}ms` }}
+                onAnimationEnd={() => dismiss(t.id)}
+              />
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
