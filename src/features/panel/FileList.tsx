@@ -1,7 +1,15 @@
-import { ChevronDown, ChevronRight, FileDiff, Folder, ListTree, List } from 'lucide-react';
+import {
+  ArrowDownUp,
+  ChevronDown,
+  ChevronRight,
+  FileDiff,
+  Folder,
+  ListTree,
+  List,
+} from 'lucide-react';
 import { useMemo, useState, type ReactNode } from 'react';
 
-import { ContextMenuWrap, cn, type MenuItem } from '@/components/ui';
+import { ContextMenuWrap, Dropdown, cn, type MenuItem } from '@/components/ui';
 import type { FileChange } from '@/lib/types';
 
 // ---- status marks -------------------------------------------------------------------------------
@@ -83,7 +91,87 @@ export function ViewToggle({
   );
 }
 
+// ---- sorting ------------------------------------------------------------------------------------
+
+export type FileSort = 'path' | 'path-desc' | 'name' | 'status';
+
+const SORT_LABEL: Record<FileSort, string> = {
+  path: 'Path (A → Z)',
+  'path-desc': 'Path (Z → A)',
+  name: 'File name',
+  status: 'Change type',
+};
+
+const STATUS_ORDER = 'U?AMTRCD';
+const fileName = (p: string) => p.slice(p.lastIndexOf('/') + 1);
+
+export function sortFiles(files: FileChange[], sort: FileSort): FileChange[] {
+  const out = [...files];
+  const byPath = (a: FileChange, b: FileChange) => a.path.localeCompare(b.path);
+  if (sort === 'path') out.sort(byPath);
+  else if (sort === 'path-desc') out.sort((a, b) => byPath(b, a));
+  else if (sort === 'name')
+    out.sort((a, b) => fileName(a.path).localeCompare(fileName(b.path)) || byPath(a, b));
+  else
+    out.sort(
+      (a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status) || byPath(a, b),
+    );
+  return out;
+}
+
+export function useFileSort(): [FileSort, (s: FileSort) => void] {
+  const [sort, setSort] = useState<FileSort>(() => {
+    try {
+      const v = localStorage.getItem('gitstudio.fileSort') as FileSort | null;
+      return v && v in SORT_LABEL ? v : 'path';
+    } catch {
+      return 'path';
+    }
+  });
+  return [
+    sort,
+    (v) => {
+      setSort(v);
+      try {
+        localStorage.setItem('gitstudio.fileSort', v);
+      } catch {
+        /* ignore */
+      }
+    },
+  ];
+}
+
+export function SortButton({
+  sort,
+  onChange,
+}: {
+  sort: FileSort;
+  onChange: (s: FileSort) => void;
+}) {
+  return (
+    <Dropdown
+      items={(Object.keys(SORT_LABEL) as FileSort[]).map((k) => ({
+        label: SORT_LABEL[k],
+        icon: sort === k ? '✓' : undefined,
+        onSelect: () => onChange(k),
+      }))}
+    >
+      <button
+        type="button"
+        title={`Sort files: ${SORT_LABEL[sort]}`}
+        aria-label="Sort files"
+        className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+      >
+        <ArrowDownUp className="size-4" />
+      </button>
+    </Dropdown>
+  );
+}
+
 // ---- rows ---------------------------------------------------------------------------------------
+
+/** MIME type of a drag of working-tree files between the Unstaged and Staged lists. */
+export const FILES_DRAG = 'application/x-gitstudio-files';
 
 export interface FileListProps {
   files: FileChange[];
@@ -92,6 +180,11 @@ export interface FileListProps {
   onOpen: (f: FileChange) => void;
   actions?: (f: FileChange) => ReactNode;
   menu?: (f: FileChange) => MenuItem[];
+  /** Multi-selection (Ctrl/Shift+click). */
+  selected?: Set<string>;
+  onSelect?: (f: FileChange, e: React.MouseEvent) => void;
+  /** Makes rows draggable; the payload names the source list. */
+  dragSource?: 'unstaged' | 'staged';
 }
 
 function Row({
@@ -102,6 +195,10 @@ function Row({
   onOpen,
   actions,
   menu,
+  selected,
+  onSelect,
+  dragSource,
+  dragPaths,
 }: {
   file: FileChange;
   label: ReactNode;
@@ -110,15 +207,36 @@ function Row({
   onOpen: () => void;
   actions?: ReactNode;
   menu?: () => MenuItem[];
+  selected?: boolean;
+  onSelect?: (e: React.MouseEvent) => void;
+  dragSource?: 'unstaged' | 'staged';
+  dragPaths?: () => string[];
 }) {
   const row = (
     <div
-      onClick={onOpen}
+      onClick={(e) => {
+        if (onSelect && (e.ctrlKey || e.metaKey || e.shiftKey)) {
+          e.preventDefault();
+          onSelect(e);
+        } else {
+          onSelect?.(e);
+          onOpen();
+        }
+      }}
+      draggable={!!dragSource}
+      onDragStart={(e) => {
+        if (!dragSource) return;
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData(
+          FILES_DRAG,
+          JSON.stringify({ from: dragSource, paths: dragPaths?.() ?? [file.path] }),
+        );
+      }}
       title={file.origPath ? `${file.origPath} → ${file.path}` : file.path}
       style={{ paddingLeft: 10 + depth * 14 }}
       className={cn(
-        'group flex h-7 cursor-default items-center gap-1.5 pr-2',
-        active ? 'bg-selection' : 'hover:bg-surface-hover',
+        'group flex h-7 cursor-default items-center gap-1.5 pr-2 select-none',
+        active ? 'bg-selection' : selected ? 'bg-accent-soft' : 'hover:bg-surface-hover',
       )}
     >
       <StatusMark status={file.status} />
@@ -129,6 +247,17 @@ function Row({
     </div>
   );
   return menu ? <ContextMenuWrap items={menu}>{row}</ContextMenuWrap> : row;
+}
+
+function selectionProps(props: FileListProps, f: FileChange) {
+  const sel = props.selected;
+  return {
+    selected: sel?.has(f.path),
+    onSelect: props.onSelect ? (e: React.MouseEvent) => props.onSelect!(f, e) : undefined,
+    dragSource: props.dragSource,
+    // Dragging a selected row drags the whole selection.
+    dragPaths: () => (sel?.has(f.path) && sel.size > 1 ? [...sel] : [f.path]),
+  };
 }
 
 /** Path mode: `src/dir/` dimmed, then the file name. */
@@ -194,6 +323,7 @@ function DirRows({ dir, depth, props }: { dir: Dir; depth: number; props: FileLi
           onOpen={() => props.onOpen(f)}
           actions={props.actions?.(f)}
           menu={props.menu ? () => props.menu!(f) : undefined}
+          {...selectionProps(props, f)}
         />
       ))}
     </>
@@ -231,6 +361,7 @@ export function FileList(props: FileListProps) {
           onOpen={() => props.onOpen(f)}
           actions={props.actions?.(f)}
           menu={props.menu ? () => props.menu!(f) : undefined}
+          {...selectionProps(props, f)}
         />
       ))}
     </>

@@ -1,17 +1,86 @@
-import { Check, GitCommitHorizontal, Minus, Plus, Trash2, Undo2 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import {
+  Archive,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  GitCommitHorizontal,
+  Minus,
+  Plus,
+  Trash2,
+  Undo2,
+} from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { Button, IconButton, Spinner, Textarea, cn } from '@/components/ui';
+import { Button, IconButton, Spinner, cn, type MenuItem } from '@/components/ui';
 import { joinPath } from '@/lib/format';
 import { api } from '@/lib/ipc';
 import { copyText, revealPath } from '@/lib/native';
 import type { FileChange } from '@/lib/types';
 import { useRepo } from '@/stores/repo';
 import { confirm, toast } from '@/stores/ui';
-import { commitChanges } from '../actions';
-import { EmptyFiles, FileList, FilesSection, ViewToggle, useViewMode } from './FileList';
+import { commitChanges, push, stash } from '../actions';
+import {
+  EmptyFiles,
+  FILES_DRAG,
+  FileList,
+  SortButton,
+  ViewToggle,
+  sortFiles,
+  useFileSort,
+  useViewMode,
+} from './FileList';
 
 const SUMMARY_MAX = 72;
+type ListId = 'unstaged' | 'staged';
+
+function usePersisted<T>(key: string, initial: T): [T, (v: T) => void] {
+  const [v, setV] = useState<T>(() => {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw === null ? initial : (JSON.parse(raw) as T);
+    } catch {
+      return initial;
+    }
+  });
+  return [
+    v,
+    (next) => {
+      setV(next);
+      try {
+        localStorage.setItem(key, JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+    },
+  ];
+}
+
+/** Vertical drag handle; reports the pointer's Y delta from the drag start. */
+function RowHandle({ onStart, onDrag }: { onStart: () => void; onDrag: (dy: number) => void }) {
+  return (
+    <div
+      role="separator"
+      aria-orientation="horizontal"
+      onPointerDown={(e) => {
+        e.preventDefault();
+        onStart();
+        const y0 = e.clientY;
+        const move = (ev: PointerEvent) => onDrag(ev.clientY - y0);
+        const up = () => {
+          window.removeEventListener('pointermove', move);
+          window.removeEventListener('pointerup', up);
+          document.body.style.cursor = '';
+        };
+        document.body.style.cursor = 'row-resize';
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+      }}
+      className="group relative z-10 flex h-2 shrink-0 cursor-row-resize items-center justify-center"
+    >
+      <span className="h-[3px] w-12 rounded-full bg-border group-hover:bg-accent" />
+    </div>
+  );
+}
 
 export function WipPanel() {
   const info = useRepo((s) => s.info);
@@ -21,10 +90,29 @@ export function WipPanel() {
   const busy = useRepo((s) => s.busy);
   const path = useRepo((s) => s.path)!;
   const [mode, setMode] = useViewMode();
+  const [sort, setSort] = useFileSort();
   const [summary, setSummary] = useState('');
   const [body, setBody] = useState('');
   const [amend, setAmend] = useState(false);
   const [identity, setIdentity] = useState<{ name: string; email: string } | null>(null);
+  const [selection, setSelection] = useState<{
+    list: ListId;
+    paths: Set<string>;
+    anchor: string | null;
+  }>({ list: 'unstaged', paths: new Set(), anchor: null });
+  const [openLists, setOpenLists] = usePersisted('gitstudio.wip.open', {
+    unstaged: true,
+    staged: true,
+  });
+  // Share of the file area given to the Unstaged list (0.15 – 0.85).
+  const [split, setSplit] = usePersisted('gitstudio.wip.split', 0.55);
+  const [commitH, setCommitH] = usePersisted('gitstudio.wip.commitHeight', 300);
+  const [optionsOpen, setOptionsOpen] = usePersisted('gitstudio.wip.options', false);
+  const [pushAfter, setPushAfter] = usePersisted('gitstudio.wip.pushAfter', false);
+  const [dropTarget, setDropTarget] = useState<ListId | null>(null);
+  const areaRef = useRef<HTMLDivElement>(null);
+  // Values at the start of a handle drag.
+  const dragStart = useRef({ split: 0.55, commit: 300 });
 
   useEffect(() => {
     api
@@ -33,17 +121,58 @@ export function WipPanel() {
       .catch(() => setIdentity(null));
   }, [path]);
 
-  if (!info) return null;
-  const st = info.status;
-  const total = st.staged.length + st.unstaged.length + st.conflicted.length;
+  const st = info?.status;
+  const unstaged = useMemo(() => sortFiles(st?.unstaged ?? [], sort), [st?.unstaged, sort]);
+  const staged = useMemo(() => sortFiles(st?.staged ?? [], sort), [st?.staged, sort]);
+  const conflicted = st?.conflicted ?? [];
+  if (!info || !st) return null;
 
-  const isActive = (source: 'staged' | 'unstaged') => (f: FileChange) =>
+  const total = new Set([...st.unstaged, ...st.staged, ...conflicted].map((f) => f.path)).size;
+
+  // Selection only counts paths still present in its list.
+  const listFiles = (l: ListId) => (l === 'unstaged' ? unstaged : staged);
+  const selectedIn = (l: ListId) =>
+    selection.list === l
+      ? new Set(
+          listFiles(l)
+            .filter((f) => selection.paths.has(f.path))
+            .map((f) => f.path),
+        )
+      : new Set<string>();
+
+  const onSelect = (l: ListId) => (f: FileChange, e: React.MouseEvent) => {
+    const files = listFiles(l);
+    const same = selection.list === l;
+    if (e.shiftKey && same && selection.anchor) {
+      const a = files.findIndex((x) => x.path === selection.anchor);
+      const b = files.findIndex((x) => x.path === f.path);
+      const [lo, hi] = a < b ? [a, b] : [b, a];
+      setSelection({
+        list: l,
+        paths: new Set(files.slice(lo, hi + 1).map((x) => x.path)),
+        anchor: selection.anchor,
+      });
+    } else if (e.ctrlKey || e.metaKey) {
+      const next = new Set(same ? selection.paths : []);
+      if (next.has(f.path)) next.delete(f.path);
+      else next.add(f.path);
+      setSelection({ list: l, paths: next, anchor: f.path });
+    } else {
+      setSelection({ list: l, paths: new Set([f.path]), anchor: f.path });
+    }
+  };
+
+  const isActive = (source: ListId) => (f: FileChange) =>
     diff?.request.source === source && diff.request.path === f.path;
 
-  const show = (source: 'staged' | 'unstaged') => (f: FileChange) =>
+  const show = (source: ListId) => (f: FileChange) =>
     openDiff({ source, path: f.path, origPath: f.origPath, untracked: f.status === '?' });
 
+  const stage = (paths: string[]) => run('Stage', (p) => api.stage(p, paths));
+  const unstage = (paths: string[]) => run('Unstage', (p) => api.unstage(p, paths));
+
   const discard = async (files: FileChange[]) => {
+    if (files.length === 0) return;
     const what = files.length === 1 ? files[0]!.path : `${files.length} files`;
     if (
       !(await confirm(
@@ -78,201 +207,285 @@ export function WipPanel() {
   };
 
   const message = body.trim() ? `${summary.trim()}\n\n${body.trim()}` : summary.trim();
-  const canCommit =
-    !!summary.trim() && (st.staged.length > 0 || amend) && st.conflicted.length === 0;
+  const canCommit = !!summary.trim() && (staged.length > 0 || amend) && conflicted.length === 0;
 
   const commit = async () => {
-    if (await commitChanges(message, amend)) {
-      setSummary('');
-      setBody('');
-      setAmend(false);
-    }
+    if (!(await commitChanges(message, amend))) return;
+    setSummary('');
+    setBody('');
+    setAmend(false);
+    if (pushAfter) await push();
   };
 
-  const stage = (paths: string[]) => run('Stage', (p) => api.stage(p, paths));
-  const unstage = (paths: string[]) => run('Unstage', (p) => api.unstage(p, paths));
-  const common = (f: FileChange) => [
-    { label: 'Copy file path', onSelect: () => copyText(f.path) },
-    {
-      label: 'Open in editor',
-      onSelect: () =>
-        api
-          .openEditor(joinPath(path, f.path))
-          .catch((e) => toast('error', 'Could not open editor', (e as Error).message)),
-    },
-    { label: 'Open with default app', onSelect: () => revealPath(joinPath(path, f.path)) },
-  ];
-
-  let commitLabel = 'Stage Changes to Commit';
-  if (st.conflicted.length > 0) commitLabel = 'Resolve conflicts to commit';
+  let commitLabel: string;
+  if (conflicted.length > 0) commitLabel = 'Resolve Conflicts to Commit';
+  else if (staged.length === 0 && !amend) commitLabel = 'Stage Changes to Commit';
+  else if (!summary.trim()) commitLabel = 'Type a Message to Commit';
   else if (amend) commitLabel = 'Amend Previous Commit';
-  else if (st.staged.length > 0 && !summary.trim()) commitLabel = 'Type a Commit Summary';
-  else if (st.staged.length > 0)
-    commitLabel = `Commit Changes to ${st.staged.length} File${st.staged.length > 1 ? 's' : ''}`;
+  else commitLabel = `Commit Changes to ${staged.length} File${staged.length === 1 ? '' : 's'}`;
+  if (canCommit && pushAfter) commitLabel += ' and Push';
+
+  const fileMenu =
+    (l: ListId) =>
+    (f: FileChange): MenuItem[] => {
+      const sel = selectedIn(l);
+      const many = sel.has(f.path) && sel.size > 1;
+      const targets = many ? listFiles(l).filter((x) => sel.has(x.path)) : [f];
+      const n = many ? ` ${targets.length} files` : '';
+      return [
+        l === 'unstaged'
+          ? { label: `Stage${n || ' file'}`, onSelect: () => stage(targets.map((x) => x.path)) }
+          : {
+              label: `Unstage${n || ' file'}`,
+              onSelect: () => unstage(targets.map((x) => x.path)),
+            },
+        ...(l === 'unstaged'
+          ? [{ label: `Discard changes${n}`, danger: true, onSelect: () => discard(targets) }]
+          : []),
+        'sep' as const,
+        {
+          label: 'Open in editor',
+          onSelect: () =>
+            api
+              .openEditor(joinPath(path, f.path))
+              .catch((e) => toast('error', 'Could not open editor', (e as Error).message)),
+        },
+        { label: 'Open with default app', onSelect: () => revealPath(joinPath(path, f.path)) },
+        { label: 'Copy file path', onSelect: () => copyText(f.path) },
+      ];
+    };
+
+  // ---- drag & drop between lists ----
+  const dropProps = (target: ListId) => ({
+    onDragOver: (e: React.DragEvent) => {
+      if (!e.dataTransfer.types.includes(FILES_DRAG)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (dropTarget !== target) setDropTarget(target);
+    },
+    onDragLeave: (e: React.DragEvent) => {
+      if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) setDropTarget(null);
+    },
+    onDrop: (e: React.DragEvent) => {
+      setDropTarget(null);
+      const raw = e.dataTransfer.getData(FILES_DRAG);
+      if (!raw) return;
+      e.preventDefault();
+      const { from, paths } = JSON.parse(raw) as { from: ListId; paths: string[] };
+      if (from === target) return;
+      void (target === 'staged' ? stage(paths) : unstage(paths));
+    },
+  });
+
+  const unstagedSel = selectedIn('unstaged');
+  const stagedSel = selectedIn('staged');
+  const bothOpen = openLists.unstaged && openLists.staged;
+
+  const unstagedPane = (
+    <Pane
+      title="Unstaged Files"
+      count={unstaged.length + conflicted.length}
+      open={openLists.unstaged}
+      onToggle={() => setOpenLists({ ...openLists, unstaged: !openLists.unstaged })}
+      drop={dropTarget === 'unstaged'}
+      dropProps={dropProps('unstaged')}
+      style={
+        bothOpen ? { flexBasis: `${split * 100}%` } : openLists.unstaged ? { flex: 1 } : undefined
+      }
+      action={
+        unstagedSel.size > 1 ? (
+          <PillButton tone="success" onClick={() => stage([...unstagedSel])}>
+            Stage {unstagedSel.size} Files
+          </PillButton>
+        ) : unstaged.length > 0 ? (
+          <PillButton tone="success" onClick={() => stage([])}>
+            Stage All Changes
+          </PillButton>
+        ) : null
+      }
+    >
+      {conflicted.length > 0 && (
+        <>
+          <div className="px-3 pt-1 pb-0.5 text-xs font-medium text-danger">Conflicts</div>
+          <FileList
+            files={conflicted}
+            mode={mode}
+            isActive={isActive('unstaged')}
+            onOpen={(f) => openDiff({ source: 'unstaged', path: f.path })}
+            menu={(f) => [
+              {
+                label: 'Take ours (current branch)',
+                onSelect: () => run('Resolve', (p) => api.resolve(p, [f.path], 'ours')),
+              },
+              {
+                label: 'Take theirs (incoming)',
+                onSelect: () => run('Resolve', (p) => api.resolve(p, [f.path], 'theirs')),
+              },
+              { label: 'Mark as resolved', onSelect: () => stage([f.path]) },
+            ]}
+            actions={(f) => (
+              <PillButton tone="success" small onClick={() => stage([f.path])}>
+                <Check className="size-3" /> Mark Resolved
+              </PillButton>
+            )}
+          />
+        </>
+      )}
+      {unstaged.length === 0 && conflicted.length === 0 ? (
+        <EmptyFiles text="No unstaged changes" />
+      ) : (
+        <FileList
+          files={unstaged}
+          mode={mode}
+          isActive={isActive('unstaged')}
+          onOpen={show('unstaged')}
+          selected={unstagedSel}
+          onSelect={onSelect('unstaged')}
+          dragSource="unstaged"
+          menu={fileMenu('unstaged')}
+          actions={(f) => (
+            <>
+              <IconButton
+                label="Discard changes"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void discard([f]);
+                }}
+              >
+                <Undo2 className="size-3.5" />
+              </IconButton>
+              <PillButton
+                tone="success"
+                small
+                onClick={() =>
+                  stage(
+                    unstagedSel.has(f.path) && unstagedSel.size > 1 ? [...unstagedSel] : [f.path],
+                  )
+                }
+              >
+                <Plus className="size-3" /> Stage File
+              </PillButton>
+            </>
+          )}
+        />
+      )}
+    </Pane>
+  );
+
+  const stagedPane = (
+    <Pane
+      title="Staged Files"
+      count={staged.length}
+      open={openLists.staged}
+      onToggle={() => setOpenLists({ ...openLists, staged: !openLists.staged })}
+      drop={dropTarget === 'staged'}
+      dropProps={dropProps('staged')}
+      style={
+        bothOpen
+          ? { flexBasis: `${(1 - split) * 100}%` }
+          : openLists.staged
+            ? { flex: 1 }
+            : undefined
+      }
+      action={
+        stagedSel.size > 1 ? (
+          <PillButton tone="danger" onClick={() => unstage([...stagedSel])}>
+            Unstage {stagedSel.size} Files
+          </PillButton>
+        ) : staged.length > 0 ? (
+          <PillButton tone="danger" onClick={() => unstage([])}>
+            Unstage All Changes
+          </PillButton>
+        ) : null
+      }
+    >
+      {staged.length === 0 ? (
+        <EmptyFiles text="Drag files here or use Stage to include them in the commit" />
+      ) : (
+        <FileList
+          files={staged}
+          mode={mode}
+          isActive={isActive('staged')}
+          onOpen={show('staged')}
+          selected={stagedSel}
+          onSelect={onSelect('staged')}
+          dragSource="staged"
+          menu={fileMenu('staged')}
+          actions={(f) => (
+            <PillButton
+              tone="danger"
+              small
+              onClick={() =>
+                unstage(stagedSel.has(f.path) && stagedSel.size > 1 ? [...stagedSel] : [f.path])
+              }
+            >
+              <Minus className="size-3" /> Unstage File
+            </PillButton>
+          )}
+        />
+      )}
+    </Pane>
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
-        {total > 0 && (
-          <IconButton label="Discard all changes" onClick={() => discard(st.unstaged)}>
-            <Trash2 className="size-4 text-danger" />
-          </IconButton>
-        )}
-        <span className="min-w-0 flex-1 truncate">
+        <IconButton
+          label="Discard all changes"
+          disabled={st.unstaged.length === 0}
+          onClick={() => discard(st.unstaged)}
+          className="border border-danger/50"
+        >
+          <Trash2 className="size-3.5 text-danger" />
+        </IconButton>
+        <span className="min-w-0 flex-1 truncate text-center">
           {total} file change{total === 1 ? '' : 's'} on{' '}
           <span className="rounded bg-accent-soft px-1.5 py-0.5 font-medium text-accent">
             {st.branch ?? 'detached HEAD'}
           </span>
         </span>
       </div>
-      <div className="flex h-10 shrink-0 items-center justify-end px-3">
+      <div className="flex h-10 shrink-0 items-center gap-2 px-2">
+        <SortButton sort={sort} onChange={setSort} />
+        <div className="flex-1" />
         <ViewToggle mode={mode} onChange={setMode} />
       </div>
 
-      <div className="min-h-0 flex-1 overflow-auto">
-        {st.conflicted.length > 0 && (
-          <FilesSection title="Conflicted Files" count={st.conflicted.length} tone="danger">
-            <FileList
-              files={st.conflicted}
-              mode={mode}
-              isActive={isActive('unstaged')}
-              onOpen={(f) => openDiff({ source: 'unstaged', path: f.path })}
-              menu={(f) => [
-                {
-                  label: 'Take ours (current branch)',
-                  onSelect: () => run('Resolve', (p) => api.resolve(p, [f.path], 'ours')),
-                },
-                {
-                  label: 'Take theirs (incoming)',
-                  onSelect: () => run('Resolve', (p) => api.resolve(p, [f.path], 'theirs')),
-                },
-                { label: 'Mark as resolved', onSelect: () => stage([f.path]) },
-                'sep',
-                ...common(f),
-              ]}
-              actions={(f) => (
-                <IconButton
-                  label="Mark resolved"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void stage([f.path]);
-                  }}
-                >
-                  <Check className="size-3.5" />
-                </IconButton>
-              )}
-            />
-          </FilesSection>
+      {/* File lists */}
+      <div ref={areaRef} className="flex min-h-0 flex-1 flex-col">
+        {unstagedPane}
+        {bothOpen && (
+          <RowHandle
+            onStart={() => (dragStart.current.split = split)}
+            onDrag={(dy) => {
+              const h = areaRef.current?.clientHeight ?? 400;
+              setSplit(Math.min(0.85, Math.max(0.15, dragStart.current.split + dy / h)));
+            }}
+          />
         )}
-
-        <FilesSection
-          title="Unstaged Files"
-          count={st.unstaged.length}
-          right={
-            st.unstaged.length > 0 && (
-              <button
-                type="button"
-                onClick={() => stage([])}
-                className="h-6 rounded border border-success/60 bg-success-soft px-2 text-xs font-medium text-success hover:brightness-110"
-              >
-                Stage All Changes
-              </button>
-            )
-          }
-        >
-          {st.unstaged.length === 0 ? (
-            <EmptyFiles text="No unstaged changes" />
-          ) : (
-            <FileList
-              files={st.unstaged}
-              mode={mode}
-              isActive={isActive('unstaged')}
-              onOpen={show('unstaged')}
-              menu={(f) => [
-                { label: 'Stage file', onSelect: () => stage([f.path]) },
-                { label: 'Discard changes', danger: true, onSelect: () => discard([f]) },
-                'sep',
-                ...common(f),
-              ]}
-              actions={(f) => (
-                <>
-                  <IconButton
-                    label="Discard"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void discard([f]);
-                    }}
-                  >
-                    <Undo2 className="size-3.5" />
-                  </IconButton>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void stage([f.path]);
-                    }}
-                    className="flex h-5 items-center gap-0.5 rounded bg-success-soft px-1.5 text-xs text-success"
-                  >
-                    <Plus className="size-3" /> Stage
-                  </button>
-                </>
-              )}
-            />
-          )}
-        </FilesSection>
-
-        <FilesSection
-          title="Staged Files"
-          count={st.staged.length}
-          right={
-            st.staged.length > 0 && (
-              <button
-                type="button"
-                onClick={() => unstage([])}
-                className="h-6 rounded border border-danger/60 bg-danger-soft px-2 text-xs font-medium text-danger hover:brightness-110"
-              >
-                Unstage All Changes
-              </button>
-            )
-          }
-        >
-          {st.staged.length === 0 ? (
-            <EmptyFiles text="Stage files to include them in the commit" />
-          ) : (
-            <FileList
-              files={st.staged}
-              mode={mode}
-              isActive={isActive('staged')}
-              onOpen={show('staged')}
-              menu={(f) => [
-                { label: 'Unstage file', onSelect: () => unstage([f.path]) },
-                'sep',
-                ...common(f),
-              ]}
-              actions={(f) => (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void unstage([f.path]);
-                  }}
-                  className="flex h-5 items-center gap-0.5 rounded bg-danger-soft px-1.5 text-xs text-danger"
-                >
-                  <Minus className="size-3" /> Unstage
-                </button>
-              )}
-            />
-          )}
-        </FilesSection>
+        {stagedPane}
       </div>
 
-      <div className="shrink-0 border-t border-border p-3">
-        <div className="mb-2 flex items-center gap-1.5 font-medium">
-          <GitCommitHorizontal className="size-4" /> Commit
+      {/* Commit */}
+      <RowHandle
+        onStart={() => (dragStart.current.commit = commitH)}
+        onDrag={(dy) => setCommitH(Math.min(560, Math.max(190, dragStart.current.commit - dy)))}
+      />
+      <div
+        className="flex shrink-0 flex-col border-t border-border px-3 pt-2 pb-3"
+        style={{ height: commitH }}
+      >
+        <div className="mb-2 flex items-center gap-1 border-b border-border">
+          <span className="flex items-center gap-1.5 border-b-2 border-accent px-2 pb-1.5 font-medium">
+            <GitCommitHorizontal className="size-4" /> Commit
+          </span>
+          <IconButton label="Stash changes" className="mb-1 ml-1" onClick={() => stash()}>
+            <Archive className="size-3.5" />
+          </IconButton>
         </div>
         {identity && (!identity.name || !identity.email) && (
           <div className="mb-2 rounded-md bg-warning-soft p-2 text-xs">
-            Git user name/email is not set. Set it in Settings before committing.
+            Git user name/email is not set. Set it in Preferences → Profile before committing.
           </div>
         )}
         <label className="mb-2 flex items-center gap-2">
@@ -284,7 +497,7 @@ export function WipPanel() {
           />
           Amend previous commit
         </label>
-        <div className="rounded-md border border-border bg-background focus-within:border-accent">
+        <div className="flex min-h-0 flex-1 flex-col rounded-md border border-border bg-background focus-within:border-accent">
           <div className="flex items-center">
             <input
               className="h-9 min-w-0 flex-1 bg-transparent px-3 text-[14px] outline-none placeholder:text-muted-foreground"
@@ -305,9 +518,8 @@ export function WipPanel() {
               {SUMMARY_MAX - summary.length}
             </span>
           </div>
-          <Textarea
-            className="rounded-none border-0 border-t border-border bg-transparent focus:border-border"
-            rows={4}
+          <textarea
+            className="min-h-0 w-full flex-1 resize-none bg-transparent px-3 py-1 outline-none placeholder:text-muted-foreground"
             placeholder="Description"
             value={body}
             onChange={(e) => setBody(e.target.value)}
@@ -316,20 +528,131 @@ export function WipPanel() {
             }}
           />
         </div>
+        <button
+          type="button"
+          onClick={() => setOptionsOpen(!optionsOpen)}
+          className="mt-2 flex items-center gap-1 self-start text-muted-foreground hover:text-foreground"
+        >
+          {optionsOpen ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+          Commit options
+          {!optionsOpen && pushAfter && (
+            <span className="ml-1 text-xs text-accent">· push after committing</span>
+          )}
+        </button>
+        {optionsOpen && (
+          <label className="mt-1.5 ml-1 flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={pushAfter}
+              onChange={(e) => setPushAfter(e.target.checked)}
+              className="accent-[var(--accent)]"
+            />
+            Push after committing
+            {!st.upstream && pushAfter && (
+              <span className="text-xs text-muted-foreground">
+                (sets the upstream on first push)
+              </span>
+            )}
+          </label>
+        )}
         <Button
           variant={canCommit ? 'primary' : 'ghost'}
           className={cn(
-            'mt-2 h-9 w-full',
-            !canCommit && 'border border-success/40 bg-success-soft text-success',
+            'mt-2 h-9 w-full shrink-0',
+            !canCommit && 'border border-success/40 bg-success-soft/60 text-success/80',
           )}
           disabled={!canCommit || !!busy}
           onClick={commit}
+          title="Ctrl+Enter"
         >
-          {busy === 'Commit' && <Spinner />}
-          <GitCommitHorizontal className="size-4" />
+          {busy === 'Commit' || busy === 'Push' ? (
+            <Spinner />
+          ) : (
+            <GitCommitHorizontal className="size-4" />
+          )}
           {commitLabel}
         </Button>
       </div>
     </div>
+  );
+}
+
+function Pane({
+  title,
+  count,
+  open,
+  onToggle,
+  action,
+  drop,
+  dropProps,
+  style,
+  children,
+}: {
+  title: string;
+  count: number;
+  open: boolean;
+  onToggle: () => void;
+  action: ReactNode;
+  drop: boolean;
+  dropProps: React.HTMLAttributes<HTMLDivElement>;
+  style?: React.CSSProperties;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      {...dropProps}
+      className={cn(
+        'flex min-h-0 flex-col transition-colors',
+        open ? 'shrink grow' : 'shrink-0',
+        drop && 'bg-accent-soft outline-2 -outline-offset-2 outline-accent outline-dashed',
+      )}
+      style={open ? { minHeight: 72, ...style } : undefined}
+    >
+      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/60 pr-2 pl-1.5">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex min-w-0 flex-1 items-center gap-1 text-[14px] font-medium"
+        >
+          {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+          <span className="truncate">
+            {title} ({count})
+          </span>
+        </button>
+        {action}
+      </div>
+      {open && <div className="min-h-0 flex-1 overflow-auto py-0.5">{children}</div>}
+    </div>
+  );
+}
+
+function PillButton({
+  tone,
+  small,
+  onClick,
+  children,
+}: {
+  tone: 'success' | 'danger';
+  small?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      className={cn(
+        'flex shrink-0 items-center gap-1 rounded border font-medium whitespace-nowrap hover:brightness-125',
+        small ? 'h-5 px-1.5 text-[11px]' : 'h-6 px-2 text-xs',
+        tone === 'success'
+          ? 'border-success/60 bg-success-soft text-success'
+          : 'border-danger/60 bg-danger-soft text-danger',
+      )}
+    >
+      {children}
+    </button>
   );
 }
