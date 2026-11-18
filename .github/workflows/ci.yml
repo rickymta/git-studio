@@ -1,9 +1,8 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
-  pull_request:
+  # No push / pull_request triggers: Actions only run when a release tag is pushed
+  # (release.yml calls this workflow on the tagged commit), or by hand.
   workflow_dispatch:
   # The release workflow runs the whole suite on the tagged commit before building.
   workflow_call:

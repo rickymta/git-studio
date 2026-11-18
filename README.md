@@ -50,7 +50,8 @@ Local release build: `pnpm tauri build`.
 
 ## Releases (GitHub Actions)
 
-- **CI** (`.github/workflows/ci.yml`) runs on every push to `main` and on pull requests:
+- **CI** (`.github/workflows/ci.yml`) does not run on pushes or pull requests; the Release
+  workflow runs it on the tagged commit (or start it by hand from the Actions tab):
   version files in sync, `pnpm lint` / `pnpm test` / `pnpm build`, `cargo fmt --check`,
   `cargo clippy -D warnings` and `cargo test` on Windows, macOS and Linux.
 - **Release** (`.github/workflows/release.yml`) runs when a `vX.Y.Z` tag on `main` is pushed:
