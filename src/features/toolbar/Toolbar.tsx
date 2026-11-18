@@ -52,7 +52,7 @@ function ToolButton({
       <span>{label}</span>
       {icon}
       {!!badge && (
-        <span className="absolute top-0.5 right-0 rounded-full bg-accent px-1 text-[10px] leading-4 font-semibold text-accent-foreground">
+        <span className="absolute -top-0.5 -right-1.5 inline-flex h-4 min-w-[22px] items-center justify-center rounded-full bg-badge px-1.5 text-[10.5px] leading-none font-semibold text-badge-foreground tabular-nums ring-2 ring-surface">
           {badge}
         </span>
       )}

@@ -20,6 +20,8 @@
   --warning-soft: oklch(0.95 0.06 85);
   --danger: oklch(0.55 0.2 25);
   --wip-mod: oklch(0.62 0.15 70);
+  --badge: oklch(0.56 0.17 258);
+  --badge-foreground: oklch(0.99 0 0);
   --wip-add: oklch(0.58 0.17 150);
   --wip-del: oklch(0.58 0.21 25);
   --danger-soft: oklch(0.95 0.04 25);
@@ -55,6 +57,8 @@
   --warning-soft: oklch(0.32 0.06 80);
   --danger: oklch(0.72 0.17 25);
   --wip-mod: oklch(0.9 0.16 90);
+  --badge: oklch(0.62 0.17 258);
+  --badge-foreground: oklch(0.99 0 0);
   --wip-add: oklch(0.88 0.19 150);
   --wip-del: oklch(0.8 0.18 25);
   --danger-soft: oklch(0.3 0.07 25);
@@ -90,6 +94,8 @@
   --color-warning-soft: var(--warning-soft);
   --color-danger: var(--danger);
   --color-wip-mod: var(--wip-mod);
+  --color-badge: var(--badge);
+  --color-badge-foreground: var(--badge-foreground);
   --color-wip-add: var(--wip-add);
   --color-wip-del: var(--wip-del);
   --color-danger-soft: var(--danger-soft);
