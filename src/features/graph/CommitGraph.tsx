@@ -24,9 +24,10 @@ import { RefBadge, groupRefs } from './RefBadge';
 
 // Proportions measured from GitKraken: 28px rows, 22px lanes, ~20px avatar nodes.
 const ROW = 28;
-const LANE = 22;
+const LANE = 26;
 const PAD = 12;
-const NODE_R = 10;
+// Nodes 20% larger than GitKraken's (user preference).
+const NODE_R = 12;
 const MAX_GRAPH = 220;
 /** Column widths live in CSS variables on the graph container, so resizing never re-renders rows. */
 const REFS_W = 'var(--refs-w)';
@@ -652,17 +653,29 @@ function WipRow({
           strokeDasharray="4 3"
         />
       </svg>
-      <div
-        className="relative h-full w-[2px] shrink-0"
-        style={{ background: `color-mix(in oklch, ${color} 45%, var(--border))` }}
-      />
+      <div className="relative my-px w-[3px] shrink-0 self-stretch" style={{ background: color }} />
       <div className="relative flex min-w-0 flex-1 items-center gap-3 px-2">
         <span className="rounded border border-border/70 bg-background/60 px-2 py-0.5 text-muted-foreground italic">
           {'// WIP'}
         </span>
-        {counts.mod > 0 && <span className="text-warning">✎ {counts.mod}</span>}
-        {counts.add > 0 && <span className="text-success">+ {counts.add}</span>}
-        {counts.del > 0 && <span className="text-danger">− {counts.del}</span>}
+        {counts.mod > 0 && (
+          <span className="flex items-center gap-1 font-medium text-foreground">
+            <span className="font-bold text-wip-mod">✎</span>
+            {counts.mod}
+          </span>
+        )}
+        {counts.add > 0 && (
+          <span className="flex items-center gap-1 font-medium text-foreground">
+            <span className="text-[1.2em] leading-none font-black text-wip-add">+</span>
+            {counts.add}
+          </span>
+        )}
+        {counts.del > 0 && (
+          <span className="flex items-center gap-1 font-medium text-foreground">
+            <span className="font-bold text-wip-del">−</span>
+            {counts.del}
+          </span>
+        )}
       </div>
     </div>
   );
@@ -737,7 +750,7 @@ const CommitRow = memo(function CommitRow({
         >
           {stack && (
             // Just the badges, continuing downward from the row's own badge; no box around them.
-            <div className="absolute top-[4px] right-1 left-2 z-10 flex flex-col items-start gap-[3px]">
+            <div className="absolute top-[3px] right-1 left-2 z-10 flex flex-col items-start gap-[3px]">
               {groups.map((g) => (
                 <RefBadge key={g.key} group={g} color={color} />
               ))}
@@ -783,9 +796,10 @@ const CommitRow = memo(function CommitRow({
           withRefs={groups.length > 0}
         />
         {/* Separator between the graph and the message; drag it (any row) to resize. */}
+        {/* Same colour as the branch line; 1px gaps keep rows apart. */}
         <div
-          className="relative h-full w-[2px] shrink-0"
-          style={{ background: `color-mix(in oklch, ${color} 45%, var(--border))` }}
+          className="relative my-px w-[3px] shrink-0 self-stretch"
+          style={{ background: color }}
         />
 
         <div
@@ -871,7 +885,7 @@ function GraphCell({
         <path key={i} d={segmentPath(s)} fill="none" stroke={laneColor(s.color)} strokeWidth={2} />
       ))}
       {merge ? (
-        <circle cx={cx} cy={cy} r={5} fill={color} stroke="var(--background)" strokeWidth={1.5} />
+        <circle cx={cx} cy={cy} r={6} fill={color} stroke="var(--background)" strokeWidth={1.5} />
       ) : (
         <g>
           <title>{name}</title>
@@ -889,7 +903,7 @@ function GraphCell({
             y={cy}
             textAnchor="middle"
             dominantBaseline="central"
-            fontSize={7.5}
+            fontSize={9}
             fontWeight={700}
             fill="white"
           >

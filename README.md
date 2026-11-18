@@ -46,7 +46,31 @@ cargo test -p gitstudio-core   # integration tests against real temp repositorie
 pnpm test                      # graph layout and diff parsing
 ```
 
-Release build: `pnpm tauri build`.
+Local release build: `pnpm tauri build`.
+
+## Releases (GitHub Actions)
+
+- **CI** (`.github/workflows/ci.yml`) runs on every push to `main` and on pull requests:
+  version files in sync, `pnpm lint` / `pnpm test` / `pnpm build`, `cargo fmt --check`,
+  `cargo clippy -D warnings` and `cargo test` on Windows, macOS and Linux.
+- **Release** (`.github/workflows/release.yml`) runs when a `vX.Y.Z` tag on `main` is pushed:
+  it re-runs CI on the tagged commit, creates a draft GitHub release (notes from `CHANGELOG.md`),
+  builds the installers — Windows `.msi` + `-setup.exe`, macOS `.dmg` (Apple Silicon and Intel),
+  Linux `.deb` / `.rpm` / `.AppImage` — uploads them with `SHA256SUMS.txt` and publishes.
+  Code signing is optional (`WINDOWS_CERTIFICATE*`, `APPLE_*` secrets); without them the
+  installers are unsigned.
+
+Cutting a release:
+
+```bash
+pnpm release patch        # or minor | major | x.y.z — bumps the 3 version files, CHANGELOG, commits, tags
+git push origin main
+git push origin vX.Y.Z    # starts the Release workflow
+```
+
+`pnpm release --check` verifies that `package.json`, `src-tauri/tauri.conf.json` and `Cargo.toml`
+carry the same version. For the very first release (already at 0.1.0) just tag it:
+`git tag -a v0.1.0 -m "GitStudio v0.1.0"`.
 
 ## GitHub sign-in
 

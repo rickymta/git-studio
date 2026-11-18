@@ -2,6 +2,19 @@
   "version": "0.0.1",
   "configurations": [
     { "name": "ui", "runtimeExecutable": "pnpm", "runtimeArgs": ["dev"], "port": 1420 },
-    { "name": "bridge", "runtimeExecutable": "cargo", "runtimeArgs": ["run", "-p", "gitstudio", "--bin", "gitstudio-bridge", "--features", "dev-bridge"], "port": 1421 }
+    {
+      "name": "bridge",
+      "runtimeExecutable": "cargo",
+      "runtimeArgs": [
+        "run",
+        "-p",
+        "gitstudio",
+        "--bin",
+        "gitstudio-bridge",
+        "--features",
+        "dev-bridge"
+      ],
+      "port": 1421
+    }
   ]
 }

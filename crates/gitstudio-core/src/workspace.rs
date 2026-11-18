@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
-use crate::git::model::{GitHubSlug, RepoState};
 use crate::git::Repo;
+use crate::git::model::{GitHubSlug, RepoState};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
@@ -51,7 +51,16 @@ pub fn save(w: &Workspaces) -> Result<()> {
 
 // ---- scanning -----------------------------------------------------------------------------------
 
-const SKIP: &[&str] = &["node_modules", "target", "dist", "build", "vendor", ".venv", "bin", "obj"];
+const SKIP: &[&str] = &[
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    "vendor",
+    ".venv",
+    "bin",
+    "obj",
+];
 
 /// Git working trees under `root` (including `root` itself), at most `depth` levels down.
 /// Does not descend into a repository once found.
@@ -70,7 +79,9 @@ fn walk(dir: &Path, depth: u32, out: &mut Vec<String>) {
     if depth == 0 || out.len() >= 500 {
         return;
     }
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in entries.flatten() {
         let Ok(ft) = e.file_type() else { continue };
         if !ft.is_dir() {
@@ -211,13 +222,24 @@ mod tests {
     fn scan_finds_nested_repos_and_skips_noise() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
-        for d in ["a/.git", "group/b/.git", "node_modules/c/.git", "a/inner/.git"] {
+        for d in [
+            "a/.git",
+            "group/b/.git",
+            "node_modules/c/.git",
+            "a/inner/.git",
+        ] {
             std::fs::create_dir_all(root.join(d)).unwrap();
         }
         let found = scan(root, 3);
         let names: Vec<String> = found
             .iter()
-            .map(|p| Path::new(p).file_name().unwrap().to_string_lossy().into_owned())
+            .map(|p| {
+                Path::new(p)
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned()
+            })
             .collect();
         assert_eq!(names, vec!["a", "b"]);
     }

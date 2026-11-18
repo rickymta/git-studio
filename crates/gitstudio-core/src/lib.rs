@@ -94,16 +94,21 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
             let depth: Option<u32> = opt(a, "depth")?;
             let root = PathBuf::from(root);
             let depth = depth.unwrap_or(3).min(6);
-            json!(tokio::task::spawn_blocking(move || workspace::scan(&root, depth))
-                .await
-                .map_err(|e| Error::Invalid(e.to_string()))?)
+            json!(
+                tokio::task::spawn_blocking(move || workspace::scan(&root, depth))
+                    .await
+                    .map_err(|e| Error::Invalid(e.to_string()))?
+            )
         }
         "workspace.status" => {
             let repos: Vec<String> = arg(a, "repos")?;
             serde_json::to_value(workspace::status(repos).await)?
         }
         "app.openTerminal" => {
-            git::open_terminal(&PathBuf::from(arg::<String>(a, "path")?), &settings::load().terminal)?;
+            git::open_terminal(
+                &PathBuf::from(arg::<String>(a, "path")?),
+                &settings::load().terminal,
+            )?;
             return done();
         }
         "settings.get" => serde_json::to_value(settings::load())?,
@@ -167,7 +172,10 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
             serde_json::to_value(gitkraken::import(ssh.unwrap_or(true))?)?
         }
         "app.openEditor" => {
-            git::open_in_editor(&settings::load().external_editor, &PathBuf::from(arg::<String>(a, "path")?))?;
+            git::open_in_editor(
+                &settings::load().external_editor,
+                &PathBuf::from(arg::<String>(a, "path")?),
+            )?;
             return done();
         }
         "settings.forgetRecent" => {
@@ -187,7 +195,10 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
             let default_branch = settings::load().default_branch;
             let r = git::init(
                 &PathBuf::from(path),
-                branch.as_deref().filter(|b| !b.is_empty()).unwrap_or(&default_branch),
+                branch
+                    .as_deref()
+                    .filter(|b| !b.is_empty())
+                    .unwrap_or(&default_branch),
             )
             .await?;
             let info = r.info().await?;
@@ -221,7 +232,12 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
             )?
         }
         "repo.refs" => serde_json::to_value(repo(a).await?.refs().await?)?,
-        "repo.commit" => serde_json::to_value(repo(a).await?.commit_detail(&arg::<String>(a, "hash")?).await?)?,
+        "repo.commit" => serde_json::to_value(
+            repo(a)
+                .await?
+                .commit_detail(&arg::<String>(a, "hash")?)
+                .await?,
+        )?,
         "repo.diff" => {
             let req: git::DiffRequest = arg(a, "request")?;
             json!(repo(a).await?.diff(&req).await?)
@@ -239,15 +255,22 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
         }
         "file.write" => {
             let format: text::TextFormat = arg(a, "format")?;
-            repo(a)
-                .await?
-                .write_file(&arg::<String>(a, "path")?, &arg::<String>(a, "content")?, &format)?;
+            repo(a).await?.write_file(
+                &arg::<String>(a, "path")?,
+                &arg::<String>(a, "content")?,
+                &format,
+            )?;
             return done();
         }
         "file.encodings" => json!(text::COMMON),
         "repo.blame" => {
             let rev: Option<String> = opt(a, "rev")?;
-            serde_json::to_value(repo(a).await?.blame(&arg::<String>(a, "path")?, rev.as_deref()).await?)?
+            serde_json::to_value(
+                repo(a)
+                    .await?
+                    .blame(&arg::<String>(a, "path")?, rev.as_deref())
+                    .await?,
+            )?
         }
         "repo.fileHistory" => {
             let limit: Option<u32> = opt(a, "limit")?;
@@ -258,8 +281,14 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
                     .await?,
             )?
         }
+        "repo.listFiles" => {
+            serde_json::to_value(repo(a).await?.list_files(&arg::<String>(a, "rev")?).await?)?
+        }
         "repo.compare" => serde_json::to_value(
-            repo(a).await?.compare_with_worktree(&arg::<String>(a, "hash")?).await?,
+            repo(a)
+                .await?
+                .compare_with_worktree(&arg::<String>(a, "hash")?)
+                .await?,
         )?,
         "history.reword" => {
             repo(a)
@@ -269,13 +298,19 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
             return done();
         }
         "history.drop" => {
-            repo(a).await?.drop_commit(&arg::<String>(a, "hash")?).await?;
+            repo(a)
+                .await?
+                .drop_commit(&arg::<String>(a, "hash")?)
+                .await?;
             return done();
         }
         "patch.create" => {
             repo(a)
                 .await?
-                .create_patch(&arg::<String>(a, "hash")?, &PathBuf::from(arg::<String>(a, "dest")?))
+                .create_patch(
+                    &arg::<String>(a, "hash")?,
+                    &PathBuf::from(arg::<String>(a, "dest")?),
+                )
                 .await?;
             return done();
         }
@@ -318,7 +353,11 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
         "repo.setIdentity" => {
             repo(a)
                 .await?
-                .set_identity(&arg::<String>(a, "name")?, &arg::<String>(a, "email")?, arg(a, "global")?)
+                .set_identity(
+                    &arg::<String>(a, "name")?,
+                    &arg::<String>(a, "email")?,
+                    arg(a, "global")?,
+                )
                 .await?;
             return done();
         }
@@ -326,11 +365,17 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
 
         // ---- working tree ----
         "index.stage" => {
-            repo(a).await?.stage(&arg::<Vec<String>>(a, "paths")?).await?;
+            repo(a)
+                .await?
+                .stage(&arg::<Vec<String>>(a, "paths")?)
+                .await?;
             return done();
         }
         "index.unstage" => {
-            repo(a).await?.unstage(&arg::<Vec<String>>(a, "paths")?).await?;
+            repo(a)
+                .await?
+                .unstage(&arg::<Vec<String>>(a, "paths")?)
+                .await?;
             return done();
         }
         "index.discard" => {
@@ -378,7 +423,10 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
         // ---- branches & history edits ----
         "branch.checkout" => {
             let kind: git::CheckoutKind = arg(a, "kind")?;
-            repo(a).await?.checkout(&arg::<String>(a, "target")?, kind).await?;
+            repo(a)
+                .await?
+                .checkout(&arg::<String>(a, "target")?, kind)
+                .await?;
             return done();
         }
         "branch.create" => {
@@ -386,7 +434,11 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
             let checkout: Option<bool> = opt(a, "checkout")?;
             repo(a)
                 .await?
-                .create_branch(&arg::<String>(a, "name")?, start.as_deref(), checkout.unwrap_or(true))
+                .create_branch(
+                    &arg::<String>(a, "name")?,
+                    start.as_deref(),
+                    checkout.unwrap_or(true),
+                )
                 .await?;
             return done();
         }
@@ -416,7 +468,11 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
         "branch.deleteRemote" => {
             repo(a)
                 .await?
-                .delete_remote_ref(&arg::<String>(a, "remote")?, &arg::<String>(a, "name")?, token().as_deref())
+                .delete_remote_ref(
+                    &arg::<String>(a, "remote")?,
+                    &arg::<String>(a, "name")?,
+                    token().as_deref(),
+                )
                 .await?;
             return done();
         }
@@ -461,12 +517,19 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
             let msg: Option<String> = opt(a, "message")?;
             repo(a)
                 .await?
-                .create_tag(&arg::<String>(a, "name")?, &arg::<String>(a, "target")?, msg.as_deref())
+                .create_tag(
+                    &arg::<String>(a, "name")?,
+                    &arg::<String>(a, "target")?,
+                    msg.as_deref(),
+                )
                 .await?;
             return done();
         }
         "tag.delete" => {
-            repo(a).await?.delete_tag(&arg::<String>(a, "name")?).await?;
+            repo(a)
+                .await?
+                .delete_tag(&arg::<String>(a, "name")?)
+                .await?;
             return done();
         }
         "stash.save" => {
@@ -489,7 +552,10 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
         // ---- remotes ----
         "remote.fetch" => {
             let remote: Option<String> = opt(a, "remote")?;
-            repo(a).await?.fetch(remote.as_deref(), token().as_deref()).await?;
+            repo(a)
+                .await?
+                .fetch(remote.as_deref(), token().as_deref())
+                .await?;
             return done();
         }
         "remote.pull" => {
@@ -518,7 +584,10 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
             return done();
         }
         "remote.remove" => {
-            repo(a).await?.remove_remote(&arg::<String>(a, "name")?).await?;
+            repo(a)
+                .await?
+                .remove_remote(&arg::<String>(a, "name")?)
+                .await?;
             return done();
         }
 
@@ -591,15 +660,21 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
             github::Api::stored()?.delete_key(arg(a, "id")?).await?;
             return done();
         }
-        "github.signInToken" => serde_json::to_value(github::sign_in_with_token(&arg::<String>(a, "token")?).await?)?,
+        "github.signInToken" => {
+            serde_json::to_value(github::sign_in_with_token(&arg::<String>(a, "token")?).await?)?
+        }
         "github.deviceStart" => {
             let id: Option<String> = opt(a, "clientId")?;
-            let id = id.filter(|s| !s.is_empty()).unwrap_or_else(|| settings::load().github_client_id);
+            let id = id
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| settings::load().github_client_id);
             serde_json::to_value(github::device_start(&id).await?)?
         }
         "github.devicePoll" => {
             let id: Option<String> = opt(a, "clientId")?;
-            let id = id.filter(|s| !s.is_empty()).unwrap_or_else(|| settings::load().github_client_id);
+            let id = id
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| settings::load().github_client_id);
             serde_json::to_value(github::device_poll(&id, &arg::<String>(a, "deviceCode")?).await?)?
         }
         "github.signOut" => {

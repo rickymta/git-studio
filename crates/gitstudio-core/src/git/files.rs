@@ -17,8 +17,12 @@ fn safe_rel(path: &str) -> Result<PathBuf> {
     let p = Path::new(path);
     if path.is_empty()
         || p.is_absolute()
-        || p.components()
-            .any(|c| matches!(c, Component::ParentDir | Component::Prefix(_) | Component::RootDir))
+        || p.components().any(|c| {
+            matches!(
+                c,
+                Component::ParentDir | Component::Prefix(_) | Component::RootDir
+            )
+        })
     {
         return Err(Error::Invalid(format!("Invalid path {path:?}")));
     }
@@ -79,14 +83,21 @@ pub struct NewWorktree {
 
 impl Repo {
     /// Read a file from the working tree (`rev` = None) or from a commit, decoded.
-    pub async fn read_file(&self, path: &str, rev: Option<&str>, encoding: Option<&str>) -> Result<DecodedText> {
+    pub async fn read_file(
+        &self,
+        path: &str,
+        rev: Option<&str>,
+        encoding: Option<&str>,
+    ) -> Result<DecodedText> {
         let rel = safe_rel(path)?;
         let bytes = match rev {
             None => std::fs::read(self.root.join(&rel))?,
             Some(r) => {
                 check_rev(r)?;
                 let spec = format!("{r}:{}", rel.to_string_lossy().replace('\\', "/"));
-                run::ok(&self.root, &["show", &spec], Opts::default()).await?.stdout
+                run::ok(&self.root, &["show", &spec], Opts::default())
+                    .await?
+                    .stdout
             }
         };
         text::decode(&bytes, encoding)
@@ -143,7 +154,12 @@ impl Repo {
     // ---- worktrees ----
 
     pub async fn worktrees(&self) -> Result<Vec<Worktree>> {
-        let out = run::ok(&self.root, &["worktree", "list", "--porcelain"], Opts::default()).await?;
+        let out = run::ok(
+            &self.root,
+            &["worktree", "list", "--porcelain"],
+            Opts::default(),
+        )
+        .await?;
         let mut list = parse_worktrees(&String::from_utf8_lossy(&out.stdout));
         let me = self.root.canonicalize().ok();
         for (i, w) in list.iter_mut().enumerate() {
@@ -197,8 +213,7 @@ fn parse_blame(text: &str) -> Blame {
     let mut lines = Vec::new();
     let mut commits: Vec<BlameCommit> = Vec::new();
     let mut cur: Option<usize> = None;
-    let mut it = text.lines().peekable();
-    while let Some(line) = it.next() {
+    for line in text.lines() {
         if let Some(content) = line.strip_prefix('\t') {
             let _ = content;
             continue;
@@ -261,26 +276,23 @@ fn parse_history(text: &str) -> Vec<FileHistoryEntry> {
             subject: f[7].to_string(),
             body: String::new(),
         };
-        let change = lines
-            .map(str::trim)
-            .find(|l| !l.is_empty())
-            .map(|l| {
-                let cols: Vec<&str> = l.split('\t').collect();
-                let status = cols[0].chars().next().unwrap_or('M');
-                if cols.len() >= 3 {
-                    FileChange {
-                        path: cols[2].to_string(),
-                        orig_path: Some(cols[1].to_string()),
-                        status,
-                    }
-                } else {
-                    FileChange {
-                        path: cols.get(1).copied().unwrap_or_default().to_string(),
-                        orig_path: None,
-                        status,
-                    }
+        let change = lines.map(str::trim).find(|l| !l.is_empty()).map(|l| {
+            let cols: Vec<&str> = l.split('\t').collect();
+            let status = cols[0].chars().next().unwrap_or('M');
+            if cols.len() >= 3 {
+                FileChange {
+                    path: cols[2].to_string(),
+                    orig_path: Some(cols[1].to_string()),
+                    status,
                 }
-            });
+            } else {
+                FileChange {
+                    path: cols.get(1).copied().unwrap_or_default().to_string(),
+                    orig_path: None,
+                    status,
+                }
+            }
+        });
         if let Some(change) = change {
             out.push(FileHistoryEntry { commit, change });
         }
@@ -323,27 +335,6 @@ fn parse_worktrees(text: &str) -> Vec<Worktree> {
     out
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn worktree_porcelain() {
-        let t = "worktree /a\nHEAD 111\nbranch refs/heads/main\n\nworktree /b\nHEAD 222\ndetached\nlocked reason\n\n";
-        let w = parse_worktrees(t);
-        assert_eq!(w.len(), 2);
-        assert_eq!(w[0].branch.as_deref(), Some("main"));
-        assert!(w[1].branch.is_none() && w[1].locked);
-    }
-
-    #[test]
-    fn rejects_escaping_paths() {
-        assert!(safe_rel("../x").is_err());
-        assert!(safe_rel("/etc/passwd").is_err());
-        assert!(safe_rel("src/a.rs").is_ok());
-    }
-}
-
 // ---- history edits and patches ----
 
 impl Repo {
@@ -360,7 +351,12 @@ impl Repo {
 
     async fn has_merges_since(&self, hash: &str) -> Result<bool> {
         let range = format!("{hash}..HEAD");
-        let out = run::ok(&self.root, &["rev-list", "--merges", &range], Opts::default()).await?;
+        let out = run::ok(
+            &self.root,
+            &["rev-list", "--merges", &range],
+            Opts::default(),
+        )
+        .await?;
         Ok(!out.text().trim().is_empty())
     }
 
@@ -378,7 +374,9 @@ impl Repo {
             ));
         }
         if self.state() != super::model::RepoState::Clean {
-            return Err(Error::Invalid("Finish or abort the operation in progress first".into()));
+            return Err(Error::Invalid(
+                "Finish or abort the operation in progress first".into(),
+            ));
         }
         Ok(())
     }
@@ -389,30 +387,55 @@ impl Repo {
             return Err(Error::Invalid("Commit message is empty".into()));
         }
         self.check_rewritable(hash).await?;
-        let head = run::ok(&self.root, &["rev-parse", "HEAD"], Opts::default()).await?.text();
-        let full = run::ok(&self.root, &["rev-parse", hash], Opts::default()).await?.text();
-        if head.trim() == full.trim() {
-            return run::ok(&self.root, &["commit", "--amend", "--only", "-F", "-"], Opts { stdin: Some(message.as_bytes()), env: Vec::new() })
-                .await
-                .map(drop);
-        }
-        // "amend!" commit carrying the new message, folded in by --autosquash.
-        let subject = run::ok(&self.root, &["log", "-1", "--format=%s", hash], Opts::default())
+        let head = run::ok(&self.root, &["rev-parse", "HEAD"], Opts::default())
             .await?
             .text();
+        let full = run::ok(&self.root, &["rev-parse", hash], Opts::default())
+            .await?
+            .text();
+        if head.trim() == full.trim() {
+            return run::ok(
+                &self.root,
+                &["commit", "--amend", "--only", "-F", "-"],
+                Opts {
+                    stdin: Some(message.as_bytes()),
+                    env: Vec::new(),
+                },
+            )
+            .await
+            .map(drop);
+        }
+        // "amend!" commit carrying the new message, folded in by --autosquash.
+        let subject = run::ok(
+            &self.root,
+            &["log", "-1", "--format=%s", hash],
+            Opts::default(),
+        )
+        .await?
+        .text();
         let fixup = format!("amend! {}\n\n{}", subject.trim(), message.trim());
         // An empty "amend!" commit on top of HEAD, built with commit-tree so staged changes are
         // left alone; `rebase --autosquash` folds it into `hash`, replacing the message.
         let created = run::ok(
             &self.root,
             &["commit-tree", "HEAD^{tree}", "-p", "HEAD", "-F", "-"],
-            Opts { stdin: Some(fixup.as_bytes()), env: Vec::new() },
+            Opts {
+                stdin: Some(fixup.as_bytes()),
+                env: Vec::new(),
+            },
         )
         .await?
         .text();
         run::ok(
             &self.root,
-            &["update-ref", "-m", "reword", "HEAD", created.trim(), head.trim()],
+            &[
+                "update-ref",
+                "-m",
+                "reword",
+                "HEAD",
+                created.trim(),
+                head.trim(),
+            ],
             Opts::default(),
         )
         .await?;
@@ -432,10 +455,16 @@ impl Repo {
     /// Remove `hash` from the current branch (`rebase --onto hash^ hash`).
     pub async fn drop_commit(&self, hash: &str) -> Result<()> {
         self.check_rewritable(hash).await?;
-        let parent = run::raw(Some(&self.root), &["rev-parse", "--verify", "-q", &format!("{hash}^")], Opts::default())
-            .await?;
+        let parent = run::raw(
+            Some(&self.root),
+            &["rev-parse", "--verify", "-q", &format!("{hash}^")],
+            Opts::default(),
+        )
+        .await?;
         if parent.code != 0 {
-            return Err(Error::Invalid("The first commit of a branch cannot be dropped".into()));
+            return Err(Error::Invalid(
+                "The first commit of a branch cannot be dropped".into(),
+            ));
         }
         let parent = parent.text();
         run::ok(
@@ -450,7 +479,12 @@ impl Repo {
     /// `git format-patch` of one commit into `dest` (a file path).
     pub async fn create_patch(&self, hash: &str, dest: &Path) -> Result<()> {
         check_rev(hash)?;
-        let out = run::ok(&self.root, &["format-patch", "-1", "--stdout", hash], Opts::default()).await?;
+        let out = run::ok(
+            &self.root,
+            &["format-patch", "-1", "--stdout", hash],
+            Opts::default(),
+        )
+        .await?;
         std::fs::write(dest, out.stdout)?;
         Ok(())
     }
@@ -458,12 +492,19 @@ impl Repo {
     /// Apply a patch file to the working tree (3-way when possible).
     pub async fn apply_patch_file(&self, file: &Path) -> Result<()> {
         if !file.is_file() {
-            return Err(Error::Invalid(format!("Patch not found: {}", file.display())));
+            return Err(Error::Invalid(format!(
+                "Patch not found: {}",
+                file.display()
+            )));
         }
         let f = file.to_string_lossy().into_owned();
-        run::ok(&self.root, &["apply", "--3way", "--whitespace=nowarn", "--", &f], Opts::default())
-            .await
-            .map(drop)
+        run::ok(
+            &self.root,
+            &["apply", "--3way", "--whitespace=nowarn", "--", &f],
+            Opts::default(),
+        )
+        .await
+        .map(drop)
     }
 
     /// Files that differ between `hash` and the working tree.
@@ -476,5 +517,44 @@ impl Repo {
         )
         .await?;
         Ok(super::parse::parse_name_status(&out.stdout))
+    }
+}
+
+impl Repo {
+    /// Every file path in the tree of `rev` ("View all files").
+    pub async fn list_files(&self, rev: &str) -> Result<Vec<String>> {
+        check_rev(rev)?;
+        let out = run::ok(
+            &self.root,
+            &["ls-tree", "-r", "--name-only", "-z", rev],
+            Opts::default(),
+        )
+        .await?;
+        Ok(String::from_utf8_lossy(&out.stdout)
+            .split('\0')
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn worktree_porcelain() {
+        let t = "worktree /a\nHEAD 111\nbranch refs/heads/main\n\nworktree /b\nHEAD 222\ndetached\nlocked reason\n\n";
+        let w = parse_worktrees(t);
+        assert_eq!(w.len(), 2);
+        assert_eq!(w[0].branch.as_deref(), Some("main"));
+        assert!(w[1].branch.is_none() && w[1].locked);
+    }
+
+    #[test]
+    fn rejects_escaping_paths() {
+        assert!(safe_rel("../x").is_err());
+        assert!(safe_rel("/etc/passwd").is_err());
+        assert!(safe_rel("src/a.rs").is_ok());
     }
 }

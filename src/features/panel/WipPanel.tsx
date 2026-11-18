@@ -533,7 +533,7 @@ export function WipPanel() {
         <div className="flex min-h-0 flex-1 flex-col rounded-md bg-background">
           <div className="flex items-center">
             <input
-              className="h-9 min-w-0 flex-1 bg-transparent px-3 text-[14px] outline-none placeholder:text-muted-foreground"
+              className="h-10 min-w-0 flex-1 bg-transparent px-3 text-[16px] font-semibold outline-none placeholder:text-muted-foreground"
               id="commit-summary"
               placeholder={t('Commit summary')}
               value={summary}

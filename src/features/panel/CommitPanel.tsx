@@ -1,31 +1,122 @@
 import { ArrowLeftRight, Copy, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { Avatar, IconButton, Spinner } from '@/components/ui';
-import { fullDate, short } from '@/lib/format';
+import { Avatar, IconButton, Spinner, cn } from '@/components/ui';
+import { short } from '@/lib/format';
 import { t } from '@/lib/i18n';
+import { api } from '@/lib/ipc';
 import { copyText } from '@/lib/native';
-import type { FileChange } from '@/lib/types';
+import type { FileChange, FileStatus } from '@/lib/types';
 import { useCompare } from '@/stores/compare';
 import { useRepo } from '@/stores/repo';
-import { FileList, FilesSection, ViewToggle, useViewMode } from './FileList';
+import {
+  FileList,
+  FilesSection,
+  SortButton,
+  ViewToggle,
+  sortFiles,
+  useFileSort,
+  useViewMode,
+} from './FileList';
 
+/** "11/17/2026 @ 12:12 AM" */
+function authoredAt(unix: number): string {
+  const d = new Date(unix * 1000);
+  return `${d.toLocaleDateString()} @ ${d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+}
+
+/** `Co-authored-by: Name <email>` trailers. */
+function coAuthors(body: string): { name: string; email: string }[] {
+  const out: { name: string; email: string }[] = [];
+  for (const line of body.split('\n')) {
+    const m = /^co-authored-by:\s*(.+?)\s*<([^>]*)>\s*$/i.exec(line.trim());
+    if (m) out.push({ name: m[1]!, email: m[2]! });
+  }
+  return out;
+}
+
+function usePersistedNumber(key: string, initial: number): [number, (v: number) => void] {
+  const [v, setV] = useState(() => {
+    try {
+      const n = Number(localStorage.getItem(key));
+      return n > 0 ? n : initial;
+    } catch {
+      return initial;
+    }
+  });
+  return [
+    v,
+    (n) => {
+      setV(n);
+      try {
+        localStorage.setItem(key, String(n));
+      } catch {
+        /* ignore */
+      }
+    },
+  ];
+}
+
+const SUMMARY: { status: FileStatus[]; mark: string; cls: string; label: string }[] = [
+  { status: ['M', 'T'], mark: '✎', cls: 'text-warning', label: '{n} modified' },
+  { status: ['A'], mark: '+', cls: 'text-success', label: '{n} added' },
+  { status: ['D'], mark: '−', cls: 'text-danger', label: '{n} deleted' },
+  { status: ['R', 'C'], mark: '→', cls: 'text-accent', label: '{n} renamed' },
+];
+
+/** Details of a selected commit, laid out like GitKraken's commit panel. */
 export function CommitPanel({ hash }: { hash: string }) {
   const detail = useRepo((s) => s.detail);
   const diff = useRepo((s) => s.diff);
   const openDiff = useRepo((s) => s.openDiff);
   const select = useRepo((s) => s.select);
+  const repo = useRepo((s) => s.path)!;
   const [mode, setMode] = useViewMode();
+  const [sort, setSort] = useFileSort();
   const compare = useCompare();
+  const [allFiles, setAllFiles] = useState(false);
+  const [tree, setTree] = useState<string[] | null>(null);
+  const [msgH, setMsgH] = usePersistedNumber('gitstudio.commit.messageHeight', 170);
+  const dragStart = useRef(0);
 
-  if (!detail || detail.hash !== hash) {
+  // "View all files": the whole tree of this commit.
+  useEffect(() => {
+    if (!allFiles) return;
+    let alive = true;
+    api
+      .listFiles(repo, hash)
+      .then((files) => alive && setTree(files))
+      .catch(() => alive && setTree([]));
+    return () => {
+      alive = false;
+    };
+  }, [allFiles, repo, hash]);
+
+  const d = detail && detail.hash === hash ? detail : null;
+
+  const files = useMemo<FileChange[]>(() => {
+    if (!d) return [];
+    if (!allFiles || !tree) return sortFiles(d.files, sort);
+    const changed = new Map(d.files.map((f) => [f.path, f]));
+    const rows: FileChange[] = tree.map(
+      (p) => changed.get(p) ?? { path: p, origPath: null, status: ' ' as FileStatus },
+    );
+    // Deleted files are not in the tree any more; keep them visible.
+    for (const f of d.files) if (f.status === 'D') rows.push(f);
+    return sortFiles(rows, sort);
+  }, [d, allFiles, tree, sort]);
+
+  if (!d) {
     return (
       <div className="flex h-full items-center justify-center">
         <Spinner className="text-muted-foreground" />
       </div>
     );
   }
-  const d = detail;
-  const rest = d.body.split('\n').slice(1).join('\n').trim();
+
+  const [, ...bodyLines] = d.body.split('\n');
+  const body = bodyLines.join('\n').trim();
+  const coauthors = coAuthors(d.body);
   const isActive = (f: FileChange) =>
     diff?.request.source === 'commit' &&
     diff.request.commit === d.hash &&
@@ -36,57 +127,115 @@ export function CommitPanel({ hash }: { hash: string }) {
     diff.request.commit === d.hash &&
     diff.request.path === f.path;
 
+  const open = (f: FileChange) =>
+    openDiff({
+      source: 'commit',
+      path: f.path,
+      origPath: f.origPath,
+      commit: d.hash,
+      parent: d.parents[0] ?? null,
+    });
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3 text-xs text-muted-foreground">
+      {/* commit: <sha> */}
+      <div className="flex h-11 shrink-0 items-center justify-center gap-1.5 border-b border-border px-3 text-[13px] text-muted-foreground">
         <span>{t('commit:')}</span>
         <code className="selectable font-mono text-foreground">{short(d.hash)}</code>
         <IconButton label={t('Copy SHA')} onClick={() => copyText(d.hash)}>
-          <Copy className="size-3" />
+          <Copy className="size-3.5" />
         </IconButton>
-        {d.parents.length > 0 && (
-          <span className="ml-auto flex gap-1">
-            {d.parents.length > 1 ? t('parents:') : t('parent:')}
-            {d.parents.map((p) => (
-              <button
-                key={p}
-                type="button"
-                className="font-mono text-accent hover:underline"
-                onClick={() => select({ type: 'commit', hash: p })}
-              >
-                {short(p)}
-              </button>
-            ))}
-          </span>
-        )}
       </div>
-      <div className="shrink-0 border-b border-border p-3">
-        <div className="selectable text-[15px] font-semibold">{d.subject}</div>
-        {rest && (
-          <pre className="selectable mt-2 max-h-48 overflow-auto font-sans whitespace-pre-wrap text-muted-foreground">
-            {rest}
-          </pre>
-        )}
-        <div className="mt-3 flex items-center gap-2">
-          <Avatar name={d.authorName} size={32} />
-          <div className="min-w-0 text-xs">
-            <div className="truncate">
-              <span className="font-medium">{d.authorName}</span>{' '}
-              <span className="text-muted-foreground">&lt;{d.authorEmail}&gt;</span>
+
+      {/* Message */}
+      <div className="shrink-0 px-3 pt-3">
+        <div
+          className="selectable overflow-auto rounded-md border border-border bg-background px-3 py-2.5"
+          style={{ height: msgH }}
+        >
+          <div className="text-[17px] leading-snug">{d.subject}</div>
+          {body && (
+            <pre className="mt-2.5 font-sans text-[13.5px] leading-relaxed whitespace-pre-wrap text-foreground/85">
+              {body}
+            </pre>
+          )}
+        </div>
+        <div
+          role="separator"
+          aria-orientation="horizontal"
+          title={t('Drag to resize, double-click to reset')}
+          onDoubleClick={() => setMsgH(170)}
+          onPointerDown={(e) => {
+            e.preventDefault();
+            const y0 = e.clientY;
+            dragStart.current = msgH;
+            const move = (ev: PointerEvent) =>
+              setMsgH(Math.min(600, Math.max(70, dragStart.current + ev.clientY - y0)));
+            const up = () => {
+              window.removeEventListener('pointermove', move);
+              window.removeEventListener('pointerup', up);
+              document.body.style.cursor = '';
+            };
+            document.body.style.cursor = 'row-resize';
+            window.addEventListener('pointermove', move);
+            window.addEventListener('pointerup', up);
+          }}
+          className="group flex h-3 cursor-row-resize items-center justify-center"
+        >
+          <span className="h-[3px] w-14 rounded-full bg-border group-hover:bg-accent" />
+        </div>
+      </div>
+
+      {/* Author, parent, co-authors */}
+      <div className="shrink-0 px-3 pb-2">
+        <div className="flex items-start gap-3">
+          <Avatar name={d.authorName} size={40} />
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[15px] font-medium" title={d.authorEmail}>
+              {d.authorName}
             </div>
-            <div className="text-muted-foreground">
-              {t('authored {date}', { date: fullDate(d.authorTime) })}
+            <div className="text-[13px] text-muted-foreground">
+              {t('authored {date}', { date: authoredAt(d.authorTime) })}
             </div>
             {d.committerName !== d.authorName && (
-              <div className="text-muted-foreground">
+              <div className="text-[13px] text-muted-foreground">
                 {t('committed by {name}', { name: d.committerName })}
               </div>
             )}
           </div>
+          {d.parents.length > 0 && (
+            <div className="flex shrink-0 flex-col items-end text-[13px] text-muted-foreground">
+              {d.parents.map((p, i) => (
+                <span key={p}>
+                  {i === 0 ? (d.parents.length > 1 ? t('parents:') : t('parent:')) : ''}{' '}
+                  <button
+                    type="button"
+                    className="font-mono text-accent hover:underline"
+                    onClick={() => select({ type: 'commit', hash: p })}
+                  >
+                    {short(p)}
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
+        {coauthors.length > 0 && (
+          <div className="mt-2 flex items-center gap-2 text-[13px] text-muted-foreground">
+            {t('Co-authors:')}
+            <span className="flex gap-1">
+              {coauthors.map((c) => (
+                <span key={c.email} title={`${c.name} <${c.email}>`}>
+                  <Avatar name={c.name} size={22} />
+                </span>
+              ))}
+            </span>
+          </div>
+        )}
       </div>
+
       {comparing && (
-        <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border bg-accent/10 px-3 text-xs">
+        <div className="flex h-9 shrink-0 items-center gap-2 border-y border-border bg-accent/10 px-3 text-xs">
           <ArrowLeftRight className="size-3.5 shrink-0 text-accent" />
           <span className="min-w-0 flex-1 truncate">
             {t('Comparing {hash} ↔ working directory', { hash: short(d.hash) })}
@@ -97,10 +246,37 @@ export function CommitPanel({ hash }: { hash: string }) {
           </IconButton>
         </div>
       )}
-      <div className="flex h-10 shrink-0 items-center justify-end px-3">
-        <ViewToggle mode={mode} onChange={setMode} />
+
+      {/* Change summary + file list tools */}
+      <div className="shrink-0 border-t border-border px-3 pt-2.5">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[13.5px]">
+          {SUMMARY.map((s) => {
+            const n = d.files.filter((f) => s.status.includes(f.status)).length;
+            return n === 0 ? null : (
+              <span key={s.label} className="flex items-center gap-1.5">
+                <span className={cn('font-bold', s.cls)}>{s.mark}</span>
+                {t(s.label, { n })}
+              </span>
+            );
+          })}
+        </div>
+        <div className="flex h-11 items-center gap-2">
+          <SortButton sort={sort} onChange={setSort} />
+          <div className="flex-1" />
+          <ViewToggle mode={mode} onChange={setMode} />
+          <label className="ml-2 flex items-center gap-1.5 text-[13px] text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={allFiles}
+              onChange={(e) => setAllFiles(e.target.checked)}
+              className="accent-[var(--accent)]"
+            />
+            {t('View all files')}
+          </label>
+        </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto">
+
+      <div className="min-h-0 flex-1 overflow-auto pb-2">
         {comparing && (
           <FilesSection title={t('Changes since this commit')} count={compare.files?.length ?? 0}>
             {compare.files?.length === 0 && (
@@ -119,23 +295,19 @@ export function CommitPanel({ hash }: { hash: string }) {
             />
           </FilesSection>
         )}
-        <FilesSection title={t('Changed Files')} count={d.files.length}>
+        {allFiles && !tree ? (
+          <div className="flex justify-center p-4">
+            <Spinner className="text-muted-foreground" />
+          </div>
+        ) : (
           <FileList
-            files={d.files}
+            files={files}
             mode={mode}
             isActive={isActive}
-            onOpen={(f) =>
-              openDiff({
-                source: 'commit',
-                path: f.path,
-                origPath: f.origPath,
-                commit: d.hash,
-                parent: d.parents[0] ?? null,
-              })
-            }
+            onOpen={open}
             menu={(f) => [{ label: t('Copy file path'), onSelect: () => copyText(f.path) }]}
           />
-        </FilesSection>
+        )}
       </div>
     </div>
   );

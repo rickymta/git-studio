@@ -186,4 +186,10 @@ export const panels: Record<string, string> = {
   'Switch to HTTPS URL': 'Chuyển sang URL HTTPS',
   'Copy URL': 'Sao chép URL',
   'Remove {name}': 'Xoá {name}',
+  'Co-authors:': 'Đồng tác giả:',
+  'View all files': 'Xem tất cả file',
+  '{n} modified': '{n} đã sửa',
+  '{n} added': '{n} đã thêm',
+  '{n} deleted': '{n} đã xoá',
+  '{n} renamed': '{n} đổi tên',
 };

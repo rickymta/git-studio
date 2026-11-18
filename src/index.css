@@ -19,6 +19,9 @@
   --warning: oklch(0.58 0.13 70);
   --warning-soft: oklch(0.95 0.06 85);
   --danger: oklch(0.55 0.2 25);
+  --wip-mod: oklch(0.62 0.15 70);
+  --wip-add: oklch(0.58 0.17 150);
+  --wip-del: oklch(0.58 0.21 25);
   --danger-soft: oklch(0.95 0.04 25);
   --selection: oklch(0.9 0.05 200);
   --ring: oklch(0.58 0.13 190 / 0.5);
@@ -51,6 +54,9 @@
   --warning: oklch(0.82 0.12 85);
   --warning-soft: oklch(0.32 0.06 80);
   --danger: oklch(0.72 0.17 25);
+  --wip-mod: oklch(0.9 0.16 90);
+  --wip-add: oklch(0.88 0.19 150);
+  --wip-del: oklch(0.8 0.18 25);
   --danger-soft: oklch(0.3 0.07 25);
   --selection: oklch(0.33 0.05 220);
   --ring: oklch(0.72 0.12 190 / 0.6);
@@ -83,6 +89,9 @@
   --color-warning: var(--warning);
   --color-warning-soft: var(--warning-soft);
   --color-danger: var(--danger);
+  --color-wip-mod: var(--wip-mod);
+  --color-wip-add: var(--wip-add);
+  --color-wip-del: var(--wip-del);
   --color-danger-soft: var(--danger-soft);
   --color-selection: var(--selection);
   --color-ring: var(--ring);
@@ -90,6 +99,9 @@
   --color-diff-add-strong: var(--diff-add-strong);
   --color-diff-del: var(--diff-del);
   --color-diff-del-strong: var(--diff-del-strong);
+  /* Small text 10% larger than Tailwind's default 12px. */
+  --text-xs: 0.825rem;
+  --text-xs--line-height: 1.1rem;
   --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
   --font-mono: ui-monospace, 'Cascadia Code', SFMono-Regular, Menlo, Consolas, monospace;
 }
@@ -105,7 +117,8 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
-  font-size: 13px;
+  /* 10% above the original 13px. */
+  font-size: 14.3px;
   -webkit-font-smoothing: antialiased;
   user-select: none;
   overflow: hidden;

@@ -60,7 +60,12 @@ pub fn detect(bytes: &[u8]) -> (&'static Encoding, bool) {
     if bytes.len() >= 4 {
         let sample = &bytes[..bytes.len().min(4000)];
         let even_nul = sample.iter().step_by(2).filter(|&&b| b == 0).count();
-        let odd_nul = sample.iter().skip(1).step_by(2).filter(|&&b| b == 0).count();
+        let odd_nul = sample
+            .iter()
+            .skip(1)
+            .step_by(2)
+            .filter(|&&b| b == 0)
+            .count();
         let half = sample.len() / 2;
         if odd_nul > half * 6 / 10 && even_nul < half / 10 {
             return (UTF_16LE, false);
@@ -104,7 +109,11 @@ pub fn decode(bytes: &[u8], label: Option<&str>) -> Result<DecodedText> {
     let eol = eol_of(&text).to_string();
     Ok(DecodedText {
         // The editor works with "\n"; line endings are restored on save.
-        text: if eol == "crlf" { text.replace("\r\n", "\n") } else { text },
+        text: if eol == "crlf" {
+            text.replace("\r\n", "\n")
+        } else {
+            text
+        },
         format: TextFormat {
             encoding: enc.name().to_string(),
             bom,
@@ -190,7 +199,10 @@ mod tests {
         // windows-1252 "café"
         let d = decode(b"caf\xE9 au lait, cr\xE8me br\xFBl\xE9e\n", None).unwrap();
         assert_eq!(d.text, "café au lait, crème brûlée\n");
-        assert_eq!(encode(&d.text, &d.format).unwrap(), b"caf\xE9 au lait, cr\xE8me br\xFBl\xE9e\n");
+        assert_eq!(
+            encode(&d.text, &d.format).unwrap(),
+            b"caf\xE9 au lait, cr\xE8me br\xFBl\xE9e\n"
+        );
     }
 
     #[test]

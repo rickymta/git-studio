@@ -66,18 +66,32 @@ pub struct Project {
 }
 
 fn project_from(v: &Value) -> Project {
-    let s = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
+    let s = |k: &str| {
+        v.get(k)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
     Project {
         full_name: s("path_with_namespace"),
         name: s("path"),
-        description: v.get("description").and_then(Value::as_str).map(str::to_string),
+        description: v
+            .get("description")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         private: v.get("visibility").and_then(Value::as_str) != Some("public"),
         fork: v.get("forked_from_project").is_some_and(|f| !f.is_null()),
         clone_url: s("http_url_to_repo"),
         ssh_url: s("ssh_url_to_repo"),
         html_url: s("web_url"),
-        default_branch: v.get("default_branch").and_then(Value::as_str).map(str::to_string),
-        updated_at: v.get("last_activity_at").and_then(Value::as_str).map(str::to_string),
+        default_branch: v
+            .get("default_branch")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        updated_at: v
+            .get("last_activity_at")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         stargazers_count: v.get("star_count").and_then(Value::as_u64).unwrap_or(0),
     }
 }
@@ -95,7 +109,9 @@ async fn get(token: &str, path: &str) -> Result<Value> {
     let status = res.status();
     let v: Value = res.json().await.unwrap_or(Value::Null);
     if status == reqwest::StatusCode::UNAUTHORIZED {
-        return Err(Error::GitHub("GitLab 401: GitLab rejected the token. Sign in again.".into()));
+        return Err(Error::GitHub(
+            "GitLab 401: GitLab rejected the token. Sign in again.".into(),
+        ));
     }
     if !status.is_success() {
         let msg = v
@@ -140,7 +156,9 @@ pub async fn import_token() -> Result<User> {
         .lines()
         .find_map(|l| l.strip_prefix("password="))
         .filter(|p| out.code == 0 && !p.is_empty())
-        .ok_or_else(|| Error::GitHub("Git has no stored GitLab credentials on this machine".into()))?;
+        .ok_or_else(|| {
+            Error::GitHub("Git has no stored GitLab credentials on this machine".into())
+        })?;
     sign_in_with_token(token).await
 }
 
@@ -152,5 +170,7 @@ pub async fn projects(page: u32) -> Result<Vec<Project>> {
         &format!("/projects?membership=true&per_page=100&order_by=last_activity_at&page={page}"),
     )
     .await?;
-    Ok(v.as_array().map(|a| a.iter().map(project_from).collect()).unwrap_or_default())
+    Ok(v.as_array()
+        .map(|a| a.iter().map(project_from).collect())
+        .unwrap_or_default())
 }

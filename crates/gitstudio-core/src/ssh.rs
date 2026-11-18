@@ -128,7 +128,11 @@ pub fn git_env() -> Vec<(String, String)> {
 
 async fn read_key(pub_path: &Path) -> Option<LocalKey> {
     let text = std::fs::read_to_string(pub_path).ok()?;
-    let line = text.lines().find(|l| !l.trim().is_empty())?.trim().to_string();
+    let line = text
+        .lines()
+        .find(|l| !l.trim().is_empty())?
+        .trim()
+        .to_string();
     let mut parts = line.splitn(3, ' ');
     let key_type = parts.next()?.to_string();
     let _body = parts.next()?;
@@ -227,7 +231,16 @@ pub async fn generate(name: &str, comment: &str, passphrase: &str) -> Result<Loc
         )));
     }
     let out = command(tool("ssh-keygen").await)
-        .args(["-q", "-t", "ed25519", "-C", comment.trim(), "-N", passphrase, "-f"])
+        .args([
+            "-q",
+            "-t",
+            "ed25519",
+            "-C",
+            comment.trim(),
+            "-N",
+            passphrase,
+            "-f",
+        ])
         .arg(&path)
         .output()
         .await
@@ -245,7 +258,11 @@ pub async fn generate(name: &str, comment: &str, passphrase: &str) -> Result<Loc
 
 /// `ssh -T git@<host>` with the configured key; GitHub answers "Hi <user>! …" (exit code 1).
 pub async fn test(host: &str) -> Result<TestResult> {
-    if host.is_empty() || !host.chars().all(|c| c.is_ascii_alphanumeric() || "-.".contains(c)) {
+    if host.is_empty()
+        || !host
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-.".contains(c))
+    {
         return Err(Error::Invalid(format!("Invalid host {host:?}")));
     }
     let s = settings::load().ssh;
@@ -260,7 +277,9 @@ pub async fn test(host: &str) -> Result<TestResult> {
         "ConnectTimeout=10",
     ]);
     if s.mode == "key" && !s.private_key.is_empty() {
-        cmd.arg("-i").arg(&s.private_key).args(["-o", "IdentitiesOnly=yes"]);
+        cmd.arg("-i")
+            .arg(&s.private_key)
+            .args(["-o", "IdentitiesOnly=yes"]);
     }
     cmd.arg(format!("git@{host}"));
     let out = tokio::time::timeout(std::time::Duration::from_secs(20), cmd.output())
@@ -288,7 +307,9 @@ pub async fn test(host: &str) -> Result<TestResult> {
             "{text}\n\nThe key was not accepted. Add its public key to your GitHub account, or choose another key."
         )
     } else if text.contains("passphrase") || text.contains("bad permissions") {
-        format!("{text}\n\nLoad passphrase-protected keys into ssh-agent and use the system SSH setting.")
+        format!(
+            "{text}\n\nLoad passphrase-protected keys into ssh-agent and use the system SSH setting."
+        )
     } else {
         text
     };

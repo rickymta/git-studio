@@ -57,6 +57,7 @@ export const api = {
     call<T.Blame>('repo.blame', { repo, path, rev }),
   fileHistory: (repo: string, path: string, limit = 500) =>
     call<T.FileHistoryEntry[]>('repo.fileHistory', { repo, path, limit }),
+  listFiles: (repo: string, rev: string) => call<string[]>('repo.listFiles', { repo, rev }),
   compareWithWorktree: (repo: string, hash: string) =>
     call<T.FileChange[]>('repo.compare', { repo, hash }),
   reword: (repo: string, hash: string, message: string) =>

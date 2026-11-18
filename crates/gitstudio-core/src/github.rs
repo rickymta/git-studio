@@ -76,7 +76,9 @@ pub async fn device_start(client_id: &str) -> Result<DeviceCode> {
         .await?;
     let v: Value = res.json().await?;
     if let Some(err) = v.get("error_description").or_else(|| v.get("error")) {
-        return Err(Error::GitHub(err.as_str().unwrap_or("Device flow failed").to_string()));
+        return Err(Error::GitHub(
+            err.as_str().unwrap_or("Device flow failed").to_string(),
+        ));
     }
     Ok(serde_json::from_value(v)?)
 }
@@ -201,7 +203,12 @@ pub struct PullRequest {
 }
 
 fn pr_from(v: &Value) -> PullRequest {
-    let s = |p: &str| v.pointer(p).and_then(Value::as_str).unwrap_or_default().to_string();
+    let s = |p: &str| {
+        v.pointer(p)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
     PullRequest {
         number: v.get("number").and_then(Value::as_u64).unwrap_or(0),
         title: s("/title"),
@@ -251,7 +258,12 @@ impl Api {
             .ok_or_else(|| Error::GitHub("Not signed in to GitHub".into()))
     }
 
-    async fn request(&self, method: reqwest::Method, path: &str, body: Option<Value>) -> Result<Value> {
+    async fn request(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<Value>,
+    ) -> Result<Value> {
         Ok(self.request_full(method, path, body).await?.0)
     }
 
@@ -297,7 +309,9 @@ impl Api {
     }
 
     pub async fn user(&self) -> Result<User> {
-        let (v, headers) = self.request_full(reqwest::Method::GET, "/user", None).await?;
+        let (v, headers) = self
+            .request_full(reqwest::Method::GET, "/user", None)
+            .await?;
         let mut user: User = serde_json::from_value(v)?;
         user.scopes = headers
             .get("x-oauth-scopes")
@@ -322,7 +336,9 @@ impl Api {
     pub async fn add_key(&self, title: &str, key: &str) -> Result<SshKey> {
         let key = key.trim();
         if !key.starts_with("ssh-") && !key.starts_with("ecdsa-") && !key.starts_with("sk-") {
-            return Err(Error::Invalid("That does not look like an SSH public key".into()));
+            return Err(Error::Invalid(
+                "That does not look like an SSH public key".into(),
+            ));
         }
         let v = self
             .request(
@@ -357,11 +373,17 @@ impl Api {
         let v = self
             .request(
                 reqwest::Method::GET,
-                &format!("/repos/{}/{}/pulls?state=open&per_page=100", seg(owner)?, seg(repo)?),
+                &format!(
+                    "/repos/{}/{}/pulls?state=open&per_page=100",
+                    seg(owner)?,
+                    seg(repo)?
+                ),
                 None,
             )
             .await?;
-        Ok(v.as_array().map(|a| a.iter().map(pr_from).collect()).unwrap_or_default())
+        Ok(v.as_array()
+            .map(|a| a.iter().map(pr_from).collect())
+            .unwrap_or_default())
     }
 
     pub async fn create_pull(&self, pr: &NewPullRequest) -> Result<PullRequest> {
@@ -384,7 +406,12 @@ impl Api {
         Ok(pr_from(&v))
     }
 
-    pub async fn create_repo(&self, name: &str, description: &str, private: bool) -> Result<RepoSummary> {
+    pub async fn create_repo(
+        &self,
+        name: &str,
+        description: &str,
+        private: bool,
+    ) -> Result<RepoSummary> {
         let v = self
             .request(
                 reqwest::Method::POST,
@@ -438,10 +465,12 @@ pub async fn import_token(source: &str) -> Result<User> {
                 None,
                 &["credential", "fill"],
                 crate::git::run::Opts {
-                    stdin: Some(b"protocol=https
+                    stdin: Some(
+                        b"protocol=https
 host=github.com
 
-"),
+",
+                    ),
                     // Never pop up a sign-in window; only read what is already stored.
                     env: vec![("GCM_INTERACTIVE".into(), "never".into())],
                 },
@@ -468,7 +497,11 @@ host=github.com
 
 /// One URL path segment (owner or repo name).
 fn seg(s: &str) -> Result<&str> {
-    if s.is_empty() || !s.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c)) {
+    if s.is_empty()
+        || !s
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
+    {
         return Err(Error::Invalid(format!("Invalid GitHub name {s:?}")));
     }
     Ok(s)

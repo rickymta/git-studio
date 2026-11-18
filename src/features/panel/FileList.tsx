@@ -31,7 +31,7 @@ export function StatusMark({ status }: { status: string }) {
   return (
     <span
       title={t(s.title)}
-      className={cn('w-4 shrink-0 text-center text-[13px] leading-none font-bold', s.cls)}
+      className={cn('w-[19px] shrink-0 text-center text-[15.4px] leading-none font-bold', s.cls)}
     >
       {s.mark}
     </span>
@@ -236,7 +236,7 @@ function Row({
       title={file.origPath ? `${file.origPath} → ${file.path}` : file.path}
       style={{ paddingLeft: 10 + depth * 14 }}
       className={cn(
-        'group flex h-7 cursor-default items-center gap-1.5 pr-2 select-none',
+        'group flex h-[32px] cursor-default items-center gap-2 pr-2 text-[15.7px] leading-[32px] select-none',
         active ? 'bg-selection' : selected ? 'bg-accent-soft' : 'hover:bg-surface-hover',
       )}
     >
@@ -336,7 +336,7 @@ function DirRows({ dir, depth, props }: { dir: Dir; depth: number; props: FileLi
         type="button"
         onClick={() => setOpen(!open)}
         style={{ paddingLeft: 6 + depth * 14 }}
-        className="flex h-7 w-full items-center gap-1 pr-2 text-left text-muted-foreground hover:bg-surface-hover"
+        className="flex h-[32px] w-full items-center gap-1.5 pr-2 text-left text-[15.7px] text-muted-foreground hover:bg-surface-hover"
       >
         {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
         <Folder className="size-3.5" />

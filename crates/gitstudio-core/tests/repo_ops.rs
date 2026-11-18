@@ -16,7 +16,9 @@ fn sh(dir: &Path, args: &[&str]) {
 
 async fn new_repo(dir: &Path) -> Repo {
     let r = git::init(dir, "main").await.unwrap();
-    r.set_identity("Tester", "tester@example.com", false).await.unwrap();
+    r.set_identity("Tester", "tester@example.com", false)
+        .await
+        .unwrap();
     sh(dir, &["config", "commit.gpgsign", "false"]);
     r
 }
@@ -81,7 +83,10 @@ async fn stage_commit_branch_merge_flow() {
     r.stash_save(Some("wip"), true).await.unwrap();
     let refs = r.refs().await.unwrap();
     assert_eq!(refs.stashes.len(), 1);
-    assert_eq!(refs.refs.iter().find(|x| x.name == "v1").unwrap().target, log[0].hash);
+    assert_eq!(
+        refs.refs.iter().find(|x| x.name == "v1").unwrap().target,
+        log[0].hash
+    );
     r.stash_op("pop", 0).await.unwrap();
     assert!(dir.join("b.txt").exists());
     r.discard(&[], &["b.txt".into()]).await.unwrap();
@@ -101,7 +106,8 @@ async fn hunk_patch_and_conflicts() {
 
     // Stage via a patch, like the hunk button does.
     std::fs::write(dir.join("f.txt"), "a\nB\nc\n").unwrap();
-    let patch = "diff --git a/f.txt b/f.txt\n--- a/f.txt\n+++ b/f.txt\n@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n";
+    let patch =
+        "diff --git a/f.txt b/f.txt\n--- a/f.txt\n+++ b/f.txt\n@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n";
     r.apply_patch(patch, true, false, None).await.unwrap();
     let st = r.status().await.unwrap();
     assert_eq!(st.staged.len(), 1);
@@ -125,7 +131,12 @@ async fn hunk_patch_and_conflicts() {
     r.resolve(&["f.txt".into()], "theirs").await.unwrap();
     r.continue_op().await.unwrap();
     assert_eq!(r.state(), RepoState::Clean);
-    assert_eq!(std::fs::read_to_string(dir.join("f.txt")).unwrap().replace("\r\n", "\n"), "a\nOTHER\nc\n");
+    assert_eq!(
+        std::fs::read_to_string(dir.join("f.txt"))
+            .unwrap()
+            .replace("\r\n", "\n"),
+        "a\nOTHER\nc\n"
+    );
 }
 
 #[tokio::test]
@@ -137,16 +148,23 @@ async fn clone_push_pull_with_local_remote() {
 
     let a_dir = tmp.path().join("a");
     let a = new_repo(&a_dir).await;
-    a.add_remote("origin", origin.to_str().unwrap()).await.unwrap();
+    a.add_remote("origin", origin.to_str().unwrap())
+        .await
+        .unwrap();
     std::fs::write(a_dir.join("x"), "1").unwrap();
     a.stage(&[]).await.unwrap();
     a.commit("one", false).await.unwrap();
     // First push sets the upstream.
     a.push(&PushRequest::default(), None).await.unwrap();
-    assert_eq!(a.status().await.unwrap().upstream.as_deref(), Some("origin/main"));
+    assert_eq!(
+        a.status().await.unwrap().upstream.as_deref(),
+        Some("origin/main")
+    );
 
     let b_dir = tmp.path().join("b");
-    let b = git::clone(origin.to_str().unwrap(), &b_dir, None).await.unwrap();
+    let b = git::clone(origin.to_str().unwrap(), &b_dir, None)
+        .await
+        .unwrap();
     b.set_identity("B", "b@example.com", false).await.unwrap();
     std::fs::write(b_dir.join("y"), "2").unwrap();
     b.stage(&[]).await.unwrap();
@@ -162,7 +180,9 @@ async fn clone_push_pull_with_local_remote() {
     b.create_branch("topic", None, true).await.unwrap();
     b.push(&PushRequest::default(), None).await.unwrap();
     a.fetch(Some("origin"), None).await.unwrap();
-    a.checkout("origin/topic", CheckoutKind::Remote).await.unwrap();
+    a.checkout("origin/topic", CheckoutKind::Remote)
+        .await
+        .unwrap();
     assert_eq!(a.status().await.unwrap().branch.as_deref(), Some("topic"));
     a.delete_remote_ref("origin", "topic", None).await.unwrap();
 }
@@ -171,9 +191,21 @@ async fn clone_push_pull_with_local_remote() {
 async fn rejects_option_injection() {
     let tmp = tempfile::tempdir().unwrap();
     let r = new_repo(&tmp.path().join("r")).await;
-    assert!(r.checkout("--orphan=x", CheckoutKind::Branch).await.is_err());
-    assert!(git::clone("--upload-pack=evil", &tmp.path().join("c"), None).await.is_err());
-    assert!(git::clone("ext::sh -c evil", &tmp.path().join("c"), None).await.is_err());
+    assert!(
+        r.checkout("--orphan=x", CheckoutKind::Branch)
+            .await
+            .is_err()
+    );
+    assert!(
+        git::clone("--upload-pack=evil", &tmp.path().join("c"), None)
+            .await
+            .is_err()
+    );
+    assert!(
+        git::clone("ext::sh -c evil", &tmp.path().join("c"), None)
+            .await
+            .is_err()
+    );
 }
 
 #[tokio::test]
@@ -207,7 +239,10 @@ async fn reword_drop_worktree_and_files() {
     let d = r.read_file("w.txt", None, None).await.unwrap();
     assert_eq!(d.text, "café\n");
     r.write_file("w.txt", "café au lait\n", &d.format).unwrap();
-    assert_eq!(std::fs::read(dir.join("w.txt")).unwrap(), b"caf\xE9 au lait\r\n");
+    assert_eq!(
+        std::fs::read(dir.join("w.txt")).unwrap(),
+        b"caf\xE9 au lait\r\n"
+    );
     assert!(r.read_file("../x", None, None).await.is_err());
 
     // Blame and history.
@@ -228,7 +263,13 @@ async fn reword_drop_worktree_and_files() {
     assert_eq!(list.len(), 2);
     assert!(list[0].is_main && list[0].is_current);
     assert_eq!(list[1].branch.as_deref(), Some("side"));
-    r.remove_worktree(&wt.display().to_string(), false).await.unwrap();
+    r.remove_worktree(&wt.display().to_string(), false)
+        .await
+        .unwrap();
     assert_eq!(r.worktrees().await.unwrap().len(), 1);
-    let _ = TextFormat { encoding: "UTF-8".into(), bom: false, eol: "lf".into() };
+    let _ = TextFormat {
+        encoding: "UTF-8".into(),
+        bom: false,
+        eol: "lf".into(),
+    };
 }

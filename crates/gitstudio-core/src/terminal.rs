@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -48,9 +48,13 @@ pub struct Output {
     pub exited: bool,
 }
 
-fn git_root() -> Option<PathBuf> {
-    let out = std::process::Command::new("git").arg("--exec-path").output().ok()?;
-    let exec = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
+#[cfg(windows)]
+fn git_root() -> Option<std::path::PathBuf> {
+    let out = std::process::Command::new("git")
+        .arg("--exec-path")
+        .output()
+        .ok()?;
+    let exec = std::path::PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
     exec.ancestors().nth(3).map(Path::to_path_buf)
 }
 
@@ -59,7 +63,10 @@ fn shell_command(kind: &str) -> (CommandBuilder, String) {
     #[cfg(windows)]
     {
         if kind == "gitbash" {
-            if let Some(bash) = git_root().map(|r| r.join("bin").join("bash.exe")).filter(|p| p.exists()) {
+            if let Some(bash) = git_root()
+                .map(|r| r.join("bin").join("bash.exe"))
+                .filter(|p| p.exists())
+            {
                 let mut c = CommandBuilder::new(bash);
                 c.args(["--login", "-i"]);
                 return (c, "Git Bash".into());
@@ -88,7 +95,10 @@ fn shell_command(kind: &str) -> (CommandBuilder, String) {
 
 pub fn open(cwd: &Path, cols: u16, rows: u16) -> Result<Opened> {
     if !cwd.is_dir() {
-        return Err(Error::Invalid(format!("Folder not found: {}", cwd.display())));
+        return Err(Error::Invalid(format!(
+            "Folder not found: {}",
+            cwd.display()
+        )));
     }
     let pty = native_pty_system()
         .openpty(PtySize {
@@ -141,10 +151,16 @@ pub fn open(cwd: &Path, cols: u16, rows: u16) -> Result<Opened> {
     }
 
     let id = NEXT.fetch_add(1, Ordering::SeqCst);
-    sessions()
-        .lock()
-        .unwrap_or_else(|p| p.into_inner())
-        .insert(id, Session { master: pty.master, writer, child, out, exited });
+    sessions().lock().unwrap_or_else(|p| p.into_inner()).insert(
+        id,
+        Session {
+            master: pty.master,
+            writer,
+            child,
+            out,
+            exited,
+        },
+    );
     Ok(Opened { id, shell })
 }
 
@@ -211,18 +227,29 @@ mod tests {
         for _ in 0..100 {
             std::thread::sleep(std::time::Duration::from_millis(100));
             let o = read(t.id).unwrap();
-            let chunk = base64::engine::general_purpose::STANDARD.decode(o.data).unwrap();
+            let chunk = base64::engine::general_purpose::STANDARD
+                .decode(o.data)
+                .unwrap();
             // ConPTY asks for the cursor position before starting; a real terminal answers.
             if String::from_utf8_lossy(&chunk).contains("\u{1b}[6n") {
                 write(t.id, "\u{1b}[1;1R").unwrap();
             }
             seen.extend(chunk);
-            if String::from_utf8_lossy(&seen).matches("gitstudio-pty-ok").count() >= 2 {
+            if String::from_utf8_lossy(&seen)
+                .matches("gitstudio-pty-ok")
+                .count()
+                >= 2
+            {
                 break;
             }
         }
         close(t.id).unwrap();
         // Once echoed as typed, once as output.
-        assert!(String::from_utf8_lossy(&seen).matches("gitstudio-pty-ok").count() >= 2);
+        assert!(
+            String::from_utf8_lossy(&seen)
+                .matches("gitstudio-pty-ok")
+                .count()
+                >= 2
+        );
     }
 }

@@ -41,8 +41,14 @@ pub fn auth_env(github: Option<&str>, gitlab: Option<&str>) -> Vec<(String, Stri
     }
     let mut env = vec![("GIT_CONFIG_COUNT".to_string(), headers.len().to_string())];
     for (i, (url, basic)) in headers.into_iter().enumerate() {
-        env.push((format!("GIT_CONFIG_KEY_{i}"), format!("http.{url}.extraheader")));
-        env.push((format!("GIT_CONFIG_VALUE_{i}"), format!("AUTHORIZATION: basic {basic}")));
+        env.push((
+            format!("GIT_CONFIG_KEY_{i}"),
+            format!("http.{url}.extraheader"),
+        ));
+        env.push((
+            format!("GIT_CONFIG_VALUE_{i}"),
+            format!("AUTHORIZATION: basic {basic}"),
+        ));
     }
     env
 }
@@ -66,7 +72,10 @@ impl Repo {
     /// Open the repository containing `path`.
     pub async fn open(path: &Path) -> Result<Repo> {
         if !path.is_dir() {
-            return Err(Error::Invalid(format!("Folder not found: {}", path.display())));
+            return Err(Error::Invalid(format!(
+                "Folder not found: {}",
+                path.display()
+            )));
         }
         let out = run::raw(
             Some(path),
@@ -312,7 +321,9 @@ impl Repo {
         }
         paths.push(&req.path);
 
-        let context = req.context.map(|n| format!("--unified={}", n.min(1_000_000)));
+        let context = req
+            .context
+            .map(|n| format!("--unified={}", n.min(1_000_000)));
         let mut extra: Vec<&str> = Vec::new();
         if req.ignore_whitespace {
             // Leading/trailing and amount-of-whitespace changes.
@@ -483,7 +494,11 @@ impl Repo {
     }
 
     pub async fn head_message(&self) -> Result<String> {
-        Ok(self.git(&["log", "-1", "--format=%B"]).await?.trim_end().to_string())
+        Ok(self
+            .git(&["log", "-1", "--format=%B"])
+            .await?
+            .trim_end()
+            .to_string())
     }
 
     // ---- conflicts ----------------------------------------------------------------------------
@@ -555,7 +570,12 @@ impl Repo {
         }
     }
 
-    pub async fn create_branch(&self, name: &str, start: Option<&str>, checkout: bool) -> Result<()> {
+    pub async fn create_branch(
+        &self,
+        name: &str,
+        start: Option<&str>,
+        checkout: bool,
+    ) -> Result<()> {
         check_ref_name(&self.root, name).await?;
         let start = start.unwrap_or("HEAD");
         check_rev(start)?;
@@ -584,9 +604,14 @@ impl Repo {
         match upstream {
             Some(u) => {
                 check_rev(u)?;
-                self.git(&["branch", "--set-upstream-to", u, branch]).await.map(drop)
+                self.git(&["branch", "--set-upstream-to", u, branch])
+                    .await
+                    .map(drop)
             }
-            None => self.git(&["branch", "--unset-upstream", branch]).await.map(drop),
+            None => self
+                .git(&["branch", "--unset-upstream", branch])
+                .await
+                .map(drop),
         }
     }
 
@@ -642,7 +667,10 @@ impl Repo {
         check_ref_name(&self.root, &format!("tags/{name}")).await?;
         check_rev(target)?;
         match message.filter(|m| !m.trim().is_empty()) {
-            Some(m) => self.git(&["tag", "-a", name, "-m", m, target]).await.map(drop),
+            Some(m) => self
+                .git(&["tag", "-a", name, "-m", m, target])
+                .await
+                .map(drop),
             None => self.git(&["tag", name, target]).await.map(drop),
         }
     }
@@ -741,7 +769,12 @@ impl Repo {
         self.git_opts(&args, net(token)).await.map(drop)
     }
 
-    pub async fn delete_remote_ref(&self, remote: &str, name: &str, token: Option<&str>) -> Result<()> {
+    pub async fn delete_remote_ref(
+        &self,
+        remote: &str,
+        name: &str,
+        token: Option<&str>,
+    ) -> Result<()> {
         check_rev(remote)?;
         check_rev(name)?;
         self.git_opts(&["push", remote, "--delete", name], net(token))
@@ -856,7 +889,10 @@ pub async fn clone_with(
 /// `powershell`, `cmd` or `gitbash` (Windows); ignored elsewhere.
 pub fn open_terminal(path: &Path, kind: &str) -> Result<()> {
     if !path.is_dir() {
-        return Err(Error::Invalid(format!("Folder not found: {}", path.display())));
+        return Err(Error::Invalid(format!(
+            "Folder not found: {}",
+            path.display()
+        )));
     }
     #[cfg(windows)]
     {
@@ -890,20 +926,30 @@ pub fn open_terminal(path: &Path, kind: &str) -> Result<()> {
             }
         }
     }
+    #[cfg(not(windows))]
+    let _ = kind; // the terminal choice only applies on Windows
     #[cfg(target_os = "macos")]
     {
-        std::process::Command::new("open").args(["-a", "Terminal"]).arg(path).spawn()?;
+        std::process::Command::new("open")
+            .args(["-a", "Terminal"])
+            .arg(path)
+            .spawn()?;
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        std::process::Command::new("x-terminal-emulator").current_dir(path).spawn()?;
+        std::process::Command::new("x-terminal-emulator")
+            .current_dir(path)
+            .spawn()?;
     }
     Ok(())
 }
 
 #[cfg(windows)]
 fn git_bash() -> Option<PathBuf> {
-    let out = std::process::Command::new("git").arg("--exec-path").output().ok()?;
+    let out = std::process::Command::new("git")
+        .arg("--exec-path")
+        .output()
+        .ok()?;
     let exec = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
     let p = exec.ancestors().nth(3)?.join("git-bash.exe");
     p.exists().then_some(p)
@@ -913,7 +959,9 @@ fn git_bash() -> Option<PathBuf> {
 pub fn open_in_editor(editor: &str, path: &Path) -> Result<()> {
     let editor = editor.trim();
     if editor.is_empty() {
-        return Err(Error::Invalid("Set an external editor in Preferences first".into()));
+        return Err(Error::Invalid(
+            "Set an external editor in Preferences first".into(),
+        ));
     }
     #[cfg(windows)]
     {
@@ -956,7 +1004,12 @@ pub async fn config_get(repo: Option<&Repo>, key: &str) -> Result<String> {
     }
     let out = match repo {
         Some(r) => {
-            run::raw(Some(&r.root), &["config", "--local", "--get", key], Opts::default()).await?
+            run::raw(
+                Some(&r.root),
+                &["config", "--local", "--get", key],
+                Opts::default(),
+            )
+            .await?
         }
         None => run::raw(None, &["config", "--global", "--get", key], Opts::default()).await?,
     };
@@ -971,7 +1024,11 @@ pub async fn config_set(repo: Option<&Repo>, key: &str, value: Option<&str>) -> 
     if value.is_some_and(|v| v.contains(['\n', '\0'])) {
         return Err(Error::Invalid("Value must be on one line".into()));
     }
-    let scope = if repo.is_some() { "--local" } else { "--global" };
+    let scope = if repo.is_some() {
+        "--local"
+    } else {
+        "--global"
+    };
     let mut args = vec!["config", scope];
     match value {
         Some(v) => args.extend([key, v]),
@@ -998,7 +1055,14 @@ pub async fn set_global_config(key: &str, value: Option<&str>) -> Result<()> {
     }
     let out = match value {
         Some(v) => run::raw(None, &["config", "--global", key, v], Opts::default()).await?,
-        None => run::raw(None, &["config", "--global", "--unset", key], Opts::default()).await?,
+        None => {
+            run::raw(
+                None,
+                &["config", "--global", "--unset", key],
+                Opts::default(),
+            )
+            .await?
+        }
     };
     // `--unset` of a missing key exits 5; that is fine.
     if out.code != 0 && !(value.is_none() && out.code == 5) {

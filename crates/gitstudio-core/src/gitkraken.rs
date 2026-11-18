@@ -42,7 +42,10 @@ fn root() -> Option<PathBuf> {
         dirs::config_dir().map(|d| d.join(".gitkraken")),
         dirs::home_dir().map(|d| d.join(".gitkraken")),
     ];
-    candidates.into_iter().flatten().find(|p| p.join("config").exists())
+    candidates
+        .into_iter()
+        .flatten()
+        .find(|p| p.join("config").exists())
 }
 
 fn read_json(p: &Path) -> Option<Value> {
@@ -51,12 +54,18 @@ fn read_json(p: &Path) -> Option<Value> {
 
 fn repo_of(path: &str) -> Option<ImportedRepo> {
     let p = path.trim_end_matches(['/', '\\']);
-    let p = p.strip_suffix("/.git").or_else(|| p.strip_suffix("\\.git")).unwrap_or(p);
+    let p = p
+        .strip_suffix("/.git")
+        .or_else(|| p.strip_suffix("\\.git"))
+        .unwrap_or(p);
     let dir = Path::new(p);
     if !dir.join(".git").exists() {
         return None;
     }
-    let display = dir.display().to_string().replace('/', std::path::MAIN_SEPARATOR_STR);
+    let display = dir
+        .display()
+        .to_string()
+        .replace('/', std::path::MAIN_SEPARATOR_STR);
     Some(ImportedRepo {
         name: dir.file_name()?.to_string_lossy().into_owned(),
         path: display,
@@ -92,7 +101,9 @@ pub fn read() -> Option<GitKrakenData> {
     };
     let mut tabs: Vec<ImportedRepo> = Vec::new();
     let mut selected_tab = None;
-    let selected_id = profile.pointer("/tabInfo/selectedTabId").and_then(Value::as_str);
+    let selected_id = profile
+        .pointer("/tabInfo/selectedTabId")
+        .and_then(Value::as_str);
     if let Some(list) = profile.pointer("/tabInfo/tabs").and_then(Value::as_array) {
         for t in list {
             if t.get("type").and_then(Value::as_str) != Some("REPO") {
@@ -129,7 +140,9 @@ pub fn read() -> Option<GitKrakenData> {
         selected_tab,
         ssh_private_key: s("/ssh/privateKey").filter(|p| Path::new(p).exists()),
         ssh_public_key: s("/ssh/publicKey").filter(|p| Path::new(p).exists()),
-        ssh_use_agent: profile.pointer("/ssh/useLocalAgent").and_then(Value::as_bool),
+        ssh_use_agent: profile
+            .pointer("/ssh/useLocalAgent")
+            .and_then(Value::as_bool),
         theme: s("/ui/theme"),
         file_view: s("/fileNodeList/viewMode"),
         max_commits: config
@@ -150,7 +163,8 @@ pub struct ImportResult {
 /// Merge GitKraken's repositories and SSH key into GitStudio's settings. Tabs, theme and file
 /// view live in the UI, which applies them from `data`.
 pub fn import(include_ssh: bool) -> Result<ImportResult> {
-    let data = read().ok_or_else(|| Error::Invalid("GitKraken Desktop was not found on this computer".into()))?;
+    let data = read()
+        .ok_or_else(|| Error::Invalid("GitKraken Desktop was not found on this computer".into()))?;
     let added = settings::add_recent(
         &data
             .repos
@@ -164,7 +178,11 @@ pub fn import(include_ssh: bool) -> Result<ImportResult> {
         if let Some(key) = &data.ssh_private_key {
             s.ssh.private_key = key.clone();
             s.ssh.public_key = data.ssh_public_key.clone().unwrap_or_default();
-            s.ssh.mode = if data.ssh_use_agent == Some(true) { "system".into() } else { "key".into() };
+            s.ssh.mode = if data.ssh_use_agent == Some(true) {
+                "system".into()
+            } else {
+                "key".into()
+            };
             ssh_imported = true;
         }
     }

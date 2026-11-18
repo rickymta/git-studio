@@ -45,7 +45,11 @@ pub async fn raw(cwd: Option<&Path>, args: &[&str], opts: Opts<'_>) -> Result<Ou
         .env("GIT_MERGE_AUTOEDIT", "no")
         .env("LC_ALL", "C")
         .env("LANGUAGE", "en")
-        .stdin(if opts.stdin.is_some() { Stdio::piped() } else { Stdio::null() })
+        .stdin(if opts.stdin.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);

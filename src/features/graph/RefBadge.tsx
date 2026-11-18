@@ -143,7 +143,7 @@ export function RefBadge({ group, color }: { group: BadgeGroup; color: string })
         }}
         title={group.refs.map((r) => r.name).join(', ')}
         className={cn(
-          'inline-flex h-[20px] max-w-[176px] min-w-0 items-center gap-1 rounded border px-1.5 text-xs font-medium text-foreground',
+          'inline-flex h-[22px] max-w-[176px] min-w-0 items-center gap-1 rounded border px-1.5 text-xs font-medium text-foreground',
           group.head && 'font-semibold',
         )}
         style={{
@@ -152,11 +152,11 @@ export function RefBadge({ group, color }: { group: BadgeGroup; color: string })
           background: `color-mix(in oklch, ${color} ${group.head ? 60 : 42}%, var(--background))`,
         }}
       >
-        {group.head && <Check className="size-3 shrink-0" />}
-        {group.kind === 'tag' && <Tag className="size-3 shrink-0" />}
+        {group.head && <Check className="size-[14px] shrink-0" />}
+        {group.kind === 'tag' && <Tag className="size-[14px] shrink-0" />}
         <span className="truncate">{group.label}</span>
-        {hasLocal && <Laptop className="size-3 shrink-0 opacity-70" />}
-        {hasRemote && <Cloud className="size-3 shrink-0 opacity-70" />}
+        {hasLocal && <Laptop className="size-[14px] shrink-0 opacity-75" />}
+        {hasRemote && <Cloud className="size-[14px] shrink-0 opacity-75" />}
       </span>
     </ContextMenuWrap>
   );

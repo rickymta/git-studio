@@ -9,11 +9,18 @@ use axum::routing::post;
 use serde_json::Value;
 
 async fn call(Json(body): Json<Value>) -> Response {
-    let cmd = body.get("cmd").and_then(Value::as_str).unwrap_or_default().to_string();
+    let cmd = body
+        .get("cmd")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
     let args = body.get("args").cloned().unwrap_or(Value::Null);
     match gitstudio_core::dispatch(&cmd, args).await {
         Ok(v) => Json(v).into_response(),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::to_value(&e).unwrap_or_default()))
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::to_value(&e).unwrap_or_default()),
+        )
             .into_response(),
     }
 }
@@ -25,18 +32,32 @@ async fn cors(req: axum::extract::Request, next: axum::middleware::Next) -> Resp
         next.run(req).await
     };
     let h = res.headers_mut();
-    h.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, HeaderValue::from_static("http://localhost:1420"));
-    h.insert(header::ACCESS_CONTROL_ALLOW_HEADERS, HeaderValue::from_static("content-type"));
-    h.insert(header::ACCESS_CONTROL_ALLOW_METHODS, HeaderValue::from_static("POST, OPTIONS"));
+    h.insert(
+        header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        HeaderValue::from_static("http://localhost:1420"),
+    );
+    h.insert(
+        header::ACCESS_CONTROL_ALLOW_HEADERS,
+        HeaderValue::from_static("content-type"),
+    );
+    h.insert(
+        header::ACCESS_CONTROL_ALLOW_METHODS,
+        HeaderValue::from_static("POST, OPTIONS"),
+    );
     res
 }
 
 #[tokio::main]
 async fn main() {
     let app = Router::new()
-        .route("/call", post(call).options(|| async { StatusCode::NO_CONTENT }))
+        .route(
+            "/call",
+            post(call).options(|| async { StatusCode::NO_CONTENT }),
+        )
         .layer(axum::middleware::from_fn(cors));
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:1421").await.expect("bind 1421");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:1421")
+        .await
+        .expect("bind 1421");
     println!("GitStudio dev bridge on http://127.0.0.1:1421");
     axum::serve(listener, app).await.expect("serve");
 }

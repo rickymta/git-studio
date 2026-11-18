@@ -53,10 +53,10 @@ export function StatusBar({ zoom, setZoom }: { zoom: number; setZoom: (z: number
   const n = pulls?.length ?? 0;
 
   return (
-    <div className="flex h-6 shrink-0 items-center gap-3 border-t border-border bg-surface px-3 text-xs text-muted-foreground">
+    <div className="flex h-[26px] shrink-0 items-center gap-[12.6px] border-t border-border bg-surface px-[12.6px] text-[14.2px] text-muted-foreground">
       {path && hasGitHub && (
-        <span className="flex items-center gap-1.5">
-          <GitPullRequest className="size-3.5" />
+        <span className="flex items-center gap-[6.3px]">
+          <GitPullRequest className="size-[15.3px]" />
           {!user
             ? t('GitHub not connected')
             : n === 0
@@ -72,18 +72,18 @@ export function StatusBar({ zoom, setZoom }: { zoom: number; setZoom: (z: number
         title={`${t('Activity Logs')} (Ctrl+Shift+L)`}
         aria-label={t('Activity Logs')}
         onClick={() => setWindow('activity')}
-        className="flex h-full items-center px-1 hover:text-foreground"
+        className="flex h-full items-center px-[4.5px] hover:text-foreground"
       >
-        <ListChecks className="size-3.5" />
+        <ListChecks className="size-[15.3px]" />
       </button>
       <button
         type="button"
         title={`${t('Keyboard Shortcuts')} (Ctrl+/)`}
         aria-label={t('Keyboard Shortcuts')}
         onClick={() => setWindow('shortcuts')}
-        className="flex h-full items-center px-1 hover:text-foreground"
+        className="flex h-full items-center px-[4.5px] hover:text-foreground"
       >
-        <Keyboard className="size-3.5" />
+        <Keyboard className="size-[15.3px]" />
       </button>
       <GlobalShortcuts
         onShortcuts={() => setWindow((w) => (w === 'shortcuts' ? null : 'shortcuts'))}
@@ -91,22 +91,22 @@ export function StatusBar({ zoom, setZoom }: { zoom: number; setZoom: (z: number
       />
       <ShortcutsWindow open={win === 'shortcuts'} onClose={() => setWindow(null)} />
       <ActivityWindow open={win === 'activity'} onClose={() => setWindow(null)} />
-      <span className="flex items-center gap-1">
+      <span className="flex items-center gap-[4.5px]">
         <button
           type="button"
           aria-label={t('Zoom out')}
           onClick={() => setZoom(zoom - 0.1)}
           className="hover:text-foreground"
         >
-          <Minus className="size-3" />
+          <Minus className="size-[13px]" />
         </button>
         <button
           type="button"
           title={t('Reset zoom (Ctrl+0)')}
           onClick={() => setZoom(1)}
-          className="flex items-center gap-1 hover:text-foreground"
+          className="flex items-center gap-[4.5px] hover:text-foreground"
         >
-          <ZoomIn className="size-3.5" />
+          <ZoomIn className="size-[15.3px]" />
           {Math.round(zoom * 100)}%
         </button>
         <button
@@ -115,7 +115,7 @@ export function StatusBar({ zoom, setZoom }: { zoom: number; setZoom: (z: number
           onClick={() => setZoom(zoom + 0.1)}
           className="hover:text-foreground"
         >
-          <Plus className="size-3" />
+          <Plus className="size-[13px]" />
         </button>
       </span>
       <span className="font-mono">GitStudio 0.1.0</span>
