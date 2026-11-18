@@ -105,7 +105,7 @@ fn parse_track(s: &str) -> (u32, u32, bool) {
     (a, b, false)
 }
 
-pub const STASH_FORMAT: &str = "--format=%gd%x1f%H%x1f%gs%x1f%ct";
+pub const STASH_FORMAT: &str = "--format=%gd%x1f%H%x1f%gs%x1f%ct%x1f%P";
 
 pub fn parse_stashes(text: &str) -> Vec<Stash> {
     text.lines()
@@ -125,6 +125,11 @@ pub fn parse_stashes(text: &str) -> Vec<Stash> {
                 hash: f[1].to_string(),
                 message: f[2].to_string(),
                 time: f[3].parse().unwrap_or(0),
+                // First parent: the commit the stash was made on.
+                base: f
+                    .get(4)
+                    .and_then(|p| p.split_whitespace().next())
+                    .map(str::to_string),
             })
         })
         .collect()

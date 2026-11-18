@@ -1,5 +1,5 @@
 import { hunkPatch, parseDiff } from './diff';
-import { layoutGraph } from './graph';
+import { layoutGraph, withStashes } from './graph';
 import type { Commit } from './types';
 
 const c = (hash: string, ...parents: string[]): Commit => ({
@@ -32,6 +32,24 @@ describe('layoutGraph', () => {
   it('gives an unrelated branch tip its own lane', () => {
     const rows = layoutGraph([c('x', 'a'), c('y', 'a'), c('a')]);
     expect(rows.map((r) => r.lane)).toEqual([0, 1, 0]);
+  });
+
+  it('hangs a stash off its base with a dotted line in the same colour', () => {
+    const stash = { index: 0, name: 'stash@{0}', hash: 's', message: 'wip', time: 5, base: 'b' };
+    const commits = [
+      { ...c('c', 'b'), commitTime: 9 },
+      { ...c('b', 'a'), commitTime: 4 },
+      { ...c('a'), commitTime: 1 },
+    ];
+    const rows = withStashes(commits, [stash]);
+    expect(rows.map((r) => r.hash)).toEqual(['c', 's', 'b', 'a']);
+    const g = layoutGraph(rows);
+    expect(g[1]!.lane).toBe(1);
+    expect(g[1]!.color).toBe(g[0]!.color);
+    expect(g[1]!.segments.find((s) => s.fromLane === 1)?.dashed).toBe(true);
+    // b stays on the main line; the dotted link joins it there.
+    expect(g[2]!.lane).toBe(0);
+    expect(g[2]!.segments.some((s) => s.fromLane === 1 && s.toLane === 0 && s.dashed)).toBe(true);
   });
 
   it('keeps a pinned branch in the leftmost lane', () => {

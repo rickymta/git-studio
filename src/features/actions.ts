@@ -948,6 +948,24 @@ function remoteWeb(remote?: string | null): WebRepo | null {
 
 export const hasWebRemote = () => remoteWeb() !== null;
 
+/** Name of the remote used for web links (origin, else the first GitHub / GitLab remote). */
+export function webRemoteName(): string | null {
+  const remotes = repo().refs?.remotes ?? [];
+  const origin = remotes.find((r) => r.name === 'origin');
+  if (webRepo(origin)) return 'origin';
+  return remotes.find((r) => webRepo(r) !== null)?.name ?? null;
+}
+
+/** Remote that pull requests are opened on (origin on GitHub, else any GitHub remote). */
+export function prRemoteName(): string | null {
+  const remotes = repo().refs?.remotes ?? [];
+  return (
+    remotes.find((x) => x.name === 'origin' && x.github)?.name ??
+    remotes.find((x) => x.github)?.name ??
+    null
+  );
+}
+
 export function commitUrl(hash: string): string | null {
   const w = remoteWeb();
   if (!w) return null;

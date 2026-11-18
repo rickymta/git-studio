@@ -182,4 +182,10 @@ export const history: Record<string, string> = {
   'Solo: {names}': 'Chỉ xem: {names}',
   'Hidden: {names}': 'Đang ẩn: {names}',
   'Pinned: {names}': 'Đã ghim: {names}',
+  'Copy link to branch: {name}': 'Sao chép link nhánh: {name}',
+  'Copy link to this commit on remote: {remote}': 'Sao chép link commit này trên remote: {remote}',
+  'Copy stash message': 'Sao chép nội dung stash',
+  'Start a pull request to {remote} from {branch}': 'Tạo pull request lên {remote} từ {branch}',
+  'Pop stash onto the current checkout': 'Pop stash vào nhánh đang checkout',
+  'Pop stash onto {branch}': 'Pop stash vào {branch}',
 };

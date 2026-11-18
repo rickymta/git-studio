@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-import { layoutGraph, type GraphRow } from '@/lib/graph';
+import { layoutGraph, withStashes, type GraphRow } from '@/lib/graph';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import type { Commit, CommitDetail, DiffRequest, Refs, RepoInfo, Settings } from '@/lib/types';
@@ -295,7 +295,7 @@ export const useRepo = create<RepoStore>((set, get) => ({
     const path = get().path;
     if (!path) return;
     try {
-      const limit = Math.max(page(), get().commits.length);
+      const limit = Math.max(page(), get().commits.filter((c) => !c.stash).length);
       const view = loadView(path);
       const [info, commits, refs] = await Promise.all([
         api.info(path),
@@ -303,11 +303,12 @@ export const useRepo = create<RepoStore>((set, get) => ({
         api.refs(path),
       ]);
       if (get().path !== path) return;
+      const rows = withStashes(commits, refs.stashes);
       set({
         info,
-        commits,
+        commits: rows,
         view,
-        graph: layoutGraph(commits, pinnedTips(view, refs)),
+        graph: layoutGraph(rows, pinnedTips(view, refs)),
         refs,
         hasMore: commits.length >= limit,
       });
@@ -350,8 +351,10 @@ export const useRepo = create<RepoStore>((set, get) => ({
   loadMore: async () => {
     const { path, commits, view, refs } = get();
     if (!path) return;
-    const more = await api.log(path, page(), commits.length, logView(view));
-    const all = [...commits, ...more];
+    // Stash rows are not history: page by real commits only, then re-place the stashes.
+    const real = commits.filter((c) => !c.stash);
+    const more = await api.log(path, page(), real.length, logView(view));
+    const all = withStashes([...real, ...more], refs?.stashes ?? []);
     set({
       commits: all,
       graph: layoutGraph(all, pinnedTips(view, refs)),

@@ -11,6 +11,8 @@ export interface Commit {
   subject: string;
   /** First lines of the body, flattened (log only). */
   body?: string;
+  /** Set on the pseudo-rows the graph shows for stashes (not real history). */
+  stash?: Stash;
 }
 
 export type FileStatus = 'M' | 'A' | 'D' | 'R' | 'C' | 'T' | 'U' | '?';
@@ -48,6 +50,8 @@ export interface Stash {
   hash: string;
   message: string;
   time: number;
+  /** Commit the stash was made on. */
+  base: string | null;
 }
 
 export interface GitHubSlug {

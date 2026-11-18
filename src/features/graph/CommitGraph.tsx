@@ -16,7 +16,7 @@ import { fullDate, hue, initials, relativeTime, short } from '@/lib/format';
 import { laneColor, type GraphRow, type Segment } from '@/lib/graph';
 import { t } from '@/lib/i18n';
 import { copyText } from '@/lib/native';
-import type { Commit, GitRef } from '@/lib/types';
+import type { Commit, GitRef, Stash } from '@/lib/types';
 import { useGitHub } from '@/stores/github';
 import { useRepo } from '@/stores/repo';
 import * as A from '../actions';
@@ -92,6 +92,22 @@ function perBranch(label: string, refs: GitRef[], onSelect: (r: GitRef) => void)
   if (refs.length === 0) return [];
   if (refs.length === 1) return [{ label, onSelect: () => onSelect(refs[0]!) }];
   return [{ label, items: refs.map((r) => ({ label: r.name, onSelect: () => onSelect(r) })) }];
+}
+
+function stashMenu(s: Stash): MenuItem[] {
+  return [
+    { label: t('Apply stash'), onSelect: () => A.stashOp(s, 'apply') },
+    {
+      label: t('Pop stash onto {branch}', {
+        branch: useRepo.getState().info?.status.branch ?? 'HEAD',
+      }),
+      onSelect: () => A.stashOp(s, 'pop'),
+    },
+    'sep',
+    { label: t('Copy stash message'), onSelect: () => copyText(s.message) },
+    'sep',
+    { label: t('Delete stash'), danger: true, onSelect: () => A.stashOp(s, 'drop') },
+  ];
 }
 
 function commitMenu(c: Commit): MenuItem[] {
@@ -230,14 +246,13 @@ function commitMenu(c: Commit): MenuItem[] {
       onSelect: () => A.editCommitMessage(c.hash),
     },
     { label: t('Revert commit'), onSelect: () => A.revertCommit(c) },
-    { label: t('Cherry pick commit'), disabled: mine, onSelect: () => A.cherryPick(c) },
+    // Like GitKraken, entries that cannot apply to this commit are left out, not greyed.
+    ...(mine ? [] : [{ label: t('Cherry pick commit'), onSelect: () => A.cherryPick(c) }]),
     'sep',
     { label: t('Drop commit'), danger: true, disabled: !mine, onSelect: () => A.dropCommit(c) },
-    {
-      label: t('Move commit up'),
-      disabled: !mine || isHeadCommit || isMerge,
-      onSelect: () => A.moveCommit(c, false),
-    },
+    ...(mine && !isHeadCommit && !isMerge
+      ? [{ label: t('Move commit up'), onSelect: () => A.moveCommit(c, false) }]
+      : []),
     {
       label: t('Move commit down'),
       disabled: !mine || isMerge || c.parents.length === 0,
@@ -245,20 +260,50 @@ function commitMenu(c: Commit): MenuItem[] {
     },
     'sep',
     ...(hasGitHub
-      ? perBranch(t('Start a pull request from…'), locals, (r) => A.createPullRequest(r.name))
+      ? perBranch(
+          locals.length === 1
+            ? t('Start a pull request to {remote} from {branch}', {
+                remote: A.prRemoteName() ?? 'origin',
+                branch: remoteOf(locals[0]!)?.name ?? locals[0]!.name,
+              })
+            : t('Start a pull request from…'),
+          locals,
+          (r) => A.createPullRequest(r.name),
+        )
       : []),
     'sep',
     { label: t('Apply patch…'), onSelect: () => A.applyPatchFile() },
     ...branchItems,
     'sep',
-    ...perBranch(t('Copy branch name'), branches, (r) => copyText(r.name)),
+    // The local branch name, as GitKraken copies it ("main", not "origin/main").
+    ...perBranch(t('Copy branch name'), locals.length ? locals : remotes, (r) => copyText(r.name)),
     { label: t('Copy commit sha'), onSelect: () => copyText(c.hash) },
     { label: t('Copy commit message'), onSelect: () => copyText(c.subject) },
     ...(A.hasWebRemote()
       ? [
-          ...perBranch(t('Copy link to branch'), branches, (r) => A.copyBranchLink(r)),
+          ...(() => {
+            // The remote branch the link points at: the upstream of a local branch, or itself.
+            const linkable = [
+              ...new Map(
+                branches
+                  .map((r) => (r.kind === 'local' ? (remoteOf(r) ?? r) : r))
+                  .filter((r) => A.branchUrl(r))
+                  .map((r) => [r.fullName, r]),
+              ).values(),
+            ];
+            return linkable.length === 1
+              ? [
+                  {
+                    label: t('Copy link to branch: {name}', { name: linkable[0]!.name }),
+                    onSelect: () => A.copyBranchLink(linkable[0]!),
+                  },
+                ]
+              : perBranch(t('Copy link to branch'), linkable, (r) => A.copyBranchLink(r));
+          })(),
           {
-            label: t('Copy link to this commit on remote'),
+            label: t('Copy link to this commit on remote: {remote}', {
+              remote: A.webRemoteName() ?? 'origin',
+            }),
             onSelect: () => A.copyCommitLink(c.hash),
           },
         ]
@@ -800,10 +845,12 @@ const CommitRow = memo(function CommitRow({
   const [menuOpen, setMenuOpen] = useState(false);
   const stack = hovered || menuOpen;
   return (
-    <ContextMenuWrap items={() => commitMenu(c)}>
+    <ContextMenuWrap items={() => (c.stash ? stashMenu(c.stash) : commitMenu(c))}>
       <div
         style={stack ? { ...style, zIndex: 30 } : style}
         onClick={onSelect}
+        // A stash pops straight onto the current checkout on double-click.
+        onDoubleClick={c.stash ? () => A.stashOp(c.stash!, 'pop') : undefined}
         className={cn('group relative flex cursor-default items-center', dim && 'opacity-40')}
       >
         {/* Selected row: a faint full-width highlight and a bar in the branch colour, so the
@@ -879,6 +926,7 @@ const CommitRow = memo(function CommitRow({
           row={row}
           width={graphWidth}
           merge={c.parents.length > 1}
+          stash={!!c.stash}
           head={isHead}
           name={c.authorName}
           withRefs={groups.length > 0}
@@ -895,9 +943,30 @@ const CommitRow = memo(function CommitRow({
           style={{ flex: 'var(--msg-flex)' }}
           title={c.body ? `${c.subject}\n\n${c.body}` : c.subject}
         >
-          <span className={cn(selected && 'font-semibold text-foreground')}>{c.subject}</span>
+          <span
+            className={cn(
+              selected && 'font-semibold text-foreground',
+              c.stash && !selected && 'text-foreground/85 italic',
+            )}
+          >
+            {c.subject}
+          </span>
           {c.body && <span className="ml-2 text-muted-foreground">{c.body}</span>}
         </div>
+        {c.stash && (
+          <button
+            type="button"
+            title={t('Pop stash onto the current checkout')}
+            onClick={(e) => {
+              e.stopPropagation();
+              void A.stashOp(c.stash!, 'pop');
+            }}
+            className="relative mr-2 hidden h-5 shrink-0 items-center rounded border px-2 text-xs font-medium group-hover:inline-flex"
+            style={{ borderColor: color, color }}
+          >
+            {t('Pop')}
+          </button>
+        )}
         <div style={{ flex: 'var(--msg-spacer)' }} />
         {cols.has('author') && (
           <div
@@ -952,6 +1021,7 @@ function GraphCell({
   row,
   width,
   merge,
+  stash,
   head,
   name,
   withRefs,
@@ -959,6 +1029,7 @@ function GraphCell({
   row: GraphRow;
   width: number;
   merge: boolean;
+  stash: boolean;
   head: boolean;
   name: string;
   withRefs: boolean;
@@ -970,9 +1041,38 @@ function GraphCell({
     <svg width={width} height={ROW} className="relative shrink-0 overflow-hidden">
       {withRefs && <line x1={0} x2={cx} y1={cy} y2={cy} stroke={color} strokeWidth={2} />}
       {row.segments.map((s, i) => (
-        <path key={i} d={segmentPath(s)} fill="none" stroke={laneColor(s.color)} strokeWidth={2} />
+        <path
+          key={i}
+          d={segmentPath(s)}
+          fill="none"
+          stroke={laneColor(s.color)}
+          strokeWidth={2}
+          strokeDasharray={s.dashed ? '2 3' : undefined}
+        />
       ))}
-      {merge ? (
+      {stash ? (
+        // Like GitKraken: a dotted box with a stash (archive) glyph.
+        <g>
+          <rect
+            x={cx - 10}
+            y={cy - 10}
+            width={20}
+            height={20}
+            rx={3}
+            fill="var(--background)"
+            stroke={color}
+            strokeWidth={1.5}
+            strokeDasharray="3 2"
+          />
+          <path
+            d={`M${cx - 5.5} ${cy - 3.5} H${cx + 5.5} V${cy - 1} H${cx - 5.5} Z M${cx - 4.5} ${cy - 1} V${cy + 5} H${cx + 4.5} V${cy - 1} M${cx - 1.5} ${cy + 1.5} H${cx + 1.5}`}
+            fill="none"
+            stroke={color}
+            strokeWidth={1.3}
+            strokeLinejoin="round"
+          />
+        </g>
+      ) : merge ? (
         <circle cx={cx} cy={cy} r={6} fill={color} stroke="var(--background)" strokeWidth={1.5} />
       ) : (
         <g>

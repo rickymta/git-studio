@@ -66,6 +66,8 @@ pub struct Stash {
     pub hash: String,
     pub message: String,
     pub time: i64,
+    /// Commit the stash was made on (its first parent).
+    pub base: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
