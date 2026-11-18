@@ -130,12 +130,20 @@ export function groupRefs(refs: GitRef[]): BadgeGroup[] {
   return groups.sort((a, b) => Number(b.head) - Number(a.head));
 }
 
-export function RefBadge({ group, color }: { group: BadgeGroup; color: string }) {
+export function RefBadge({
+  group,
+  color,
+  onMenuOpenChange,
+}: {
+  group: BadgeGroup;
+  color: string;
+  onMenuOpenChange?: (open: boolean) => void;
+}) {
   const primary = group.refs[0]!;
   const hasLocal = group.refs.some((r) => r.kind === 'local');
   const hasRemote = group.refs.some((r) => r.kind === 'remote');
   return (
-    <ContextMenuWrap items={() => refMenu(primary)}>
+    <ContextMenuWrap items={() => refMenu(primary)} onOpenChange={onMenuOpenChange}>
       <span
         onDoubleClick={(e) => {
           e.stopPropagation();

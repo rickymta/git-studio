@@ -710,7 +710,11 @@ const CommitRow = memo(function CommitRow({
   const color = laneColor(row.color);
   const cx = laneX(row.lane);
   // Several refs on one commit: hovering the badge column unfolds all of them in a stack.
-  const [stack, setStack] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  // A badge's context menu takes the pointer away; keep the stack (and so the menu's anchor)
+  // mounted until the menu closes, or the menu vanishes as soon as it opens.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const stack = hovered || menuOpen;
   return (
     <ContextMenuWrap items={() => commitMenu(c)}>
       <div
@@ -745,14 +749,14 @@ const CommitRow = memo(function CommitRow({
         <div
           className="relative flex h-full shrink-0 items-center"
           style={{ width: REFS_W }}
-          onMouseEnter={() => groups.length > 1 && setStack(true)}
-          onMouseLeave={() => setStack(false)}
+          onMouseEnter={() => groups.length > 1 && setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
         >
           {stack && (
             // Just the badges, continuing downward from the row's own badge; no box around them.
             <div className="absolute top-[3px] right-1 left-2 z-10 flex flex-col items-start gap-[3px]">
               {groups.map((g) => (
-                <RefBadge key={g.key} group={g} color={color} />
+                <RefBadge key={g.key} group={g} color={color} onMenuOpenChange={setMenuOpen} />
               ))}
             </div>
           )}

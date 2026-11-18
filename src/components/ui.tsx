@@ -153,12 +153,14 @@ function renderItems(items: MenuItem[], M: typeof ContextMenu | typeof DropdownM
 export function ContextMenuWrap({
   items,
   children,
+  onOpenChange,
 }: {
   items: () => MenuItem[];
   children: ReactNode;
+  onOpenChange?: (open: boolean) => void;
 }) {
   return (
-    <ContextMenu.Root>
+    <ContextMenu.Root onOpenChange={onOpenChange}>
       <ContextMenu.Trigger asChild>{children}</ContextMenu.Trigger>
       <ContextMenu.Portal>
         <ContextMenu.Content

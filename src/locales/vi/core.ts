@@ -184,6 +184,7 @@ export const core: Record<string, string> = {
   // ---- Stores
   'Could not load settings': 'Không thể tải cài đặt',
   'Could not open repository': 'Không thể mở repository',
+  'Something went wrong': 'Đã xảy ra lỗi',
   'Refresh failed': 'Làm mới thất bại',
   'Could not load commit': 'Không thể tải commit',
   'Could not load diff': 'Không thể tải diff',

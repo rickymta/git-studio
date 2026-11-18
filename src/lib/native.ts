@@ -1,10 +1,12 @@
+import { open as openDialog } from '@tauri-apps/plugin-dialog';
+import { openPath, openUrl as openExternal } from '@tauri-apps/plugin-opener';
+
 import { isTauri } from './ipc';
 
 /** Folder picker. In a plain browser (dev bridge) falls back to a text prompt. */
 export async function pickFolder(title: string, defaultPath?: string): Promise<string | null> {
   if (isTauri) {
-    const { open } = await import('@tauri-apps/plugin-dialog');
-    const r = await open({ directory: true, multiple: false, title, defaultPath });
+    const r = await openDialog({ directory: true, multiple: false, title, defaultPath });
     return typeof r === 'string' ? r : null;
   }
   return window.prompt(`${title} (absolute path)`, defaultPath ?? '');
@@ -12,8 +14,7 @@ export async function pickFolder(title: string, defaultPath?: string): Promise<s
 
 export async function openUrl(url: string): Promise<void> {
   if (isTauri) {
-    const { openUrl } = await import('@tauri-apps/plugin-opener');
-    await openUrl(url);
+    await openExternal(url);
     return;
   }
   window.open(url, '_blank', 'noopener');
@@ -21,7 +22,6 @@ export async function openUrl(url: string): Promise<void> {
 
 export async function revealPath(path: string): Promise<void> {
   if (isTauri) {
-    const { openPath } = await import('@tauri-apps/plugin-opener');
     await openPath(path);
   }
 }
@@ -33,8 +33,7 @@ export async function copyText(text: string): Promise<void> {
 /** File picker. In a plain browser (dev bridge) falls back to a text prompt. */
 export async function pickFile(title: string, defaultPath?: string): Promise<string | null> {
   if (isTauri) {
-    const { open } = await import('@tauri-apps/plugin-dialog');
-    const r = await open({ directory: false, multiple: false, title, defaultPath });
+    const r = await openDialog({ directory: false, multiple: false, title, defaultPath });
     return typeof r === 'string' ? r : null;
   }
   return window.prompt(`${title} (absolute path)`, defaultPath ?? '');
