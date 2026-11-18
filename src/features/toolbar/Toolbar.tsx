@@ -16,8 +16,10 @@ import {
 import type { ReactNode } from 'react';
 
 import { Dropdown, Spinner, cn, type MenuItem } from '@/components/ui';
+import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import { pickFolder, revealPath } from '@/lib/native';
+import { openSession, toggleTerminal } from '@/features/terminal/runtime';
 import { useGitHub } from '@/stores/github';
 import { useRepo } from '@/stores/repo';
 import { toast } from '@/stores/ui';
@@ -101,29 +103,29 @@ export function Toolbar() {
       .map((r) => ({ label: r.name, onSelect: () => open(r.path) })),
     'sep',
     {
-      label: 'Open repository…',
+      label: t('Open repository…'),
       onSelect: async () => {
-        const p = await pickFolder('Open a Git repository');
+        const p = await pickFolder(t('Open a Git repository'));
         if (p) await open(p);
       },
     },
     ...(ws && !ws.repos.some((r) => samePath(r, info.path))
       ? [
           {
-            label: `Add to workspace “${ws.name}”`,
+            label: t('Add to workspace “{name}”', { name: ws.name }),
             onSelect: () => addRepos(ws.id, [info.path]),
           },
         ]
       : []),
-    { label: 'Show in file explorer', onSelect: () => revealPath(info.path) },
+    { label: t('Show in file explorer'), onSelect: () => revealPath(info.path) },
     {
-      label: 'Open in editor',
+      label: t('Open in editor'),
       onSelect: () =>
         api
           .openEditor(info.path)
-          .catch((e) => toast('error', 'Could not open editor', (e as Error).message)),
+          .catch((e) => toast('error', t('Could not open editor'), (e as Error).message)),
     },
-    { label: 'Close tab', onSelect: close },
+    { label: t('Close tab'), onSelect: close },
   ];
 
   const branchMenu: MenuItem[] = [
@@ -136,27 +138,33 @@ export function Toolbar() {
         onSelect: () => A.checkoutRef(r),
       })),
     'sep',
-    { label: 'Create branch…', onSelect: () => A.newBranch() },
+    { label: t('Create branch…'), onSelect: () => A.newBranch() },
   ];
 
   const pullMenu: MenuItem[] = [
-    { label: 'Fetch all', onSelect: () => A.fetchAll() },
-    { label: 'Pull (merge)', onSelect: () => run('Pull', (p) => api.pull(p, 'merge'), 'Pulled') },
+    { label: t('Fetch all'), onSelect: () => A.fetchAll() },
     {
-      label: 'Pull (fast-forward only)',
-      onSelect: () => run('Pull', (p) => api.pull(p, 'ff-only'), 'Pulled'),
+      label: t('Pull (merge)'),
+      onSelect: () => run('Pull', (p) => api.pull(p, 'merge'), t('Pulled')),
     },
-    { label: 'Pull (rebase)', onSelect: () => run('Pull', (p) => api.pull(p, 'rebase'), 'Pulled') },
+    {
+      label: t('Pull (fast-forward only)'),
+      onSelect: () => run('Pull', (p) => api.pull(p, 'ff-only'), t('Pulled')),
+    },
+    {
+      label: t('Pull (rebase)'),
+      onSelect: () => run('Pull', (p) => api.pull(p, 'rebase'), t('Pulled')),
+    },
   ];
 
   return (
-    <div className="flex h-14 shrink-0 items-center gap-1 border-b border-border bg-surface px-2">
+    <div className="flex h-[50px] shrink-0 items-center gap-1 border-b border-border bg-surface px-2">
       <div className="flex w-[30%] min-w-0 items-center">
-        <Selector label="repository" value={info.name} items={repoMenu} />
+        <Selector label={t('repository')} value={info.name} items={repoMenu} />
         <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
         <Selector
-          label="branch"
-          value={st.branch ?? `detached @ ${st.head?.slice(0, 7) ?? '—'}`}
+          label={t('branch')}
+          value={st.branch ?? t('detached @ {hash}', { hash: st.head?.slice(0, 7) ?? '—' })}
           items={branchMenu}
         />
       </div>
@@ -164,15 +172,15 @@ export function Toolbar() {
       <div className="flex flex-1 items-center justify-center">
         <ToolButton
           icon={<Undo2 className="size-[18px]" />}
-          label="Undo"
-          title={undoTop ? `Undo ${undoTop.label}` : 'Nothing to undo'}
+          label={t('Undo')}
+          title={undoTop ? t('Undo {label}', { label: t(undoTop.label) }) : t('Nothing to undo')}
           onClick={() => A.undo()}
           disabled={!undoTop || !!busy}
         />
         <ToolButton
           icon={<Redo2 className="size-[18px]" />}
-          label="Redo"
-          title={redoTop ? `Redo ${redoTop.label}` : 'Nothing to redo'}
+          label={t('Redo')}
+          title={redoTop ? t('Redo {label}', { label: t(redoTop.label) }) : t('Nothing to redo')}
           onClick={() => A.redo()}
           disabled={!redoTop || !!busy}
         />
@@ -180,7 +188,7 @@ export function Toolbar() {
         <div className="flex">
           <ToolButton
             icon={<ArrowDownToLine className="size-[18px]" />}
-            label="Pull"
+            label={t('Pull')}
             badge={st.behind}
             onClick={() => A.pull()}
             disabled={!!busy}
@@ -188,7 +196,7 @@ export function Toolbar() {
           <Dropdown items={pullMenu}>
             <button
               type="button"
-              aria-label="Pull options"
+              aria-label={t('Pull options')}
               className="flex h-12 w-4 items-start justify-center rounded-md pt-2 text-muted-foreground hover:bg-surface-hover"
             >
               <ChevronDown className="size-3" />
@@ -197,7 +205,7 @@ export function Toolbar() {
         </div>
         <ToolButton
           icon={<ArrowUpFromLine className="size-[18px]" />}
-          label="Push"
+          label={t('Push')}
           badge={st.ahead}
           onClick={() => A.push()}
           disabled={!!busy || !st.branch}
@@ -205,19 +213,19 @@ export function Toolbar() {
         <Divider />
         <ToolButton
           icon={<GitBranchPlus className="size-[18px]" />}
-          label="Branch"
+          label={t('Branch')}
           onClick={() => A.newBranch()}
           disabled={!st.head}
         />
         <Divider />
         <ToolButton
           icon={<Archive className="size-[18px]" />}
-          label="Stash"
+          label={t('Stash')}
           onClick={() => A.stash()}
         />
         <ToolButton
           icon={<ArchiveRestore className="size-[18px]" />}
-          label="Pop"
+          label={t('Pop')}
           badge={refs?.stashes.length}
           onClick={() => A.popLatest()}
           disabled={!refs?.stashes.length}
@@ -227,41 +235,62 @@ export function Toolbar() {
             <Divider />
             <ToolButton
               icon={<GitPullRequest className="size-[18px]" />}
-              label="Pull Request"
+              label={t('Pull Request')}
               onClick={() => A.createPullRequest()}
               disabled={!user || !st.branch}
-              title={user ? 'Create pull request' : 'Connect GitHub to create pull requests'}
+              title={user ? t('Create pull request') : t('Connect GitHub to create pull requests')}
             />
           </>
         )}
         <Divider />
-        <ToolButton
-          icon={<SquareTerminal className="size-[18px]" />}
-          label="Terminal"
-          onClick={() =>
-            api
-              .openTerminal(info.path)
-              .catch((e) => toast('error', 'Could not open terminal', (e as Error).message))
-          }
-        />
+        <div className="flex">
+          <ToolButton
+            icon={<SquareTerminal className="size-[18px]" />}
+            label={t('Terminal')}
+            title={t('Toggle terminal (Ctrl+`)')}
+            onClick={toggleTerminal}
+          />
+          <Dropdown
+            items={[
+              { label: t('New terminal'), onSelect: () => openSession(info.path) },
+              {
+                label: t('Open external terminal'),
+                onSelect: () =>
+                  api
+                    .openTerminal(info.path)
+                    .catch((e) =>
+                      toast('error', t('Could not open terminal'), (e as Error).message),
+                    ),
+              },
+            ]}
+          >
+            <button
+              type="button"
+              aria-label={t('Terminal options')}
+              className="flex h-12 w-4 items-start justify-center rounded-md pt-2 text-muted-foreground hover:bg-surface-hover"
+            >
+              <ChevronDown className="size-3" />
+            </button>
+          </Dropdown>
+        </div>
       </div>
 
       <div className="flex w-[22%] items-center justify-end gap-1">
         {busy && (
           <div className="flex items-center gap-2 pr-2 text-xs text-muted-foreground">
-            <Spinner /> {busy}…
+            <Spinner /> {t(busy)}…
           </div>
         )}
         <ToolButton
           icon={<RefreshCw className={cn('size-[18px]')} />}
-          label="Fetch"
+          label={t('Fetch')}
           onClick={() => A.fetchAll()}
           disabled={!!busy}
         />
         <ToolButton
           icon={<Search className="size-[18px]" />}
-          label="Search"
-          title="Search commits (Ctrl+F)"
+          label={t('Search')}
+          title={t('Search commits (Ctrl+F)')}
           onClick={() =>
             window.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', ctrlKey: true }))
           }

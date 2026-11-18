@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 
+import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import type { RepoSummary, Workspace, Workspaces } from '@/lib/types';
 import { useRepo } from './repo';
@@ -50,7 +51,7 @@ export const useWorkspaces = create<WorkspaceStore>((set, get) => {
     try {
       set({ data: await api.saveWorkspaces(data) });
     } catch (e) {
-      toast('error', 'Could not save workspaces', (e as Error).message);
+      toast('error', t('Could not save workspaces'), (e as Error).message);
     }
   };
 
@@ -145,14 +146,14 @@ export const useWorkspaces = create<WorkspaceStore>((set, get) => {
         for (const s of res) next[norm(s.path)] = s;
         set({ summaries: next });
       } catch (e) {
-        toast('error', 'Could not read repository status', (e as Error).message);
+        toast('error', t('Could not read repository status'), (e as Error).message);
       } finally {
         set({ summariesLoading: false });
       }
     },
 
     bulk: async (op, paths) => {
-      const label = op === 'fetch' ? 'Fetch' : 'Pull';
+      const label = op === 'fetch' ? t('Fetch') : t('Pull');
       const failures: string[] = [];
       let done = 0;
       const queue = [...paths];
@@ -179,8 +180,18 @@ export const useWorkspaces = create<WorkspaceStore>((set, get) => {
       };
       await Promise.all([worker(), worker(), worker(), worker()]);
       if (failures.length === 0)
-        toast('success', `${label}: ${done} repositor${done === 1 ? 'y' : 'ies'} done`);
-      else toast('error', `${label}: ${done} done, ${failures.length} failed`, failures.join('\n'));
+        toast(
+          'success',
+          done === 1
+            ? t('{label}: {n} repository done', { label, n: done })
+            : t('{label}: {n} repositories done', { label, n: done }),
+        );
+      else
+        toast(
+          'error',
+          t('{label}: {done} done, {failed} failed', { label, done, failed: failures.length }),
+          failures.join('\n'),
+        );
       const cur = useRepo.getState().path;
       if (cur && paths.some((p) => samePath(p, cur))) void useRepo.getState().refresh();
     },

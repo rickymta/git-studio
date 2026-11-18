@@ -31,6 +31,7 @@ import {
   type MenuItem,
 } from '@/components/ui';
 import { relativeTime } from '@/lib/format';
+import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import { openUrl, pickFolder, revealPath } from '@/lib/native';
 import type { PullRequest, RepoSummary } from '@/lib/types';
@@ -161,17 +162,19 @@ export function WorkspaceView({ onClone }: { onClone: () => void }) {
   };
 
   const addFolder = async () => {
-    const p = await pickFolder('Add a repository to this workspace');
+    const p = await pickFolder(t('Add a repository to this workspace'));
     if (!p) return;
     try {
       const info = await api.info(p);
       const n = await addRepos(ws.id, [info.path]);
       toast(
         n ? 'success' : 'info',
-        n ? `Added ${info.name}` : `${info.name} is already in this workspace`,
+        n
+          ? t('Added {name}', { name: info.name })
+          : t('{name} is already in this workspace', { name: info.name }),
       );
     } catch (e) {
-      toast('error', 'Not a Git repository', (e as Error).message);
+      toast('error', t('Not a Git repository'), (e as Error).message);
     }
   };
 
@@ -182,17 +185,19 @@ export function WorkspaceView({ onClone }: { onClone: () => void }) {
     );
     toast(
       'success',
-      n
-        ? `Added ${n} open tab${n === 1 ? '' : 's'}`
-        : 'All open tabs are already in this workspace',
+      n === 1
+        ? t('Added {n} open tab', { n })
+        : n
+          ? t('Added {n} open tabs', { n })
+          : t('All open tabs are already in this workspace'),
     );
   };
 
   const rename = async () => {
     const v = await ask({
-      title: 'Rename workspace',
-      fields: [{ name: 'name', label: 'Name', initial: ws.name, required: true }],
-      confirmLabel: 'Rename',
+      title: t('Rename workspace'),
+      fields: [{ name: 'name', label: t('Name'), initial: ws.name, required: true }],
+      confirmLabel: t('Rename'),
     });
     if (v) await update(ws.id, { name: (v.name as string).trim() });
   };
@@ -200,9 +205,11 @@ export function WorkspaceView({ onClone }: { onClone: () => void }) {
   const del = async () => {
     if (
       await confirm(
-        'Delete workspace',
-        `Delete the workspace “${ws.name}”? Repositories on disk are not touched.`,
-        'Delete',
+        t('Delete workspace'),
+        t('Delete the workspace “{name}”? Repositories on disk are not touched.', {
+          name: ws.name,
+        }),
+        t('Delete'),
         true,
       )
     )
@@ -211,18 +218,22 @@ export function WorkspaceView({ onClone }: { onClone: () => void }) {
 
   const addMenu: MenuItem[] = [
     {
-      label: 'Open a repository folder…',
+      label: t('Open a repository folder…'),
       icon: <FolderOpen className="size-3.5" />,
       onSelect: addFolder,
     },
     {
-      label: 'Scan a folder for repositories…',
+      label: t('Scan a folder for repositories…'),
       icon: <FolderSearch className="size-3.5" />,
       onSelect: () => setScanOpen(true),
     },
-    { label: 'Clone a repository…', icon: <Download className="size-3.5" />, onSelect: onClone },
     {
-      label: `Add open tabs (${tabs.length})`,
+      label: t('Clone a repository…'),
+      icon: <Download className="size-3.5" />,
+      onSelect: onClone,
+    },
+    {
+      label: t('Add open tabs ({n})', { n: tabs.length }),
       icon: <LayoutGrid className="size-3.5" />,
       disabled: tabs.length === 0,
       onSelect: addTabs,
@@ -230,10 +241,10 @@ export function WorkspaceView({ onClone }: { onClone: () => void }) {
   ];
 
   const moreMenu: MenuItem[] = [
-    { label: 'Rename workspace…', onSelect: rename },
+    { label: t('Rename workspace…'), onSelect: rename },
     'sep',
     {
-      label: 'Delete workspace',
+      label: t('Delete workspace'),
       danger: true,
       icon: <Trash2 className="size-3.5" />,
       onSelect: del,
@@ -251,21 +262,23 @@ export function WorkspaceView({ onClone }: { onClone: () => void }) {
           <span className="size-3.5 rounded-full" style={{ background: ws.color }} />
           <h1 className="text-xl font-semibold">{ws.name}</h1>
           <span className="text-muted-foreground">
-            {ws.repos.length} repositor{ws.repos.length === 1 ? 'y' : 'ies'}
+            {ws.repos.length === 1
+              ? t('{n} repository', { n: ws.repos.length })
+              : t('{n} repositories', { n: ws.repos.length })}
           </span>
           <div className="ml-auto flex items-center gap-2">
             <Dropdown items={addMenu}>
               <Button variant="primary">
-                <FolderPlus className="size-4" /> Add repositories{' '}
+                <FolderPlus className="size-4" /> {t('Add repositories')}{' '}
                 <ChevronDown className="size-3.5" />
               </Button>
             </Dropdown>
             <Button
               onClick={() => bulk('fetch', visiblePaths)}
               disabled={anyRunning || visiblePaths.length === 0}
-              title="Fetch every repository in the list"
+              title={t('Fetch every repository in the list')}
             >
-              <RefreshCw className="size-4" /> Fetch all
+              <RefreshCw className="size-4" /> {t('Fetch all')}
             </Button>
             <Button
               onClick={() =>
@@ -275,26 +288,29 @@ export function WorkspaceView({ onClone }: { onClone: () => void }) {
                 )
               }
               disabled={anyRunning || visiblePaths.length === 0}
-              title="Fast-forward every repository that is behind (never creates merge commits)"
+              title={t(
+                'Fast-forward every repository that is behind (never creates merge commits)',
+              )}
             >
-              <ArrowDownToLine className="size-4" /> Pull all
+              <ArrowDownToLine className="size-4" /> {t('Pull all')}
             </Button>
             <Button
               onClick={() => openAll(visiblePaths)}
               disabled={visiblePaths.length === 0}
-              title="Open every repository in the list as a tab"
+              title={t('Open every repository in the list as a tab')}
             >
-              <LayoutGrid className="size-4" /> Open all
+              <LayoutGrid className="size-4" /> {t('Open all')}
             </Button>
             <Dropdown items={moreMenu}>
-              <Button aria-label="Workspace options">
+              <Button aria-label={t('Workspace options')}>
                 <MoreHorizontal className="size-4" />
               </Button>
             </Dropdown>
           </div>
         </div>
         <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-          Colour <ColorSwatches value={ws.color} onChange={(c) => update(ws.id, { color: c })} />
+          {t('Colour')}{' '}
+          <ColorSwatches value={ws.color} onChange={(c) => update(ws.id, { color: c })} />
         </div>
 
         {/* Filters */}
@@ -304,7 +320,7 @@ export function WorkspaceView({ onClone }: { onClone: () => void }) {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Filter by name, path or branch"
+              placeholder={t('Filter by name, path or branch')}
               className="h-8 w-full rounded-md border border-border bg-background pr-2 pl-8 outline-none focus:border-accent"
             />
           </div>
@@ -320,7 +336,7 @@ export function WorkspaceView({ onClone }: { onClone: () => void }) {
                   : 'border-border text-muted-foreground hover:bg-surface-hover',
               )}
             >
-              {f.label} <span className="ml-1 tabular-nums opacity-70">{counts[f.key]}</span>
+              {t(f.label)} <span className="ml-1 tabular-nums opacity-70">{counts[f.key]}</span>
             </button>
           ))}
           <Button
@@ -330,39 +346,41 @@ export function WorkspaceView({ onClone }: { onClone: () => void }) {
             onClick={() => refreshSummaries()}
             disabled={loading}
           >
-            {loading ? <Spinner /> : <RefreshCw className="size-3.5" />} Refresh
+            {loading ? <Spinner /> : <RefreshCw className="size-3.5" />} {t('Refresh')}
           </Button>
         </div>
 
         {/* Repositories */}
         <div className="mt-3 overflow-hidden rounded-lg border border-border bg-surface">
           <div className="grid grid-cols-[minmax(200px,1.3fr)_minmax(140px,1fr)_96px_96px_minmax(200px,1.6fr)_60px_120px] items-center gap-3 border-b border-border px-4 py-2 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
-            <span>Repository</span>
-            <span>Branch</span>
-            <span>Sync</span>
-            <span>Changes</span>
-            <span>Last activity</span>
-            <span>PRs</span>
+            <span>{t('Repository')}</span>
+            <span>{t('Branch')}</span>
+            <span>{t('Sync')}</span>
+            <span>{t('Changes')}</span>
+            <span>{t('Last activity')}</span>
+            <span>{t('PRs')}</span>
             <span />
           </div>
           {ws.repos.length === 0 && (
             <div className="flex flex-col items-center gap-3 p-10 text-center text-muted-foreground">
-              This workspace has no repositories yet.
+              {t('This workspace has no repositories yet.')}
               <div className="flex gap-2">
                 <Button onClick={() => setScanOpen(true)}>
-                  <FolderSearch className="size-4" /> Scan a folder
+                  <FolderSearch className="size-4" /> {t('Scan a folder')}
                 </Button>
                 <Button onClick={addFolder}>
-                  <FolderOpen className="size-4" /> Open a folder
+                  <FolderOpen className="size-4" /> {t('Open a folder')}
                 </Button>
                 <Button onClick={onClone}>
-                  <Download className="size-4" /> Clone
+                  <Download className="size-4" /> {t('Clone')}
                 </Button>
               </div>
             </div>
           )}
           {ws.repos.length > 0 && shown.length === 0 && (
-            <div className="p-8 text-center text-muted-foreground">No repository matches.</div>
+            <div className="p-8 text-center text-muted-foreground">
+              {t('No repository matches.')}
+            </div>
           )}
           {shown.map((r) => (
             <RepoRow
@@ -377,9 +395,12 @@ export function WorkspaceView({ onClone }: { onClone: () => void }) {
               onRemove={async () => {
                 if (
                   await confirm(
-                    'Remove from workspace',
-                    `Remove ${r.name} from “${ws.name}”? The folder on disk is not touched.`,
-                    'Remove',
+                    t('Remove from workspace'),
+                    t('Remove {repo} from “{workspace}”? The folder on disk is not touched.', {
+                      repo: r.name,
+                      workspace: ws.name,
+                    }),
+                    t('Remove'),
                   )
                 )
                   await removeRepo(ws.id, r.path);
@@ -393,10 +414,16 @@ export function WorkspaceView({ onClone }: { onClone: () => void }) {
           <div className="mt-6">
             <div className="mb-2 flex items-center gap-2">
               <GitPullRequest className="size-4 text-muted-foreground" />
-              <h2 className="font-semibold">Pull requests</h2>
-              {prs && <span className="text-muted-foreground">{prs.length} open</span>}
+              <h2 className="font-semibold">{t('Pull requests')}</h2>
+              {prs && (
+                <span className="text-muted-foreground">{t('{n} open', { n: prs.length })}</span>
+              )}
               {user && (
-                <IconButton label="Refresh pull requests" className="ml-auto" onClick={loadPrs}>
+                <IconButton
+                  label={t('Refresh pull requests')}
+                  className="ml-auto"
+                  onClick={loadPrs}
+                >
                   {prsLoading ? (
                     <Spinner className="size-3.5" />
                   ) : (
@@ -408,11 +435,13 @@ export function WorkspaceView({ onClone }: { onClone: () => void }) {
             <div className="overflow-hidden rounded-lg border border-border bg-surface">
               {!user && (
                 <div className="p-6 text-center text-muted-foreground">
-                  Connect GitHub to see open pull requests across this workspace.
+                  {t('Connect GitHub to see open pull requests across this workspace.')}
                 </div>
               )}
               {user && prs?.length === 0 && (
-                <div className="p-6 text-center text-muted-foreground">No open pull requests.</div>
+                <div className="p-6 text-center text-muted-foreground">
+                  {t('No open pull requests.')}
+                </div>
               )}
               {prs?.map((pr) => (
                 <div
@@ -430,7 +459,9 @@ export function WorkspaceView({ onClone }: { onClone: () => void }) {
                   <span className="min-w-0 flex-1 truncate">
                     <span className="text-muted-foreground">#{pr.number}</span> {pr.title}
                     {pr.draft && (
-                      <span className="ml-2 rounded bg-surface-muted px-1.5 text-xs">Draft</span>
+                      <span className="ml-2 rounded bg-surface-muted px-1.5 text-xs">
+                        {t('Draft')}
+                      </span>
                     )}
                   </span>
                   <span className="max-w-64 shrink-0 truncate text-xs text-muted-foreground">
@@ -473,16 +504,16 @@ function RepoRow({
   const terminal = () =>
     api
       .openTerminal(s.path)
-      .catch((e) => toast('error', 'Could not open terminal', (e as Error).message));
+      .catch((e) => toast('error', t('Could not open terminal'), (e as Error).message));
   const menu = (): MenuItem[] => [
-    { label: 'Open', onSelect: onOpen },
-    { label: 'Fetch', onSelect: onFetch },
-    { label: 'Pull (fast-forward)', onSelect: onPull },
+    { label: t('Open'), onSelect: onOpen },
+    { label: t('Fetch'), onSelect: onFetch },
+    { label: t('Pull (fast-forward)'), onSelect: onPull },
     'sep',
-    { label: 'Open terminal here', onSelect: terminal },
-    { label: 'Show in file explorer', onSelect: () => revealPath(s.path) },
+    { label: t('Open terminal here'), onSelect: terminal },
+    { label: t('Show in file explorer'), onSelect: () => revealPath(s.path) },
     'sep',
-    { label: 'Remove from workspace', danger: true, onSelect: onRemove },
+    { label: t('Remove from workspace'), danger: true, onSelect: onRemove },
   ];
   const busyState = s.state && s.state !== 'clean';
   return (
@@ -497,7 +528,7 @@ function RepoRow({
         <div className="min-w-0">
           <div className="flex items-center gap-1.5 font-medium">
             {isOpen && (
-              <CircleDot className="size-3 shrink-0 text-accent" aria-label="Open in a tab" />
+              <CircleDot className="size-3 shrink-0 text-accent" aria-label={t('Open in a tab')} />
             )}
             <span className="truncate">{s.name}</span>
           </div>
@@ -515,13 +546,13 @@ function RepoRow({
           <>
             <div className="flex min-w-0 items-center gap-1.5">
               <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
-              <span className="truncate">{s.branch ?? 'detached'}</span>
+              <span className="truncate">{s.branch ?? t('detached')}</span>
             </div>
             <div className="text-xs tabular-nums">
               {!s.upstream ? (
-                <span className="text-muted-foreground">no upstream</span>
+                <span className="text-muted-foreground">{t('no upstream')}</span>
               ) : s.ahead + s.behind === 0 ? (
-                <span className="text-success">up to date</span>
+                <span className="text-success">{t('up to date')}</span>
               ) : (
                 <span className="flex gap-2">
                   {s.behind > 0 && <span className="text-warning">↓{s.behind}</span>}
@@ -533,11 +564,11 @@ function RepoRow({
               {busyState ? (
                 <span className="text-danger">{s.state}</span>
               ) : s.conflicts > 0 ? (
-                <span className="text-danger">{s.conflicts} conflicts</span>
+                <span className="text-danger">{t('{n} conflicts', { n: s.conflicts })}</span>
               ) : s.changes > 0 ? (
                 <span className="text-warning">✎ {s.changes}</span>
               ) : (
-                <span className="text-muted-foreground">clean</span>
+                <span className="text-muted-foreground">{t('clean')}</span>
               )}
             </div>
             <div className="min-w-0 text-xs">
@@ -560,12 +591,12 @@ function RepoRow({
         <div className="flex items-center justify-end gap-0.5">
           {running ? (
             <span className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Spinner className="size-3.5" /> {running === 'fetch' ? 'Fetching' : 'Pulling'}
+              <Spinner className="size-3.5" /> {running === 'fetch' ? t('Fetching') : t('Pulling')}
             </span>
           ) : (
             <div className="flex opacity-0 group-hover:opacity-100">
               <IconButton
-                label="Fetch"
+                label={t('Fetch')}
                 onClick={(e) => {
                   e.stopPropagation();
                   onFetch();
@@ -574,7 +605,7 @@ function RepoRow({
                 <RefreshCw className="size-3.5" />
               </IconButton>
               <IconButton
-                label="Pull (fast-forward)"
+                label={t('Pull (fast-forward)')}
                 onClick={(e) => {
                   e.stopPropagation();
                   onPull();
@@ -583,7 +614,7 @@ function RepoRow({
                 <ArrowDownToLine className="size-3.5" />
               </IconButton>
               <IconButton
-                label="Open terminal"
+                label={t('Open terminal')}
                 onClick={(e) => {
                   e.stopPropagation();
                   void terminal();
@@ -592,7 +623,7 @@ function RepoRow({
                 <SquareTerminal className="size-3.5" />
               </IconButton>
               <IconButton
-                label="Remove from workspace"
+                label={t('Remove from workspace')}
                 onClick={(e) => {
                   e.stopPropagation();
                   onRemove();

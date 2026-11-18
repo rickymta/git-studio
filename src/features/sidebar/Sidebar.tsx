@@ -4,9 +4,11 @@ import {
   ChevronRight,
   Cloud,
   ExternalLink,
+  FolderTree,
   GitBranch,
   GitPullRequest,
   Laptop,
+  Lock,
   Plus,
   RefreshCw,
   Search,
@@ -14,11 +16,12 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { Avatar, ContextMenuWrap, Dropdown, IconButton, cn } from '@/components/ui';
+import { Avatar, ContextMenuWrap, Dropdown, IconButton, cn, type MenuItem } from '@/components/ui';
 import { relativeTime } from '@/lib/format';
+import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
-import { openUrl } from '@/lib/native';
-import type { GitRef, PullRequest } from '@/lib/types';
+import { copyText, openUrl, revealPath } from '@/lib/native';
+import type { GitRef, PullRequest, Worktree } from '@/lib/types';
 import { useGitHub } from '@/stores/github';
 import { useRepo } from '@/stores/repo';
 import * as A from '../actions';
@@ -95,17 +98,17 @@ function RefRow({ refItem, label, depth = 0 }: { refItem: GitRef; label: string;
       >
         <span className="min-w-0 flex-1 truncate">{label}</span>
         {refItem.upstreamGone && (
-          <span className="text-xs text-warning" title="Upstream deleted">
-            gone
+          <span className="text-xs text-warning" title={t('Upstream deleted')}>
+            {t('gone')}
           </span>
         )}
         {refItem.ahead > 0 && (
-          <span className="text-xs text-muted-foreground" title="Commits to push">
+          <span className="text-xs text-muted-foreground" title={t('Commits to push')}>
             ↑{refItem.ahead}
           </span>
         )}
         {refItem.behind > 0 && (
-          <span className="text-xs text-muted-foreground" title="Commits to pull">
+          <span className="text-xs text-muted-foreground" title={t('Commits to pull')}>
             ↓{refItem.behind}
           </span>
         )}
@@ -197,6 +200,9 @@ export function Sidebar() {
   const tags = all.filter((r) => r.kind === 'tag' && match(r)).reverse();
   const remotes = refs?.remotes ?? [];
 
+  // "Viewing {n}": the count is styled inside the sentence.
+  const viewing = t('Viewing {n}').split('{n}');
+
   const checkoutPr = async (pr: PullRequest) => {
     const remote = ghRemote?.name ?? 'origin';
     const sameRepo = pr.headRepo === slugKey;
@@ -217,12 +223,13 @@ export function Sidebar() {
     <div className="flex h-full min-h-0 flex-col">
       <div className="shrink-0 border-b border-border/60 px-2.5 pt-2.5 pb-2">
         <div className="mb-1.5 text-xs text-muted-foreground">
-          Viewing{' '}
+          {viewing[0]}
           <span className="font-semibold text-accent">
             {locals.length +
               tags.length +
               all.filter((r) => r.kind === 'remote' && match(r)).length}
           </span>
+          {viewing[1]}
         </div>
         <div className="relative">
           <input
@@ -230,7 +237,7 @@ export function Sidebar() {
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             onKeyDown={(e) => e.key === 'Escape' && setFilter('')}
-            placeholder="Filter (Ctrl + Alt + F)"
+            placeholder={t('Filter (Ctrl + Alt + F)')}
             className="h-7 w-full rounded border border-border bg-background pr-7 pl-2 text-xs outline-none focus:border-accent"
           />
           <Search className="absolute top-2 right-2 size-3.5 text-muted-foreground" />
@@ -239,18 +246,18 @@ export function Sidebar() {
       <div className="min-h-0 flex-1 overflow-auto">
         <Section
           id="local"
-          title="Local"
+          title={t('Local')}
           icon={<Laptop className="size-3.5" />}
           count={locals.length}
           actions={
-            <IconButton label="New branch" onClick={() => A.newBranch()}>
+            <IconButton label={t('New branch')} onClick={() => A.newBranch()}>
               <Plus className="size-3.5" />
             </IconButton>
           }
         >
           {info?.status.branch === null && info.status.head && (
             <div className="flex h-7 items-center gap-1.5 pl-6 font-semibold text-accent">
-              <GitBranch className="size-3.5" /> HEAD (detached)
+              <GitBranch className="size-3.5" /> {t('HEAD (detached)')}
             </div>
           )}
           <RefTree refs={locals} />
@@ -258,27 +265,27 @@ export function Sidebar() {
 
         <Section
           id="remote"
-          title="Remote"
+          title={t('Remote')}
           icon={<Cloud className="size-3.5" />}
           count={remotes.length}
           actions={
             <>
-              <IconButton label="Fetch all" onClick={() => A.fetchAll()}>
+              <IconButton label={t('Fetch all')} onClick={() => A.fetchAll()}>
                 <RefreshCw className="size-3.5" />
               </IconButton>
               <Dropdown
                 items={[
-                  { label: 'Add remote by URL…', onSelect: () => A.addRemote() },
-                  { label: 'Add remote from GitHub…', onSelect: () => A.addRemoteFromGitHub() },
+                  { label: t('Add remote by URL…'), onSelect: () => A.addRemote() },
+                  { label: t('Add remote from GitHub…'), onSelect: () => A.addRemoteFromGitHub() },
                   ...(remotes.some((r) => r.name === 'origin')
                     ? []
-                    : [{ label: 'Publish to GitHub…', onSelect: () => A.publishToGitHub() }]),
+                    : [{ label: t('Publish to GitHub…'), onSelect: () => A.publishToGitHub() }]),
                 ]}
               >
                 <button
                   type="button"
-                  aria-label="Add remote"
-                  title="Add remote"
+                  aria-label={t('Add remote')}
+                  title={t('Add remote')}
                   className="inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-surface-hover hover:text-foreground"
                 >
                   <Plus className="size-3.5" />
@@ -288,7 +295,7 @@ export function Sidebar() {
           }
         >
           {remotes.length === 0 && (
-            <div className="pl-6 text-xs text-muted-foreground">No remotes</div>
+            <div className="pl-6 text-xs text-muted-foreground">{t('No remotes')}</div>
           )}
           {remotes.map((rm) => (
             <RemoteGroup
@@ -300,19 +307,24 @@ export function Sidebar() {
           ))}
         </Section>
 
+        <WorktreesSection />
+
         {ghRemote?.github && (
           <Section
             id="prs"
-            title="Pull requests"
+            title={t('Pull requests')}
             icon={<GitPullRequest className="size-3.5" />}
             count={pulls?.length}
             actions={
               user && (
                 <>
-                  <IconButton label="Refresh" onClick={() => loadPulls(ghRemote.github)}>
+                  <IconButton label={t('Refresh')} onClick={() => loadPulls(ghRemote.github)}>
                     <RefreshCw className="size-3.5" />
                   </IconButton>
-                  <IconButton label="Create pull request" onClick={() => A.createPullRequest()}>
+                  <IconButton
+                    label={t('Create pull request')}
+                    onClick={() => A.createPullRequest()}
+                  >
                     <Plus className="size-3.5" />
                   </IconButton>
                 </>
@@ -321,25 +333,28 @@ export function Sidebar() {
           >
             {!user && (
               <div className="pr-2 pl-6 text-xs text-muted-foreground">
-                Connect GitHub to see pull requests.
+                {t('Connect GitHub to see pull requests.')}
               </div>
             )}
             {user && pullsError && (
               <div className="pr-2 pl-6 text-xs text-danger">{pullsError}</div>
             )}
             {user && pulls?.length === 0 && (
-              <div className="pl-6 text-xs text-muted-foreground">No open pull requests</div>
+              <div className="pl-6 text-xs text-muted-foreground">{t('No open pull requests')}</div>
             )}
             {pulls?.map((pr) => (
               <ContextMenuWrap
                 key={pr.number}
                 items={() => [
                   {
-                    label: 'Open on GitHub',
+                    label: t('Open on GitHub'),
                     icon: <ExternalLink className="size-3.5" />,
                     onSelect: () => openUrl(pr.htmlUrl),
                   },
-                  { label: `Check out ${pr.headRef}`, onSelect: () => checkoutPr(pr) },
+                  {
+                    label: t('Check out {name}', { name: pr.headRef }),
+                    onSelect: () => checkoutPr(pr),
+                  },
                 ]}
               >
                 <div
@@ -353,7 +368,7 @@ export function Sidebar() {
                       <span className="text-muted-foreground">#{pr.number}</span> {pr.title}
                     </div>
                     <div className="truncate text-xs text-muted-foreground">
-                      {pr.draft && 'Draft · '}
+                      {pr.draft && t('Draft · ')}
                       {pr.headRef} → {pr.baseRef} · {relativeTime(Date.parse(pr.updatedAt) / 1000)}
                     </div>
                   </div>
@@ -363,19 +378,24 @@ export function Sidebar() {
           </Section>
         )}
 
-        <Section id="tags" title="Tags" icon={<Tag className="size-3.5" />} count={tags.length}>
-          {tags.map((t) => (
-            <RefRow key={t.fullName} refItem={t} label={t.name} />
+        <Section
+          id="tags"
+          title={t('Tags')}
+          icon={<Tag className="size-3.5" />}
+          count={tags.length}
+        >
+          {tags.map((tag) => (
+            <RefRow key={tag.fullName} refItem={tag} label={tag.name} />
           ))}
         </Section>
 
         <Section
           id="stashes"
-          title="Stashes"
+          title={t('Stashes')}
           icon={<Archive className="size-3.5" />}
           count={refs?.stashes.length}
           actions={
-            <IconButton label="Stash changes" onClick={() => A.stash()}>
+            <IconButton label={t('Stash changes')} onClick={() => A.stash()}>
               <Plus className="size-3.5" />
             </IconButton>
           }
@@ -384,10 +404,10 @@ export function Sidebar() {
             <ContextMenuWrap
               key={s.name}
               items={() => [
-                { label: 'Apply stash', onSelect: () => A.stashOp(s, 'apply') },
-                { label: 'Pop stash', onSelect: () => A.stashOp(s, 'pop') },
+                { label: t('Apply stash'), onSelect: () => A.stashOp(s, 'apply') },
+                { label: t('Pop stash'), onSelect: () => A.stashOp(s, 'pop') },
                 'sep',
-                { label: 'Delete stash', danger: true, onSelect: () => A.stashOp(s, 'drop') },
+                { label: t('Delete stash'), danger: true, onSelect: () => A.stashOp(s, 'drop') },
               ]}
             >
               <div
@@ -414,24 +434,28 @@ function RemoteGroup({ name, url, refs }: { name: string; url: string; refs: Git
       <ContextMenuWrap
         items={() => [
           {
-            label: `Fetch ${name}`,
-            onSelect: () => useRepo.getState().run('Fetch', (p) => api.fetch(p, name)),
+            label: t('Fetch {name}', { name }),
+            onSelect: () => useRepo.getState().run(t('Fetch'), (p) => api.fetch(p, name)),
           },
           ...(gh
             ? [
                 {
-                  label: url.startsWith('http') ? 'Switch to SSH URL' : 'Switch to HTTPS URL',
+                  label: url.startsWith('http') ? t('Switch to SSH URL') : t('Switch to HTTPS URL'),
                   onSelect: () => A.switchRemoteProtocol(name),
                 },
                 {
-                  label: 'Open on GitHub',
+                  label: t('Open on GitHub'),
                   onSelect: () => openUrl(`https://github.com/${gh.owner}/${gh.repo}`),
                 },
               ]
             : []),
-          { label: 'Copy URL', onSelect: () => navigator.clipboard.writeText(url) },
+          { label: t('Copy URL'), onSelect: () => navigator.clipboard.writeText(url) },
           'sep',
-          { label: `Remove ${name}`, danger: true, onSelect: () => A.removeRemote(name) },
+          {
+            label: t('Remove {name}', { name }),
+            danger: true,
+            onSelect: () => A.removeRemote(name),
+          },
         ]}
       >
         <button
@@ -450,5 +474,104 @@ function RemoteGroup({ name, url, refs }: { name: string; url: string; refs: Git
         </div>
       )}
     </div>
+  );
+}
+
+function useWorktrees(): Worktree[] | null {
+  const path = useRepo((s) => s.path);
+  const head = useRepo((s) => s.info?.status.head);
+  const branch = useRepo((s) => s.info?.status.branch);
+  const refs = useRepo((s) => s.refs);
+  const [list, setList] = useState<{ path: string; items: Worktree[] } | null>(null);
+  useEffect(() => {
+    if (!path) return;
+    let live = true;
+    api
+      .worktrees(path)
+      .then((items) => live && setList({ path, items }))
+      .catch(() => live && setList({ path, items: [] }));
+    return () => {
+      live = false;
+    };
+  }, [path, head, branch, refs]);
+  return list && list.path === path ? list.items : null;
+}
+
+function worktreeMenu(w: Worktree): MenuItem[] {
+  return [
+    {
+      label: t('Open in new tab'),
+      disabled: w.isCurrent,
+      onSelect: () => A.openWorktree(w),
+    },
+    { label: t('Show in file explorer'), onSelect: () => revealPath(w.path) },
+    { label: t('Open terminal here'), onSelect: () => A.openTerminalAt(w.path) },
+    'sep',
+    w.locked
+      ? { label: t('Unlock'), onSelect: () => A.lockWorktree(w, false) }
+      : { label: t('Lock'), disabled: w.isMain, onSelect: () => A.lockWorktree(w, true) },
+    { label: t('Copy path'), onSelect: () => copyText(w.path) },
+    'sep',
+    {
+      label: t('Remove worktree'),
+      danger: true,
+      disabled: w.isMain || w.isCurrent,
+      onSelect: () => A.removeWorktree(w),
+    },
+  ];
+}
+
+function WorktreesSection() {
+  const worktrees = useWorktrees();
+  const badge = 'rounded border border-border px-1 text-[10px] leading-4 text-muted-foreground';
+  return (
+    <Section
+      id="worktrees"
+      title={t('Worktrees')}
+      icon={<FolderTree className="size-3.5" />}
+      count={worktrees?.length}
+      actions={
+        <Dropdown
+          items={[
+            { label: t('New worktree…'), onSelect: () => A.addWorktree() },
+            { label: t('Prune stale worktrees'), onSelect: () => A.pruneWorktrees() },
+          ]}
+        >
+          <button
+            type="button"
+            aria-label={t('Worktree actions')}
+            title={t('Worktree actions')}
+            className="inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+          >
+            <Plus className="size-3.5" />
+          </button>
+        </Dropdown>
+      }
+    >
+      {worktrees?.map((w) => (
+        <ContextMenuWrap key={w.path} items={() => worktreeMenu(w)}>
+          <div
+            onDoubleClick={() => !w.isCurrent && A.openWorktree(w)}
+            title={w.path}
+            className={cn(
+              'flex h-7 cursor-default items-center gap-1.5 pr-2 pl-6 hover:bg-surface-hover',
+              w.isCurrent && 'font-semibold text-accent',
+              w.prunable && 'opacity-60',
+            )}
+          >
+            <span className="min-w-0 shrink truncate">{A.baseName(w.path)}</span>
+            <span className="min-w-0 flex-1 truncate text-xs font-normal text-muted-foreground">
+              {w.branch ?? (w.bare ? t('bare') : t('detached'))}
+            </span>
+            {w.isCurrent && <span className={badge}>{t('current')}</span>}
+            {w.isMain && <span className={badge}>{t('main')}</span>}
+            {w.locked && (
+              <Lock className="size-3 shrink-0 text-muted-foreground" aria-label={t('locked')} />
+            )}
+            {w.prunable && <span className={cn(badge, 'text-warning')}>{t('prunable')}</span>}
+          </div>
+        </ContextMenuWrap>
+      ))}
+    </Section>
   );
 }

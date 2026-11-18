@@ -1,6 +1,7 @@
 //! Git operations, implemented on top of the `git` CLI so behaviour (hooks, credential helpers,
 //! config, LFS…) matches what the user gets in a terminal.
 
+pub mod files;
 pub mod model;
 pub mod parse;
 pub mod run;
@@ -20,25 +21,36 @@ const MAX_DIFF: usize = 4 * 1024 * 1024;
 /// Environment that makes HTTPS requests to github.com authenticate with `token`.
 /// Uses `GIT_CONFIG_*` variables so the token never appears on a command line.
 pub fn github_auth_env(token: Option<&str>) -> Vec<(String, String)> {
-    let Some(token) = token else { return Vec::new() };
-    let basic =
-        base64::engine::general_purpose::STANDARD.encode(format!("x-access-token:{token}"));
-    vec![
-        ("GIT_CONFIG_COUNT".into(), "1".into()),
-        (
-            "GIT_CONFIG_KEY_0".into(),
-            "http.https://github.com/.extraheader".into(),
-        ),
-        (
-            "GIT_CONFIG_VALUE_0".into(),
-            format!("AUTHORIZATION: basic {basic}"),
-        ),
-    ]
+    auth_env(token, None)
 }
 
-/// Options for commands that talk to a remote: GitHub token for HTTPS, chosen key for SSH.
+/// Environment that makes HTTPS requests to github.com / gitlab.com authenticate with the stored
+/// tokens. Uses `GIT_CONFIG_*` variables so tokens never appear on a command line.
+pub fn auth_env(github: Option<&str>, gitlab: Option<&str>) -> Vec<(String, String)> {
+    let b64 = |s: String| base64::engine::general_purpose::STANDARD.encode(s);
+    let mut headers: Vec<(&str, String)> = Vec::new();
+    if let Some(t) = github {
+        headers.push(("https://github.com/", b64(format!("x-access-token:{t}"))));
+    }
+    if let Some(t) = gitlab {
+        // GitLab accepts personal and OAuth tokens as the password of user `oauth2`.
+        headers.push(("https://gitlab.com/", b64(format!("oauth2:{t}"))));
+    }
+    if headers.is_empty() {
+        return Vec::new();
+    }
+    let mut env = vec![("GIT_CONFIG_COUNT".to_string(), headers.len().to_string())];
+    for (i, (url, basic)) in headers.into_iter().enumerate() {
+        env.push((format!("GIT_CONFIG_KEY_{i}"), format!("http.{url}.extraheader")));
+        env.push((format!("GIT_CONFIG_VALUE_{i}"), format!("AUTHORIZATION: basic {basic}")));
+    }
+    env
+}
+
+/// Options for commands that talk to a remote: stored tokens for HTTPS, chosen key for SSH.
 fn net(token: Option<&str>) -> Opts<'static> {
-    let mut env = github_auth_env(token);
+    let gitlab = crate::gitlab::load_token().ok().flatten();
+    let mut env = auth_env(token, gitlab.as_deref());
     env.extend(crate::ssh::git_env());
     Opts { stdin: None, env }
 }
@@ -300,15 +312,23 @@ impl Repo {
         }
         paths.push(&req.path);
 
-        let base = ["diff", "--no-color", "--no-ext-diff", "-M"];
+        let context = req.context.map(|n| format!("--unified={}", n.min(1_000_000)));
+        let mut extra: Vec<&str> = Vec::new();
+        if req.ignore_whitespace {
+            // Leading/trailing and amount-of-whitespace changes.
+            extra.extend(["--ignore-space-change", "--ignore-space-at-eol"]);
+        }
+        if let Some(c) = &context {
+            extra.push(c);
+        }
+        let mut base = vec!["diff", "--no-color", "--no-ext-diff", "-M"];
+        base.extend(&extra);
         let out = match req.source {
             DiffSource::Unstaged if req.untracked => {
-                run::raw(
-                    Some(&self.root),
-                    &["diff", "--no-color", "--no-index", "--", "/dev/null", &req.path],
-                    Opts::default(),
-                )
-                .await?
+                let mut a = vec!["diff", "--no-color", "--no-index"];
+                a.extend(&extra);
+                a.extend(["--", "/dev/null", &req.path]);
+                run::raw(Some(&self.root), &a, Opts::default()).await?
             }
             DiffSource::Unstaged => {
                 let mut a: Vec<&str> = base.to_vec();
@@ -319,6 +339,18 @@ impl Repo {
             DiffSource::Staged => {
                 let mut a: Vec<&str> = base.to_vec();
                 a.push("--cached");
+                a.push("--");
+                a.extend(&paths);
+                run::ok(&self.root, &a, Opts::default()).await?
+            }
+            DiffSource::Worktree => {
+                let hash = req
+                    .commit
+                    .as_deref()
+                    .ok_or_else(|| Error::Invalid("commit is required".into()))?;
+                check_rev(hash)?;
+                let mut a: Vec<&str> = base.to_vec();
+                a.push(hash);
                 a.push("--");
                 a.extend(&paths);
                 run::ok(&self.root, &a, Opts::default()).await?
@@ -338,7 +370,12 @@ impl Repo {
                         v.push(hash);
                         v
                     }
-                    None => vec!["show", "--no-color", "--no-ext-diff", "--format=", hash],
+                    None => {
+                        let mut v = vec!["show", "--no-color", "--no-ext-diff", "--format="];
+                        v.extend(&extra);
+                        v.push(hash);
+                        v
+                    }
                 };
                 a.push("--");
                 a.extend(&paths);
@@ -349,7 +386,7 @@ impl Repo {
         if text.len() > MAX_DIFF {
             text.truncate(MAX_DIFF);
         }
-        Ok(String::from_utf8_lossy(&text).into_owned())
+        Ok(crate::text::decode_raw(&text, req.encoding.as_deref()))
     }
 
     // ---- index and working tree --------------------------------------------------------------
@@ -399,7 +436,14 @@ impl Repo {
     }
 
     /// Apply a patch (built by the UI from one hunk) to the index or the working tree.
-    pub async fn apply_patch(&self, patch: &str, cached: bool, reverse: bool) -> Result<()> {
+    pub async fn apply_patch(
+        &self,
+        patch: &str,
+        cached: bool,
+        reverse: bool,
+        encoding: Option<&str>,
+    ) -> Result<()> {
+        let bytes = crate::text::encode_raw(patch, encoding);
         let mut a = vec!["apply", "--whitespace=nowarn", "--recount"];
         if cached {
             a.push("--cached");
@@ -411,7 +455,7 @@ impl Repo {
         self.git_opts(
             &a,
             Opts {
-                stdin: Some(patch.as_bytes()),
+                stdin: Some(&bytes),
                 env: Vec::new(),
             },
         )
@@ -766,6 +810,24 @@ pub async fn init(path: &Path, branch: &str) -> Result<Repo> {
 }
 
 pub async fn clone(url: &str, dest: &Path, token: Option<&str>) -> Result<Repo> {
+    clone_with(url, dest, token, CloneOptions::default()).await
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct CloneOptions {
+    /// Only the latest commit of each branch (`--depth 1 --no-single-branch`).
+    pub shallow: bool,
+    /// Check out only the top-level files; add folders later with `git sparse-checkout`.
+    pub sparse: bool,
+}
+
+pub async fn clone_with(
+    url: &str,
+    dest: &Path,
+    token: Option<&str>,
+    opts: CloneOptions,
+) -> Result<Repo> {
     check_url(url)?;
     if dest.exists() && std::fs::read_dir(dest)?.next().is_some() {
         return Err(Error::Invalid(format!(
@@ -778,7 +840,15 @@ pub async fn clone(url: &str, dest: &Path, token: Option<&str>) -> Result<Repo> 
         .ok_or_else(|| Error::Invalid("Invalid destination".into()))?;
     std::fs::create_dir_all(parent)?;
     let dest_s = dest.to_string_lossy().into_owned();
-    run::ok(parent, &["clone", "--", url, &dest_s], net(token)).await?;
+    let mut args = vec!["clone"];
+    if opts.shallow {
+        args.extend(["--depth", "1", "--no-single-branch"]);
+    }
+    if opts.sparse {
+        args.push("--sparse");
+    }
+    args.extend(["--", url, &dest_s]);
+    run::ok(parent, &args, net(token)).await?;
     Repo::open(dest).await
 }
 
@@ -875,7 +945,44 @@ pub const GLOBAL_KEYS: &[&str] = &[
     "init.defaultBranch",
     "pull.rebase",
     "commit.gpgsign",
+    "credential.helper",
+    "credential.useHttpPath",
 ];
+
+/// Read `key` from the global config, or from `repo`'s own config (`--local`) when given.
+pub async fn config_get(repo: Option<&Repo>, key: &str) -> Result<String> {
+    if !GLOBAL_KEYS.contains(&key) {
+        return Err(Error::Invalid(format!("{key} is not editable here")));
+    }
+    let out = match repo {
+        Some(r) => {
+            run::raw(Some(&r.root), &["config", "--local", "--get", key], Opts::default()).await?
+        }
+        None => run::raw(None, &["config", "--global", "--get", key], Opts::default()).await?,
+    };
+    Ok(out.text().trim().to_string())
+}
+
+/// Set (or unset with `None`) `key` globally, or for `repo` only.
+pub async fn config_set(repo: Option<&Repo>, key: &str, value: Option<&str>) -> Result<()> {
+    if !GLOBAL_KEYS.contains(&key) {
+        return Err(Error::Invalid(format!("{key} is not editable here")));
+    }
+    if value.is_some_and(|v| v.contains(['\n', '\0'])) {
+        return Err(Error::Invalid("Value must be on one line".into()));
+    }
+    let scope = if repo.is_some() { "--local" } else { "--global" };
+    let mut args = vec!["config", scope];
+    match value {
+        Some(v) => args.extend([key, v]),
+        None => args.extend(["--unset", key]),
+    }
+    let out = run::raw(repo.map(|r| r.root.as_path()), &args, Opts::default()).await?;
+    if out.code != 0 && !(value.is_none() && out.code == 5) {
+        return Err(run::failure(&out));
+    }
+    Ok(())
+}
 
 pub async fn global_config(key: &str) -> Result<String> {
     if !GLOBAL_KEYS.contains(&key) {
@@ -913,6 +1020,8 @@ pub enum DiffSource {
     Unstaged,
     Staged,
     Commit,
+    /// `commit` against the working tree.
+    Worktree,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -929,6 +1038,15 @@ pub struct DiffRequest {
     /// Parent to diff against (first parent); `None` for a root commit.
     #[serde(default)]
     pub parent: Option<String>,
+    /// Ignore changes in leading/trailing whitespace and in amount of whitespace.
+    #[serde(default)]
+    pub ignore_whitespace: bool,
+    /// Lines of context; a large value shows the whole file (inline view).
+    #[serde(default)]
+    pub context: Option<u32>,
+    /// Encoding of the file, used to decode the diff text.
+    #[serde(default)]
+    pub encoding: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
@@ -955,7 +1073,7 @@ pub struct PushRequest {
 // ---- argument guards --------------------------------------------------------------------------
 
 /// Refuse anything git could read as an option.
-fn check_rev(s: &str) -> Result<()> {
+pub(crate) fn check_rev(s: &str) -> Result<()> {
     if s.is_empty() || s.starts_with('-') || s.contains(['\0', '\n']) {
         return Err(Error::Invalid(format!("Invalid name: {s:?}")));
     }

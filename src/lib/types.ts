@@ -177,7 +177,7 @@ export interface GitKrakenImport {
   sshImported: boolean;
 }
 
-export type DiffSource = 'unstaged' | 'staged' | 'commit';
+export type DiffSource = 'unstaged' | 'staged' | 'commit' | 'worktree';
 
 export interface DiffRequest {
   source: DiffSource;
@@ -186,6 +186,12 @@ export interface DiffRequest {
   untracked?: boolean;
   commit?: string;
   parent?: string | null;
+  /** Ignore leading/trailing whitespace and amount-of-whitespace changes. */
+  ignoreWhitespace?: boolean;
+  /** Context lines; a large number shows the whole file. */
+  context?: number;
+  /** File encoding used to decode the diff. */
+  encoding?: string;
 }
 
 export interface PushRequest {
@@ -275,4 +281,76 @@ export interface RepoSummary {
   state: RepoState | null;
   lastCommit: { hash: string; subject: string; author: string; time: number } | null;
   github: GitHubSlug | null;
+}
+
+export interface TextFormat {
+  encoding: string;
+  bom: boolean;
+  eol: 'lf' | 'crlf' | 'mixed';
+}
+
+export interface DecodedText {
+  text: string;
+  format: TextFormat;
+  binary: boolean;
+  lossy: boolean;
+  size: number;
+}
+
+export interface BlameCommit {
+  hash: string;
+  author: string;
+  authorEmail: string;
+  time: number;
+  summary: string;
+}
+
+export interface Blame {
+  lines: string[];
+  commits: BlameCommit[];
+}
+
+export interface FileHistoryEntry extends Commit {
+  change: FileChange;
+}
+
+export interface Worktree {
+  path: string;
+  head: string | null;
+  branch: string | null;
+  isMain: boolean;
+  isCurrent: boolean;
+  bare: boolean;
+  locked: boolean;
+  prunable: boolean;
+}
+
+export interface CloneOptions {
+  shallow?: boolean;
+  sparse?: boolean;
+}
+
+export interface GitLabUser {
+  login: string;
+  name: string | null;
+  avatarUrl: string;
+  htmlUrl: string;
+}
+
+export interface TerminalOpened {
+  id: number;
+  shell: string;
+}
+
+export interface TerminalOutput {
+  /** base64 bytes */
+  data: string;
+  exited: boolean;
+}
+
+export interface HostCredential {
+  host: string;
+  remotes: string[];
+  stored: boolean;
+  username: string | null;
 }

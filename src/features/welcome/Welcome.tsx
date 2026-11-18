@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { Avatar, Button, Github, IconButton, Spinner, cn } from '@/components/ui';
 import { relativeTime } from '@/lib/format';
+import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import { pickFolder } from '@/lib/native';
 import { useGitHub } from '@/stores/github';
@@ -51,31 +52,31 @@ export function Welcome({
   }, [settings?.recent, query]);
 
   const openFolder = async () => {
-    const p = await pickFolder('Open a Git repository');
+    const p = await pickFolder(t('Open a Git repository'));
     if (p) await open(p);
   };
 
   const create = async () => {
-    const p = await pickFolder('Choose a folder for the new repository');
+    const p = await pickFolder(t('Choose a folder for the new repository'));
     if (!p) return;
     const v = await ask({
-      title: 'Create repository',
+      title: t('Create repository'),
       description: p,
       fields: [
         {
           name: 'branch',
-          label: 'Initial branch',
+          label: t('Initial branch'),
           initial: settings?.defaultBranch ?? 'main',
           required: true,
         },
       ],
-      confirmLabel: 'Create',
+      confirmLabel: t('Create'),
     });
     if (!v) return;
     try {
       await adopt(await api.init(p, (v.branch as string).trim()));
     } catch (e) {
-      toast('error', 'Could not create repository', (e as Error).message);
+      toast('error', t('Could not create repository'), (e as Error).message);
     }
   };
 
@@ -99,16 +100,16 @@ export function Welcome({
     <div className="flex h-full min-h-0 gap-10 overflow-hidden px-[5%] pt-10 pb-4">
       {/* Repositories */}
       <section className="flex min-h-0 min-w-0 flex-[1.5] flex-col">
-        <h1 className="mb-4 text-xl font-semibold">Repositories</h1>
+        <h1 className="mb-4 text-xl font-semibold">{t('Repositories')}</h1>
         <div className="mb-4 flex gap-2">
           <BigButton icon={<FolderOpen className="size-4" />} onClick={openFolder}>
-            Open
+            {t('Open')}
           </BigButton>
           <BigButton icon={<Download className="size-4" />} onClick={onClone}>
-            Clone
+            {t('Clone')}
           </BigButton>
           <BigButton icon={<SquarePlus className="size-4" />} onClick={create}>
-            Create
+            {t('Create')}
           </BigButton>
         </div>
         <div className="relative mb-4">
@@ -121,19 +122,20 @@ export function Welcome({
               setCursor(0);
             }}
             onKeyDown={onSearchKey}
-            placeholder="Search repositories (Ctrl + Alt + F)"
+            placeholder={t('Search repositories (Ctrl + Alt + F)')}
             className="h-9 w-full rounded-md border border-border bg-background pr-3 pl-9 outline-none focus:border-accent"
           />
         </div>
         <div className="mb-1 text-[13px] text-muted-foreground">
-          Recent {recent.length > 0 && <span className="tabular-nums">({recent.length})</span>}
+          {t('Recent')}{' '}
+          {recent.length > 0 && <span className="tabular-nums">({recent.length})</span>}
         </div>
         <div className="min-h-0 flex-1 overflow-auto pr-2">
           {recent.length === 0 && (
             <div className="py-6 text-muted-foreground">
               {query
-                ? 'No repository matches.'
-                : 'Nothing yet. Open, clone or create a repository.'}
+                ? t('No repository matches.')
+                : t('Nothing yet. Open, clone or create a repository.')}
             </div>
           )}
           {recent.map((r, i) => (
@@ -158,7 +160,7 @@ export function Welcome({
                 {r.openedAt ? relativeTime(r.openedAt) : ''}
               </span>
               <IconButton
-                label="Remove from recent"
+                label={t('Remove from recent')}
                 className="opacity-0 group-hover:opacity-100"
                 onClick={(e) => {
                   e.stopPropagation();
@@ -181,17 +183,20 @@ export function Welcome({
               <Avatar name={user.login} url={user.avatarUrl} size={36} />
               <div>
                 <div className="font-medium">{user.name ?? user.login}</div>
-                <div className="text-xs text-muted-foreground">Connected as @{user.login}</div>
+                <div className="text-xs text-muted-foreground">
+                  {t('Connected as @{login}', { login: user.login })}
+                </div>
               </div>
             </div>
           ) : (
             <>
               <p className="mb-3 text-muted-foreground">
-                Connect to clone private repositories, push over HTTPS, manage SSH keys and pull
-                requests.
+                {t(
+                  'Connect to clone private repositories, push over HTTPS, manage SSH keys and pull requests.',
+                )}
               </p>
               <Button onClick={onSignIn}>
-                <Github className="size-4" /> Connect GitHub
+                <Github className="size-4" /> {t('Connect GitHub')}
               </Button>
             </>
           )}
@@ -201,13 +206,13 @@ export function Welcome({
 
         <div>
           <div className="mb-3 flex items-center">
-            <h2 className="flex-1 text-[15px] font-semibold">Workspaces</h2>
+            <h2 className="flex-1 text-[15px] font-semibold">{t('Workspaces')}</h2>
             <button
               type="button"
               onClick={onNewWorkspace}
               className="flex items-center gap-1 text-xs text-accent hover:underline"
             >
-              <Plus className="size-3.5" /> New
+              <Plus className="size-3.5" /> {t('New')}
             </button>
           </div>
           {workspaces.length === 0 ? (
@@ -217,8 +222,9 @@ export function Welcome({
               className="flex w-full items-start gap-3 rounded-lg border border-dashed border-border p-3 text-left text-muted-foreground hover:border-accent"
             >
               <LayoutGrid className="mt-0.5 size-5 shrink-0" />
-              Group repositories you work on together. A workspace keeps its own tabs and shows the
-              state of all its repositories on one page.
+              {t(
+                'Group repositories you work on together. A workspace keeps its own tabs and shows the state of all its repositories on one page.',
+              )}
             </button>
           ) : (
             <div className="flex flex-col">
@@ -234,7 +240,9 @@ export function Welcome({
                     style={{ background: w.color }}
                   />
                   <span className="min-w-0 flex-1 truncate font-medium">{w.name}</span>
-                  <span className="text-xs text-muted-foreground">{w.repos.length} repos</span>
+                  <span className="text-xs text-muted-foreground">
+                    {t('{n} repos', { n: w.repos.length })}
+                  </span>
                 </button>
               ))}
             </div>
@@ -302,15 +310,19 @@ export function GitKrakenImport({ compact = false }: { compact?: boolean }) {
       }
       await loadSettings();
       const parts = [
-        `${res.addedRepos} new repositor${res.addedRepos === 1 ? 'y' : 'ies'}`,
-        `${d.tabs.length} tab${d.tabs.length === 1 ? '' : 's'}`,
+        res.addedRepos === 1
+          ? t('{n} new repository', { n: res.addedRepos })
+          : t('{n} new repositories', { n: res.addedRepos }),
+        d.tabs.length === 1
+          ? t('{n} tab', { n: d.tabs.length })
+          : t('{n} tabs', { n: d.tabs.length }),
       ];
-      if (res.sshImported) parts.push('SSH key');
-      toast('success', 'Imported from GitKraken', parts.join(' · '));
+      if (res.sshImported) parts.push(t('SSH key'));
+      toast('success', t('Imported from GitKraken'), parts.join(' · '));
       const target = d.selectedTab ?? d.tabs[0]?.path;
       if (!path && target) await open(target);
     } catch (e) {
-      toast('error', 'Import failed', (e as Error).message);
+      toast('error', t('Import failed'), (e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -318,14 +330,21 @@ export function GitKrakenImport({ compact = false }: { compact?: boolean }) {
 
   return (
     <div className={cn(!compact && 'rounded-lg border border-border bg-surface p-4')}>
-      {!compact && <h2 className="mb-2 text-[15px] font-semibold">Import from GitKraken</h2>}
+      {!compact && <h2 className="mb-2 text-[15px] font-semibold">{t('Import from GitKraken')}</h2>}
       <p className="mb-3 text-muted-foreground">
-        GitKraken Desktop is installed here with {found.repos} repositories and {found.tabs} open
-        tabs{found.ssh ? ', and an SSH key' : ''}. Bring them into GitStudio? Nothing in GitKraken
-        is changed.
+        {found.ssh
+          ? t(
+              'GitKraken Desktop is installed here with {repos} repositories and {tabs} open tabs, and an SSH key. Bring them into GitStudio? Nothing in GitKraken is changed.',
+              { repos: found.repos, tabs: found.tabs },
+            )
+          : t(
+              'GitKraken Desktop is installed here with {repos} repositories and {tabs} open tabs. Bring them into GitStudio? Nothing in GitKraken is changed.',
+              { repos: found.repos, tabs: found.tabs },
+            )}
       </p>
       <Button onClick={run} disabled={busy}>
-        {busy && <Spinner />} Import repositories, tabs{found.ssh ? ' and SSH key' : ''}
+        {busy && <Spinner />}{' '}
+        {found.ssh ? t('Import repositories, tabs and SSH key') : t('Import repositories, tabs')}
       </Button>
     </div>
   );

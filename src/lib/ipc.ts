@@ -47,8 +47,56 @@ export const api = {
   gitVersion: () => call<string>('app.gitVersion'),
   openTerminal: (path: string) => call<null>('app.openTerminal', { path }),
   openEditor: (path: string) => call<null>('app.openEditor', { path }),
-  gitConfig: (keys: string[]) => call<Record<string, string>>('gitconfig.get', { keys }),
-  setGitConfig: (key: string, value: string | null) => call<null>('gitconfig.set', { key, value }),
+  // files, blame, history
+  readFile: (repo: string, path: string, rev?: string, encoding?: string) =>
+    call<T.DecodedText>('file.read', { repo, path, rev, encoding }),
+  writeFile: (repo: string, path: string, content: string, format: T.TextFormat) =>
+    call<null>('file.write', { repo, path, content, format }),
+  encodings: () => call<string[]>('file.encodings'),
+  blame: (repo: string, path: string, rev?: string) =>
+    call<T.Blame>('repo.blame', { repo, path, rev }),
+  fileHistory: (repo: string, path: string, limit = 500) =>
+    call<T.FileHistoryEntry[]>('repo.fileHistory', { repo, path, limit }),
+  compareWithWorktree: (repo: string, hash: string) =>
+    call<T.FileChange[]>('repo.compare', { repo, hash }),
+  reword: (repo: string, hash: string, message: string) =>
+    call<null>('history.reword', { repo, hash, message }),
+  dropCommit: (repo: string, hash: string) => call<null>('history.drop', { repo, hash }),
+  createPatch: (repo: string, hash: string, dest: string) =>
+    call<null>('patch.create', { repo, hash, dest }),
+  applyPatchFile: (repo: string, file: string) => call<null>('patch.apply', { repo, file }),
+  // worktrees
+  worktrees: (repo: string) => call<T.Worktree[]>('worktree.list', { repo }),
+  addWorktree: (repo: string, request: { path: string; branch?: string; newBranch?: string }) =>
+    call<null>('worktree.add', { repo, request }),
+  removeWorktree: (repo: string, path: string, force = false) =>
+    call<null>('worktree.remove', { repo, path, force }),
+  lockWorktree: (repo: string, path: string, lock: boolean) =>
+    call<null>('worktree.lock', { repo, path, lock }),
+  pruneWorktrees: (repo: string) => call<null>('worktree.prune', { repo }),
+  // in-app terminal
+  terminalOpen: (cwd: string, cols: number, rows: number) =>
+    call<T.TerminalOpened>('terminal.open', { cwd, cols, rows }),
+  terminalRead: (id: number) => call<T.TerminalOutput>('terminal.read', { id }),
+  terminalWrite: (id: number, data: string) => call<null>('terminal.write', { id, data }),
+  terminalResize: (id: number, cols: number, rows: number) =>
+    call<null>('terminal.resize', { id, cols, rows }),
+  terminalClose: (id: number) => call<null>('terminal.close', { id }),
+  // GitLab
+  glAccount: () => call<T.GitLabUser | null>('gitlab.account'),
+  glSignInToken: (token: string) => call<T.GitLabUser>('gitlab.signInToken', { token }),
+  glImportToken: () => call<T.GitLabUser>('gitlab.importToken'),
+  glSignOut: () => call<null>('gitlab.signOut'),
+  glRepos: (page = 1) => call<T.GitHubRepo[]>('gitlab.repos', { page }),
+  /** Global git config, or the repository's own config when `repo` is given. */
+  gitConfig: (keys: string[], repo?: string) =>
+    call<Record<string, string>>('gitconfig.get', { keys, repo }),
+  setGitConfig: (key: string, value: string | null, repo?: string) =>
+    call<null>('gitconfig.set', { key, value, repo }),
+  credentials: (repo?: string) => call<T.HostCredential[]>('credentials.list', { repo }),
+  saveCredential: (host: string, username: string, password: string) =>
+    call<null>('credentials.save', { host, username, password }),
+  eraseCredential: (host: string) => call<null>('credentials.erase', { host }),
   gitkrakenDetect: () =>
     call<{ repos: number; tabs: number; ssh: boolean } | null>('gitkraken.detect'),
   gitkrakenImport: (ssh: boolean) => call<T.GitKrakenImport>('gitkraken.import', { ssh }),
@@ -74,7 +122,8 @@ export const api = {
 
   open: (repo: string) => call<T.RepoInfo>('repo.open', { repo }),
   init: (path: string, branch = 'main') => call<T.RepoInfo>('repo.init', { path, branch }),
-  clone: (url: string, dest: string) => call<T.RepoInfo>('repo.clone', { url, dest }),
+  clone: (url: string, dest: string, options: T.CloneOptions = {}) =>
+    call<T.RepoInfo>('repo.clone', { url, dest, options }),
   info: (repo: string) => call<T.RepoInfo>('repo.info', { repo }),
   log: (repo: string, limit: number, skip = 0) =>
     call<T.Commit[]>('repo.log', { repo, limit, skip }),
@@ -90,8 +139,8 @@ export const api = {
   unstage: (repo: string, paths: string[]) => call<null>('index.unstage', { repo, paths }),
   discard: (repo: string, tracked: string[], untracked: string[]) =>
     call<null>('index.discard', { repo, tracked, untracked }),
-  applyPatch: (repo: string, patch: string, cached: boolean, reverse: boolean) =>
-    call<null>('index.applyPatch', { repo, patch, cached, reverse }),
+  applyPatch: (repo: string, patch: string, cached: boolean, reverse: boolean, encoding?: string) =>
+    call<null>('index.applyPatch', { repo, patch, cached, reverse, encoding }),
   commitChanges: (repo: string, message: string, amend: boolean) =>
     call<null>('index.commit', { repo, message, amend }),
   resolve: (repo: string, paths: string[], side: 'ours' | 'theirs') =>

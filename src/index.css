@@ -26,6 +26,13 @@
   --diff-add-strong: oklch(0.88 0.09 150);
   --diff-del: oklch(0.95 0.04 25);
   --diff-del-strong: oklch(0.88 0.08 25);
+  --syntax-keyword: oklch(0.48 0.16 265);
+  --syntax-string: oklch(0.45 0.12 150);
+  --syntax-number: oklch(0.5 0.13 60);
+  --syntax-type: oklch(0.5 0.14 310);
+  --syntax-comment: oklch(0.58 0.02 250);
+  --syntax-function: oklch(0.5 0.13 230);
+  --diff-hatch: oklch(0.9 0.006 250);
 }
 
 .dark {
@@ -51,6 +58,13 @@
   --diff-add-strong: oklch(0.36 0.08 150);
   --diff-del: oklch(0.27 0.05 25);
   --diff-del-strong: oklch(0.36 0.09 25);
+  --syntax-keyword: oklch(0.77 0.11 265);
+  --syntax-string: oklch(0.8 0.1 150);
+  --syntax-number: oklch(0.82 0.1 75);
+  --syntax-type: oklch(0.79 0.1 310);
+  --syntax-comment: oklch(0.6 0.02 250);
+  --syntax-function: oklch(0.8 0.09 220);
+  --diff-hatch: oklch(0.28 0.012 255);
 }
 
 @theme inline {
@@ -103,9 +117,12 @@ textarea,
   user-select: text;
 }
 
-*:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 1px;
+/* In the base layer so utilities like `outline-none` can turn it off where a field has no frame. */
+@layer base {
+  *:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 1px;
+  }
 }
 
 ::-webkit-scrollbar {
@@ -163,4 +180,9 @@ textarea,
     transition-duration: 0s !important;
     animation-duration: 0s !important;
   }
+}
+
+/* Placeholder rows in the split diff (lines that exist on the other side only). */
+.diff-hatch {
+  background-image: repeating-linear-gradient(-45deg, transparent 0 6px, var(--diff-hatch) 6px 7px);
 }

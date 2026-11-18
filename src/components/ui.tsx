@@ -3,6 +3,7 @@ import { Loader2, X } from 'lucide-react';
 import { useCallback, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
 
 import { hue, initials } from '@/lib/format';
+import { t } from '@/lib/i18n';
 
 export const cn = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(' ');
 
@@ -240,7 +241,7 @@ export function Modal({
               )}
             </div>
             <Dialog.Close asChild>
-              <IconButton label="Close">
+              <IconButton label={t('Close')}>
                 <X className="size-4" />
               </IconButton>
             </Dialog.Close>
@@ -341,7 +342,7 @@ export function ResizeHandle({
     <div
       role="separator"
       aria-orientation="vertical"
-      title="Drag to resize, double-click to reset"
+      title={t('Drag to resize, double-click to reset')}
       onPointerDown={start}
       onDoubleClick={onReset}
       onClick={(e) => e.stopPropagation()}

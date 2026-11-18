@@ -1,11 +1,14 @@
 // User-level Git actions shared by the toolbar, sidebar, graph and panels.
 
 import { short } from '@/lib/format';
+import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
-import type { Commit, GitRef, Stash } from '@/lib/types';
+import { copyText, pickFile, pickFolder } from '@/lib/native';
+import type { Commit, GitRef, Remote, Stash, Worktree } from '@/lib/types';
+import { useCompare } from '@/stores/compare';
 import { useGitHub } from '@/stores/github';
 import { useRepo } from '@/stores/repo';
-import { ask, confirm, toast } from '@/stores/ui';
+import { ask, confirm, toast, type Field } from '@/stores/ui';
 
 const repo = () => useRepo.getState();
 const run = (...a: Parameters<ReturnType<typeof repo>['run']>) => repo().run(...a);
@@ -64,12 +67,12 @@ export async function redo() {
 }
 
 export async function fetchAll() {
-  await run('Fetch', (p) => api.fetch(p), 'Fetched all remotes');
+  await run('Fetch', (p) => api.fetch(p), t('Fetched all remotes'));
 }
 
 export async function pull() {
   const mode = repo().settings?.pullMode ?? 'merge';
-  await run('Pull', (p) => api.pull(p, mode), 'Pulled');
+  await run('Pull', (p) => api.pull(p, mode), t('Pulled'));
 }
 
 export async function push(opts: { branch?: string; remote?: string } = {}) {
@@ -79,22 +82,24 @@ export async function push(opts: { branch?: string; remote?: string } = {}) {
   useRepo.setState({ busy: 'Push' });
   try {
     await api.push(path, opts);
-    toast('success', 'Pushed');
+    toast('success', t('Pushed'));
   } catch (e) {
     const msg = (e as Error).message;
     if (/rejected|non-fast-forward|fetch first/i.test(msg)) {
       useRepo.setState({ busy: null });
       const force = await confirm(
-        'Push rejected',
-        'The remote has commits you do not have. Pull first, or force push (with lease) to overwrite the remote branch.',
-        'Force push',
+        t('Push rejected'),
+        t(
+          'The remote has commits you do not have. Pull first, or force push (with lease) to overwrite the remote branch.',
+        ),
+        t('Force push'),
         true,
       );
       if (force)
-        await run('Force push', (p) => api.push(p, { ...opts, force: true }), 'Force pushed');
+        await run('Force push', (p) => api.push(p, { ...opts, force: true }), t('Force pushed'));
       return;
     }
-    toast('error', 'Push failed', msg);
+    toast('error', t('Push failed'), msg);
   } finally {
     useRepo.setState({ busy: null });
     await repo().refresh();
@@ -103,13 +108,15 @@ export async function push(opts: { branch?: string; remote?: string } = {}) {
 
 export async function newBranch(start?: string, startLabel?: string) {
   const v = await ask({
-    title: 'Create branch',
-    description: start ? `Starting at ${startLabel ?? short(start)}` : 'Starting at HEAD',
+    title: t('Create branch'),
+    description: start
+      ? t('Starting at {ref}', { ref: startLabel ?? short(start) })
+      : t('Starting at HEAD'),
     fields: [
-      { name: 'name', label: 'Branch name', placeholder: 'feature/my-change', required: true },
-      { name: 'checkout', label: 'Check out after creating', type: 'checkbox', initial: true },
+      { name: 'name', label: t('Branch name'), placeholder: 'feature/my-change', required: true },
+      { name: 'checkout', label: t('Check out after creating'), type: 'checkbox', initial: true },
     ],
-    confirmLabel: 'Create',
+    confirmLabel: t('Create'),
   });
   if (!v) return;
   const name = (v.name as string).trim();
@@ -128,7 +135,7 @@ export async function newBranch(start?: string, startLabel?: string) {
         redo: (p) => api.createBranch(p, name, target, checkout),
       };
     },
-    `Created ${name}`,
+    t('Created {name}', { name }),
   );
 }
 
@@ -139,7 +146,7 @@ export async function checkoutRef(ref: GitRef) {
       'Checkout',
       (p) => api.checkout(p, ref.name, 'branch'),
       (b, a) => ({ undo: backTo(b), redo: backTo(a) }),
-      `Switched to ${ref.name}`,
+      t('Switched to {name}', { name: ref.name }),
     );
   } else if (ref.kind === 'remote') {
     await journaled(
@@ -154,9 +161,12 @@ export async function checkoutRef(ref: GitRef) {
 
 export async function checkoutCommit(hash: string, label?: string) {
   const ok = await confirm(
-    'Check out commit',
-    `This puts the repository in "detached HEAD" at ${label ?? short(hash)}. Create a branch if you want to keep new commits.`,
-    'Check out',
+    t('Check out commit'),
+    t(
+      'This puts the repository in "detached HEAD" at {ref}. Create a branch if you want to keep new commits.',
+      { ref: label ?? short(hash) },
+    ),
+    t('Check out'),
   );
   if (ok)
     await journaled(
@@ -171,20 +181,25 @@ export async function deleteBranch(ref: GitRef) {
     const remote = ref.remote!;
     const name = ref.name.slice(remote.length + 1);
     const ok = await confirm(
-      'Delete remote branch',
-      `Delete ${name} on ${remote}? This affects everyone using the remote.`,
-      'Delete',
+      t('Delete remote branch'),
+      t('Delete {name} on {remote}? This affects everyone using the remote.', { name, remote }),
+      t('Delete'),
       true,
     );
     if (ok)
       await run(
         'Delete remote branch',
         (p) => api.deleteRemoteBranch(p, remote, name),
-        `Deleted ${ref.name}`,
+        t('Deleted {name}', { name: ref.name }),
       );
     return;
   }
-  const ok = await confirm('Delete branch', `Delete local branch ${ref.name}?`, 'Delete', true);
+  const ok = await confirm(
+    t('Delete branch'),
+    t('Delete local branch {name}?', { name: ref.name }),
+    t('Delete'),
+    true,
+  );
   if (!ok) return;
   const path = repo().path!;
   const recordDelete = () =>
@@ -196,14 +211,17 @@ export async function deleteBranch(ref: GitRef) {
   try {
     await api.deleteBranch(path, ref.name, false);
     recordDelete();
-    toast('success', `Deleted ${ref.name}`);
+    toast('success', t('Deleted {name}', { name: ref.name }));
   } catch (e) {
     const msg = (e as Error).message;
     if (/not fully merged/i.test(msg)) {
       const force = await confirm(
-        'Branch not merged',
-        `${ref.name} has commits that are not merged anywhere. Delete it anyway? Those commits may be lost.`,
-        'Force delete',
+        t('Branch not merged'),
+        t(
+          '{name} has commits that are not merged anywhere. Delete it anyway? Those commits may be lost.',
+          { name: ref.name },
+        ),
+        t('Force delete'),
         true,
       );
       if (
@@ -211,20 +229,20 @@ export async function deleteBranch(ref: GitRef) {
         (await run(
           'Delete branch',
           (p) => api.deleteBranch(p, ref.name, true),
-          `Deleted ${ref.name}`,
+          t('Deleted {name}', { name: ref.name }),
         ))
       )
         recordDelete();
-    } else toast('error', 'Delete branch failed', msg);
+    } else toast('error', t('Delete branch failed'), msg);
   }
   await repo().refresh();
 }
 
 export async function renameBranch(ref: GitRef) {
   const v = await ask({
-    title: 'Rename branch',
-    fields: [{ name: 'name', label: 'New name', initial: ref.name, required: true }],
-    confirmLabel: 'Rename',
+    title: t('Rename branch'),
+    fields: [{ name: 'name', label: t('New name'), initial: ref.name, required: true }],
+    confirmLabel: t('Rename'),
   });
   if (v)
     await run('Rename branch', (p) => api.renameBranch(p, ref.name, (v.name as string).trim()));
@@ -233,15 +251,15 @@ export async function renameBranch(ref: GitRef) {
 export async function setUpstream(ref: GitRef) {
   const remotes = (repo().refs?.refs ?? []).filter((r) => r.kind === 'remote');
   if (remotes.length === 0) {
-    toast('info', 'No remote branches to track. Push the branch first.');
+    toast('info', t('No remote branches to track. Push the branch first.'));
     return;
   }
   const v = await ask({
-    title: `Set upstream for ${ref.name}`,
+    title: t('Set upstream for {name}', { name: ref.name }),
     fields: [
       {
         name: 'up',
-        label: 'Upstream branch',
+        label: t('Upstream branch'),
         type: 'select',
         initial: ref.upstream ?? remotes[0]!.name,
         options: remotes.map((r) => ({ value: r.name, label: r.name })),
@@ -254,36 +272,42 @@ export async function setUpstream(ref: GitRef) {
 export async function mergeInto(target: string) {
   const cur = currentBranch() ?? 'HEAD';
   const v = await ask({
-    title: 'Merge',
-    description: `Merge ${target} into ${cur}.`,
+    title: t('Merge'),
+    description: t('Merge {source} into {target}.', { source: target, target: cur }),
     fields: [
       {
         name: 'noFf',
-        label: 'Always create a merge commit (--no-ff)',
+        label: t('Always create a merge commit (--no-ff)'),
         type: 'checkbox',
         initial: false,
       },
     ],
-    confirmLabel: 'Merge',
+    confirmLabel: t('Merge'),
   });
-  if (v) await run('Merge', (p) => api.merge(p, target, v.noFf as boolean), `Merged ${target}`);
+  if (v)
+    await run(
+      'Merge',
+      (p) => api.merge(p, target, v.noFf as boolean),
+      t('Merged {name}', { name: target }),
+    );
 }
 
 export async function rebaseOnto(target: string) {
   const cur = currentBranch() ?? 'HEAD';
   const ok = await confirm(
-    'Rebase',
-    `Rebase ${cur} onto ${target}? Commits of ${cur} are rewritten.`,
-    'Rebase',
+    t('Rebase'),
+    t('Rebase {branch} onto {target}? Commits of {branch} are rewritten.', { branch: cur, target }),
+    t('Rebase'),
   );
-  if (ok) await run('Rebase', (p) => api.rebase(p, target), `Rebased onto ${target}`);
+  if (ok)
+    await run('Rebase', (p) => api.rebase(p, target), t('Rebased onto {name}', { name: target }));
 }
 
 export async function cherryPick(c: Commit) {
   await run(
     'Cherry-pick',
     (p) => api.cherryPick(p, c.hash, c.parents.length > 1),
-    `Cherry-picked ${short(c.hash)}`,
+    t('Cherry-picked {hash}', { hash: short(c.hash) }),
   );
 }
 
@@ -291,37 +315,46 @@ export async function revertCommit(c: Commit) {
   await run(
     'Revert',
     (p) => api.revert(p, c.hash, c.parents.length > 1),
-    `Reverted ${short(c.hash)}`,
+    t('Reverted {hash}', { hash: short(c.hash) }),
   );
 }
 
 export async function resetTo(hash: string, label?: string) {
   const v = await ask({
-    title: `Reset ${currentBranch() ?? 'HEAD'} to ${label ?? short(hash)}`,
+    title: t('Reset {branch} to {ref}', {
+      branch: currentBranch() ?? 'HEAD',
+      ref: label ?? short(hash),
+    }),
     fields: [
       {
         name: 'mode',
-        label: 'Mode',
+        label: t('Mode'),
         type: 'select',
         initial: 'mixed',
         options: [
-          { value: 'soft', label: 'Soft — keep changes staged' },
-          { value: 'mixed', label: 'Mixed — keep changes in working tree' },
-          { value: 'hard', label: 'Hard — discard all changes' },
+          { value: 'soft', label: t('Soft — keep changes staged') },
+          { value: 'mixed', label: t('Mixed — keep changes in working tree') },
+          { value: 'hard', label: t('Hard — discard all changes') },
         ],
       },
     ],
-    confirmLabel: 'Reset',
+    confirmLabel: t('Reset'),
     danger: true,
   });
   if (!v) return;
-  const mode = v.mode as 'soft' | 'mixed' | 'hard';
+  await resetWithMode(hash, v.mode as ResetMode);
+}
+
+export type ResetMode = 'soft' | 'mixed' | 'hard';
+
+/** Reset the current branch to `hash` with a known mode (hard asks first). Undoable. */
+export async function resetWithMode(hash: string, mode: ResetMode) {
   if (
     mode === 'hard' &&
     !(await confirm(
-      'Hard reset',
-      'Uncommitted changes will be lost. Continue?',
-      'Hard reset',
+      t('Hard reset'),
+      t('Uncommitted changes will be lost. Continue?'),
+      t('Hard reset'),
       true,
     ))
   )
@@ -340,39 +373,54 @@ export async function resetTo(hash: string, label?: string) {
   );
 }
 
-export async function createTag(target: string, label?: string) {
+/** Create a tag at `target`; `annotated` makes the message required. */
+export async function createTag(target: string, label?: string, annotated = false) {
   const v = await ask({
-    title: 'Create tag',
-    description: `At ${label ?? short(target)}`,
+    title: annotated ? t('Create annotated tag') : t('Create tag'),
+    description: t('At {ref}', { ref: label ?? short(target) }),
     fields: [
-      { name: 'name', label: 'Tag name', placeholder: 'v1.0.0', required: true },
-      { name: 'message', label: 'Message (makes an annotated tag)', type: 'textarea' },
-      { name: 'push', label: 'Push to origin', type: 'checkbox', initial: false },
+      { name: 'name', label: t('Tag name'), placeholder: 'v1.0.0', required: true },
+      annotated
+        ? { name: 'message', label: t('Message'), type: 'textarea', required: true }
+        : { name: 'message', label: t('Message (makes an annotated tag)'), type: 'textarea' },
+      { name: 'push', label: t('Push to origin'), type: 'checkbox', initial: false },
     ],
-    confirmLabel: 'Create',
+    confirmLabel: t('Create'),
   });
   if (!v) return;
   const name = (v.name as string).trim();
   const ok = await run(
     'Create tag',
     (p) => api.createTag(p, name, target, v.message as string),
-    `Tagged ${name}`,
+    t('Tagged {name}', { name }),
   );
-  if (ok && v.push) await run('Push tag', (p) => api.push(p, { tag: name }), `Pushed ${name}`);
+  if (ok && v.push)
+    await run('Push tag', (p) => api.push(p, { tag: name }), t('Pushed {name}', { name }));
 }
 
 export async function deleteTag(ref: GitRef) {
   const remote = repo().refs?.remotes[0]?.name;
   const v = await ask({
-    title: `Delete tag ${ref.name}`,
+    title: t('Delete tag {name}', { name: ref.name }),
     fields: remote
-      ? [{ name: 'remote', label: `Also delete on ${remote}`, type: 'checkbox', initial: false }]
+      ? [
+          {
+            name: 'remote',
+            label: t('Also delete on {remote}', { remote }),
+            type: 'checkbox',
+            initial: false,
+          },
+        ]
       : [],
-    confirmLabel: 'Delete',
+    confirmLabel: t('Delete'),
     danger: true,
   });
   if (!v) return;
-  await run('Delete tag', (p) => api.deleteTag(p, ref.name), `Deleted ${ref.name}`);
+  await run(
+    'Delete tag',
+    (p) => api.deleteTag(p, ref.name),
+    t('Deleted {name}', { name: ref.name }),
+  );
   if (v.remote && remote)
     await run('Delete remote tag', (p) =>
       api.deleteRemoteBranch(p, remote, `refs/tags/${ref.name}`),
@@ -380,30 +428,39 @@ export async function deleteTag(ref: GitRef) {
 }
 
 export async function pushTag(ref: GitRef) {
-  await run('Push tag', (p) => api.push(p, { tag: ref.name }), `Pushed ${ref.name}`);
+  await run(
+    'Push tag',
+    (p) => api.push(p, { tag: ref.name }),
+    t('Pushed {name}', { name: ref.name }),
+  );
 }
 
 export async function stash() {
   const v = await ask({
-    title: 'Stash changes',
+    title: t('Stash changes'),
     fields: [
-      { name: 'message', label: 'Message (optional)' },
-      { name: 'untracked', label: 'Include untracked files', type: 'checkbox', initial: true },
+      { name: 'message', label: t('Message (optional)') },
+      { name: 'untracked', label: t('Include untracked files'), type: 'checkbox', initial: true },
     ],
-    confirmLabel: 'Stash',
+    confirmLabel: t('Stash'),
   });
   if (v)
     await run(
       'Stash',
       (p) => api.stashSave(p, v.message as string, v.untracked as boolean),
-      'Changes stashed',
+      t('Changes stashed'),
     );
 }
 
 export async function stashOp(s: Stash, op: 'apply' | 'pop' | 'drop') {
   if (
     op === 'drop' &&
-    !(await confirm('Drop stash', `Delete ${s.name} (${s.message})?`, 'Drop', true))
+    !(await confirm(
+      t('Drop stash'),
+      t('Delete {name} ({message})?', { name: s.name, message: s.message }),
+      t('Drop'),
+      true,
+    ))
   )
     return;
   const label = op === 'apply' ? 'Apply stash' : op === 'pop' ? 'Pop stash' : 'Drop stash';
@@ -413,7 +470,7 @@ export async function stashOp(s: Stash, op: 'apply' | 'pop' | 'drop') {
 export async function popLatest() {
   const s = repo().refs?.stashes[0];
   if (!s) {
-    toast('info', 'No stashes');
+    toast('info', t('No stashes'));
     return;
   }
   await stashOp(s, 'pop');
@@ -421,11 +478,11 @@ export async function popLatest() {
 
 export async function addRemote() {
   const v = await ask({
-    title: 'Add remote',
+    title: t('Add remote'),
     fields: [
       {
         name: 'name',
-        label: 'Name',
+        label: t('Name'),
         initial: repo().refs?.remotes.length ? '' : 'origin',
         required: true,
       },
@@ -436,7 +493,7 @@ export async function addRemote() {
         required: true,
       },
     ],
-    confirmLabel: 'Add',
+    confirmLabel: t('Add'),
   });
   if (v) {
     const ok = await run('Add remote', (p) =>
@@ -449,9 +506,9 @@ export async function addRemote() {
 export async function removeRemote(name: string) {
   if (
     await confirm(
-      'Remove remote',
-      `Remove remote ${name} and its remote-tracking branches?`,
-      'Remove',
+      t('Remove remote'),
+      t('Remove remote {name} and its remote-tracking branches?', { name }),
+      t('Remove'),
       true,
     )
   )
@@ -461,9 +518,9 @@ export async function removeRemote(name: string) {
 export async function abortOp() {
   if (
     await confirm(
-      'Abort',
-      'Abort the operation in progress and return to the previous state?',
-      'Abort',
+      t('Abort'),
+      t('Abort the operation in progress and return to the previous state?'),
+      t('Abort'),
       true,
     )
   )
@@ -482,11 +539,11 @@ export async function createPullRequest(branch?: string) {
     r.refs?.remotes.find((x) => x.name === 'origin' && x.github) ??
     r.refs?.remotes.find((x) => x.github);
   if (!remote?.github) {
-    toast('info', 'This repository has no GitHub remote');
+    toast('info', t('This repository has no GitHub remote'));
     return;
   }
   if (!useGitHub.getState().user) {
-    toast('info', 'Sign in to GitHub first');
+    toast('info', t('Sign in to GitHub first'));
     return;
   }
   if (!head) return;
@@ -494,9 +551,12 @@ export async function createPullRequest(branch?: string) {
   if (local && !local.upstream) {
     if (
       !(await confirm(
-        'Push branch first',
-        `${head} is not on GitHub yet. Push it to ${remote.name} now?`,
-        'Push',
+        t('Push branch first'),
+        t('{branch} is not on GitHub yet. Push it to {remote} now?', {
+          branch: head,
+          remote: remote.name,
+        }),
+        t('Push'),
       ))
     )
       return;
@@ -512,12 +572,15 @@ export async function createPullRequest(branch?: string) {
     'main';
   const subject = r.commits.find((c) => c.hash === local?.target)?.subject ?? head;
   const v = await ask({
-    title: 'Create pull request',
-    description: `${remote.github.owner}/${remote.github.repo}: ${head} → base`,
+    title: t('Create pull request'),
+    description: t('{repo}: {head} → base', {
+      repo: `${remote.github.owner}/${remote.github.repo}`,
+      head,
+    }),
     fields: [
       {
         name: 'base',
-        label: 'Base branch',
+        label: t('Base branch'),
         type: 'select',
         initial: base,
         options: (remoteBranches.length ? remoteBranches : [base]).map((b) => ({
@@ -525,11 +588,11 @@ export async function createPullRequest(branch?: string) {
           label: b,
         })),
       },
-      { name: 'title', label: 'Title', initial: subject, required: true },
-      { name: 'body', label: 'Description', type: 'textarea' },
-      { name: 'draft', label: 'Create as draft', type: 'checkbox', initial: false },
+      { name: 'title', label: t('Title'), initial: subject, required: true },
+      { name: 'body', label: t('Description'), type: 'textarea' },
+      { name: 'draft', label: t('Create as draft'), type: 'checkbox', initial: false },
     ],
-    confirmLabel: 'Create pull request',
+    confirmLabel: t('Create pull request'),
   });
   if (!v) return;
   try {
@@ -542,10 +605,10 @@ export async function createPullRequest(branch?: string) {
       base: v.base as string,
       draft: v.draft as boolean,
     });
-    toast('success', `Opened pull request #${pr.number}`, pr.htmlUrl);
+    toast('success', t('Opened pull request #{n}', { n: pr.number }), pr.htmlUrl);
     void useGitHub.getState().loadPulls(remote.github);
   } catch (e) {
-    toast('error', 'Could not create pull request', (e as Error).message);
+    toast('error', t('Could not create pull request'), (e as Error).message);
   }
 }
 
@@ -557,41 +620,41 @@ const preferSsh = () => repo().settings?.preferSsh ?? false;
 export async function addRemoteFromGitHub() {
   const gh = useGitHub.getState();
   if (!gh.user) {
-    toast('info', 'Connect GitHub first (Preferences → Integrations)');
+    toast('info', t('Connect GitHub first (Preferences → Integrations)'));
     return;
   }
   if (!gh.repos) {
     try {
       await gh.loadRepos();
     } catch (e) {
-      toast('error', 'Could not list your GitHub repositories', (e as Error).message);
+      toast('error', t('Could not list your GitHub repositories'), (e as Error).message);
       return;
     }
   }
   const repos = useGitHub.getState().repos ?? [];
   if (repos.length === 0) {
-    toast('info', 'No repositories on your GitHub account');
+    toast('info', t('No repositories on your GitHub account'));
     return;
   }
   const hasOrigin = repo().refs?.remotes.some((r) => r.name === 'origin');
   const v = await ask({
-    title: 'Add remote from GitHub',
+    title: t('Add remote from GitHub'),
     fields: [
       {
         name: 'repo',
-        label: 'Repository',
+        label: t('Repository'),
         type: 'select',
         options: repos.map((r) => ({ value: r.fullName, label: r.fullName })),
       },
       {
         name: 'name',
-        label: 'Remote name',
+        label: t('Remote name'),
         initial: hasOrigin ? 'upstream' : 'origin',
         required: true,
       },
-      { name: 'ssh', label: 'Use SSH URL', type: 'checkbox', initial: preferSsh() },
+      { name: 'ssh', label: t('Use SSH URL'), type: 'checkbox', initial: preferSsh() },
     ],
-    confirmLabel: 'Add remote',
+    confirmLabel: t('Add remote'),
   });
   if (!v) return;
   const r = repos.find((x) => x.fullName === v.repo)!;
@@ -599,7 +662,7 @@ export async function addRemoteFromGitHub() {
   const ok = await run(
     'Add remote',
     (p) => api.addRemote(p, (v.name as string).trim(), url),
-    `Added ${v.name}`,
+    t('Added {name}', { name: v.name as string }),
   );
   if (ok) await run('Fetch', (p) => api.fetch(p, (v.name as string).trim()));
 }
@@ -608,25 +671,33 @@ export async function addRemoteFromGitHub() {
 export async function publishToGitHub() {
   const gh = useGitHub.getState();
   if (!gh.user) {
-    toast('info', 'Connect GitHub first (Preferences → Integrations)');
+    toast('info', t('Connect GitHub first (Preferences → Integrations)'));
     return;
   }
   const info = repo().info;
   if (!info) return;
   if (repo().refs?.remotes.some((r) => r.name === 'origin')) {
-    toast('info', 'This repository already has an origin remote');
+    toast('info', t('This repository already has an origin remote'));
     return;
   }
   const v = await ask({
-    title: 'Publish to GitHub',
-    description: `Creates a repository under @${gh.user.login}, adds it as origin and pushes ${info.status.branch ?? 'HEAD'}.`,
+    title: t('Publish to GitHub'),
+    description: t('Creates a repository under @{login}, adds it as origin and pushes {branch}.', {
+      login: gh.user.login,
+      branch: info.status.branch ?? 'HEAD',
+    }),
     fields: [
-      { name: 'name', label: 'Repository name', initial: info.name, required: true },
-      { name: 'description', label: 'Description (optional)' },
-      { name: 'private', label: 'Private repository', type: 'checkbox', initial: true },
-      { name: 'ssh', label: 'Use SSH URL for the remote', type: 'checkbox', initial: preferSsh() },
+      { name: 'name', label: t('Repository name'), initial: info.name, required: true },
+      { name: 'description', label: t('Description (optional)') },
+      { name: 'private', label: t('Private repository'), type: 'checkbox', initial: true },
+      {
+        name: 'ssh',
+        label: t('Use SSH URL for the remote'),
+        type: 'checkbox',
+        initial: preferSsh(),
+      },
     ],
-    confirmLabel: 'Publish',
+    confirmLabel: t('Publish'),
   });
   if (!v) return;
   try {
@@ -640,9 +711,9 @@ export async function publishToGitHub() {
     await api.addRemote(path, 'origin', v.ssh ? created.sshUrl : created.cloneUrl);
     useRepo.setState({ busy: null });
     if (info.status.head) await push({ remote: 'origin' });
-    toast('success', `Published to ${created.fullName}`, created.htmlUrl);
+    toast('success', t('Published to {name}', { name: created.fullName }), created.htmlUrl);
   } catch (e) {
-    toast('error', 'Publish failed', (e as Error).message);
+    toast('error', t('Publish failed'), (e as Error).message);
   } finally {
     useRepo.setState({ busy: null });
     await repo().refresh();
@@ -659,6 +730,388 @@ export async function switchRemoteProtocol(name: string) {
   await run(
     'Change remote URL',
     (p) => api.setRemoteUrl(p, name, url),
-    `${name} now uses ${toSsh ? 'SSH' : 'HTTPS'}`,
+    t('{name} now uses {protocol}', { name, protocol: toSsh ? 'SSH' : 'HTTPS' }),
   );
+}
+
+// ---- commit history -----------------------------------------------------------------------------
+
+/** Change the message of `hash` (rewrites it and every commit after it on the current branch). */
+export async function editCommitMessage(hash: string) {
+  const path = repo().path;
+  if (!path) return;
+  let message: string;
+  try {
+    message = (await api.commit(path, hash)).body;
+  } catch (e) {
+    toast('error', t('Could not load commit'), (e as Error).message);
+    return;
+  }
+  const v = await ask({
+    title: t('Edit commit message'),
+    description: t(
+      'Rewrites {hash} and the commits after it. Avoid this on commits you already pushed.',
+      { hash: short(hash) },
+    ),
+    fields: [
+      { name: 'message', label: t('Message'), type: 'textarea', initial: message, required: true },
+    ],
+    confirmLabel: t('Save'),
+  });
+  if (!v) return;
+  const next = (v.message as string).trim();
+  if (next === message.trim()) return;
+  await run('Edit commit message', (p) => api.reword(p, hash, next), t('Commit message updated'));
+}
+
+export async function dropCommit(c: Commit) {
+  const ok = await confirm(
+    t('Drop commit'),
+    t(
+      'Remove {hash} "{subject}" from the branch? This rewrites history: the commits after it are recreated and the changes it made are discarded from the branch.',
+      { hash: short(c.hash), subject: c.subject },
+    ),
+    t('Drop commit'),
+    true,
+  );
+  if (ok)
+    await run(
+      'Drop commit',
+      (p) => api.dropCommit(p, c.hash),
+      t('Dropped {hash}', { hash: short(c.hash) }),
+    );
+}
+
+/** Delete a local branch and its remote branch in one go. */
+export async function deleteBranchAndRemote(local: GitRef, remote: GitRef) {
+  const remoteName = remote.remote!;
+  const remoteBranch = remote.name.slice(remoteName.length + 1);
+  const ok = await confirm(
+    t('Delete branch'),
+    t('Delete local branch {name} and {remote}? This affects everyone using the remote.', {
+      name: local.name,
+      remote: remote.name,
+    }),
+    t('Delete'),
+    true,
+  );
+  if (!ok) return;
+  const path = repo().path!;
+  try {
+    await api.deleteBranch(path, local.name, false);
+  } catch (e) {
+    const msg = (e as Error).message;
+    if (!/not fully merged/i.test(msg)) {
+      toast('error', t('Delete branch failed'), msg);
+      await repo().refresh();
+      return;
+    }
+    const force = await confirm(
+      t('Branch not merged'),
+      t(
+        '{name} has commits that are not merged anywhere. Delete it anyway? Those commits may be lost.',
+        { name: local.name },
+      ),
+      t('Force delete'),
+      true,
+    );
+    if (!force || !(await run('Delete branch', (p) => api.deleteBranch(p, local.name, true))))
+      return;
+  }
+  await run(
+    'Delete remote branch',
+    (p) => api.deleteRemoteBranch(p, remoteName, remoteBranch),
+    t('Deleted {name} and {remote}', { name: local.name, remote: remote.name }),
+  );
+}
+
+export async function createAnnotatedTag(target: string, label?: string) {
+  await createTag(target, label, true);
+}
+
+// ---- patches ------------------------------------------------------------------------------------
+
+const sepOf = (p: string) => (p.includes('\\') ? '\\' : '/');
+const joinPath = (dir: string, name: string) =>
+  dir.replace(/[\\/]+$/, '') + sepOf(dir) + name.replace(/^[\\/]+/, '');
+const parentDir = (p: string) => p.replace(/[\\/]+$/, '').replace(/[\\/][^\\/]*$/, '');
+export const baseName = (p: string) => p.replace(/[\\/]+$/, '').replace(/^.*[\\/]/, '');
+
+export async function applyPatchFile() {
+  const file = await pickFile(t('Choose a patch file'), repo().path ?? undefined);
+  if (!file) return;
+  await run('Apply patch', (p) => api.applyPatchFile(p, file), t('Patch applied'));
+}
+
+export async function createPatch(hash: string) {
+  const path = repo().path;
+  if (!path) return;
+  const v = await ask({
+    title: t('Create patch from commit'),
+    description: t('Saves {hash} as a patch file (git format-patch).', { hash: short(hash) }),
+    fields: [
+      {
+        name: 'dest',
+        label: t('Save to'),
+        initial: joinPath(path, `${short(hash)}.patch`),
+        required: true,
+      },
+    ],
+    confirmLabel: t('Save'),
+  });
+  if (!v) return;
+  const dest = (v.dest as string).trim();
+  if (await run('Create patch', (p) => api.createPatch(p, hash, dest)))
+    toast('success', t('Patch saved'), dest);
+}
+
+// ---- links to the remote's web page -------------------------------------------------------------
+
+interface WebRepo {
+  host: 'github' | 'gitlab';
+  base: string;
+}
+
+/** `https://gitlab.com/group/repo` from an https, ssh:// or scp-style gitlab.com remote URL. */
+function gitlabBase(url: string): string | null {
+  const m =
+    /^(?:https?:\/\/(?:[^@/]+@)?|ssh:\/\/(?:[^@/]+@)?|[^@/]+@)gitlab\.com(?::\d+)?[:/](.+?)(?:\.git)?\/?$/i.exec(
+      url.trim(),
+    );
+  return m ? `https://gitlab.com/${m[1]}` : null;
+}
+
+function webRepo(r: Remote | undefined): WebRepo | null {
+  if (!r) return null;
+  if (r.github)
+    return { host: 'github', base: `https://github.com/${r.github.owner}/${r.github.repo}` };
+  const gl = gitlabBase(r.url);
+  return gl ? { host: 'gitlab', base: gl } : null;
+}
+
+/** The web page of `remote` (default: origin, then the first remote on GitHub or GitLab). */
+function remoteWeb(remote?: string | null): WebRepo | null {
+  const remotes = repo().refs?.remotes ?? [];
+  if (remote) return webRepo(remotes.find((r) => r.name === remote));
+  return (
+    webRepo(remotes.find((r) => r.name === 'origin')) ??
+    remotes.map(webRepo).find((w) => w !== null) ??
+    null
+  );
+}
+
+export const hasWebRemote = () => remoteWeb() !== null;
+
+export function commitUrl(hash: string): string | null {
+  const w = remoteWeb();
+  if (!w) return null;
+  return w.host === 'github' ? `${w.base}/commit/${hash}` : `${w.base}/-/commit/${hash}`;
+}
+
+/** Web URL of a branch: a remote branch on its remote, a local one on its upstream's remote. */
+export function branchUrl(ref: GitRef): string | null {
+  let remote: string | null = null;
+  let name = ref.name;
+  if (ref.kind === 'remote' && ref.remote) {
+    remote = ref.remote;
+    name = ref.name.slice(ref.remote.length + 1);
+  } else if (ref.upstream) {
+    const up = repo().refs?.refs.find((r) => r.kind === 'remote' && r.name === ref.upstream);
+    if (up?.remote) {
+      remote = up.remote;
+      name = up.name.slice(up.remote.length + 1);
+    }
+  }
+  const w = remote ? remoteWeb(remote) : remoteWeb();
+  if (!w) return null;
+  const path = name.split('/').map(encodeURIComponent).join('/');
+  return w.host === 'github' ? `${w.base}/tree/${path}` : `${w.base}/-/tree/${path}`;
+}
+
+async function copyLink(url: string | null) {
+  if (!url) {
+    toast('info', t('No GitHub or GitLab remote to link to'));
+    return;
+  }
+  await copyText(url);
+  toast('success', t('Link copied'), url);
+}
+
+export const copyCommitLink = (hash: string) => copyLink(commitUrl(hash));
+export const copyBranchLink = (ref: GitRef) => copyLink(branchUrl(ref));
+
+// ---- compare ------------------------------------------------------------------------------------
+
+/** Select `hash` and list how the working directory differs from it. */
+export async function compareWithWorkingDirectory(hash: string) {
+  await repo().select({ type: 'commit', hash });
+  await useCompare.getState().start(hash);
+}
+
+// ---- worktrees ----------------------------------------------------------------------------------
+
+/** `<parent of repo>/<repo>-<branch>`: the usual sibling folder for a new worktree. */
+function defaultWorktreePath(branch: string) {
+  const path = repo().path ?? '';
+  const slug = branch.replace(/[\\/:*?"<>|\s]+/g, '-').replace(/^-+|-+$/g, '') || 'worktree';
+  return joinPath(parentDir(path), `${baseName(path)}-${slug}`);
+}
+
+const NEW_BRANCH = '\u0000new';
+
+/**
+ * Add a worktree. With `branch` it checks out that existing branch; with `start` it creates a
+ * new branch at that commit; with neither it asks which branch to use.
+ */
+export async function addWorktree(opts: { branch?: string; start?: string } = {}) {
+  const r = repo();
+  if (!r.path) return;
+  const locals = (r.refs?.refs ?? []).filter((x) => x.kind === 'local');
+  const pathField: Field = {
+    name: 'path',
+    label: t('Folder'),
+    initial: opts.branch ? defaultWorktreePath(opts.branch) : '',
+    placeholder: opts.branch ? undefined : defaultWorktreePath('<branch>'),
+    help: t('A new folder; leave empty to use the suggested one.'),
+  };
+  const browseField: Field = {
+    name: 'browse',
+    label: t('Choose the parent folder in a dialog'),
+    type: 'checkbox',
+    initial: false,
+    help: t('The worktree folder is created inside the folder you pick.'),
+  };
+  const newBranchField: Field = {
+    name: 'newBranch',
+    label: t('New branch name'),
+    placeholder: 'feature/my-change',
+    required: !!opts.start,
+    help: opts.start ? undefined : t('Only used for a new branch.'),
+  };
+  const fields: Field[] = opts.branch
+    ? [pathField, browseField]
+    : opts.start
+      ? [newBranchField, pathField, browseField]
+      : [
+          {
+            name: 'base',
+            label: t('Branch'),
+            type: 'select',
+            initial: NEW_BRANCH,
+            options: [
+              { value: NEW_BRANCH, label: t('New branch from HEAD') },
+              ...locals.filter((x) => !x.isHead).map((x) => ({ value: x.name, label: x.name })),
+            ],
+          },
+          newBranchField,
+          pathField,
+          browseField,
+        ];
+  const v = await ask({
+    title: t('Create worktree'),
+    description: opts.branch
+      ? t('Checks out {name} in a separate folder.', { name: opts.branch })
+      : opts.start
+        ? t('Creates a new branch at {ref} and checks it out in a separate folder.', {
+            ref: short(opts.start),
+          })
+        : t('Checks out a branch in a separate folder, so you can work on two branches at once.'),
+    fields,
+    confirmLabel: t('Create worktree'),
+  });
+  if (!v) return;
+  let branch = opts.branch;
+  let newBranch: string | undefined;
+  if (!opts.branch) {
+    if (opts.start || v.base === NEW_BRANCH) {
+      newBranch = ((v.newBranch as string) ?? '').trim();
+      if (!newBranch) {
+        toast('error', t('Enter a name for the new branch'));
+        return;
+      }
+      // Start point of the new branch (HEAD when undefined).
+      branch = opts.start;
+    } else branch = v.base as string;
+  }
+  let path = ((v.path as string) ?? '').trim() || defaultWorktreePath(newBranch ?? branch ?? '');
+  if (v.browse) {
+    const dir = await pickFolder(t('Choose the parent folder for the worktree'), parentDir(path));
+    if (!dir) return;
+    path = joinPath(dir, baseName(path));
+  }
+  const ok = await run(
+    'Create worktree',
+    (p) => api.addWorktree(p, { path, branch, newBranch }),
+    t('Created worktree {path}', { path }),
+  );
+  if (
+    ok &&
+    (await confirm(
+      t('Open worktree'),
+      t('Open {path} in a new tab?', { path }),
+      t('Open in new tab'),
+    ))
+  )
+    await useRepo.getState().open(path);
+}
+
+export async function openWorktree(w: Worktree) {
+  await useRepo.getState().open(w.path);
+}
+
+export async function removeWorktree(w: Worktree) {
+  const ok = await confirm(
+    t('Remove worktree'),
+    t('Remove the worktree at {path}? Its folder is deleted; the branch is kept.', {
+      path: w.path,
+    }),
+    t('Remove'),
+    true,
+  );
+  const path = repo().path;
+  if (!ok || !path) return;
+  useRepo.setState({ busy: 'Remove worktree' });
+  try {
+    await api.removeWorktree(path, w.path, false);
+    toast('success', t('Removed worktree {path}', { path: w.path }));
+  } catch (e) {
+    useRepo.setState({ busy: null });
+    const msg = (e as Error).message;
+    if (/modified|untracked|changes|dirty|--force|locked/i.test(msg)) {
+      const force = await confirm(
+        t('Worktree has changes'),
+        t(
+          '{path} has uncommitted changes or is locked. Remove it anyway? Those changes are lost.',
+          { path: w.path },
+        ),
+        t('Force remove'),
+        true,
+      );
+      if (force)
+        await run(
+          'Remove worktree',
+          (p) => api.removeWorktree(p, w.path, true),
+          t('Removed worktree {path}', { path: w.path }),
+        );
+    } else toast('error', t('{label} failed', { label: t('Remove worktree') }), msg);
+  } finally {
+    useRepo.setState({ busy: null });
+    await repo().refresh();
+  }
+}
+
+export async function lockWorktree(w: Worktree, lock: boolean) {
+  await run(lock ? 'Lock worktree' : 'Unlock worktree', (p) => api.lockWorktree(p, w.path, lock));
+}
+
+export async function pruneWorktrees() {
+  await run('Prune worktrees', (p) => api.pruneWorktrees(p), t('Pruned stale worktrees'));
+}
+
+export async function openTerminalAt(path: string) {
+  try {
+    await api.openTerminal(path);
+  } catch (e) {
+    toast('error', t('Could not open a terminal'), (e as Error).message);
+  }
 }

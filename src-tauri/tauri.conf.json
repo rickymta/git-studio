@@ -14,8 +14,9 @@
       {
         "label": "main",
         "title": "GitStudio",
-        "width": 1400,
-        "height": 860,
+        "width": 1600,
+        "height": 1000,
+        "visible": false,
         "minWidth": 1000,
         "minHeight": 600,
         "center": true

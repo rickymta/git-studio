@@ -14,17 +14,20 @@ import {
 } from '@/components/ui';
 import { fullDate, hue, initials, relativeTime, short } from '@/lib/format';
 import { laneColor, type GraphRow, type Segment } from '@/lib/graph';
+import { t } from '@/lib/i18n';
 import { copyText } from '@/lib/native';
 import type { Commit, GitRef } from '@/lib/types';
+import { useGitHub } from '@/stores/github';
 import { useRepo } from '@/stores/repo';
 import * as A from '../actions';
 import { RefBadge, groupRefs } from './RefBadge';
 
-const ROW = 32;
+// Proportions measured from GitKraken: 28px rows, 22px lanes, ~20px avatar nodes.
+const ROW = 28;
 const LANE = 22;
 const PAD = 12;
-const NODE_R = 11;
-const MAX_GRAPH = 230;
+const NODE_R = 10;
+const MAX_GRAPH = 220;
 /** Column widths live in CSS variables on the graph container, so resizing never re-renders rows. */
 const REFS_W = 'var(--refs-w)';
 const GRAPH_W = 'var(--graph-w)';
@@ -54,20 +57,181 @@ function useColumns(): [Set<Column>, (c: Column) => void] {
   return [cols, toggle];
 }
 
+/** Drop leading, trailing and doubled separators left by entries that do not apply. */
+function tidy(items: MenuItem[]): MenuItem[] {
+  const out: MenuItem[] = [];
+  for (const it of items) {
+    if (it === 'sep' && (out.length === 0 || out[out.length - 1] === 'sep')) continue;
+    out.push(it);
+  }
+  while (out[out.length - 1] === 'sep') out.pop();
+  return out;
+}
+
+/** Whether `hash` is reachable from HEAD within the loaded commits (i.e. on the current branch). */
+function onCurrentBranch(hash: string): boolean {
+  const { commits, info } = useRepo.getState();
+  const head = info?.status.head;
+  if (!head) return false;
+  const byHash = new Map(commits.map((c) => [c.hash, c]));
+  const seen = new Set<string>();
+  const stack = [head];
+  while (stack.length) {
+    const h = stack.pop()!;
+    if (h === hash) return true;
+    if (seen.has(h)) continue;
+    seen.add(h);
+    for (const p of byHash.get(h)?.parents ?? []) stack.push(p);
+  }
+  return false;
+}
+
+/** One entry for a single branch, a submenu of branch names for several. */
+function perBranch(label: string, refs: GitRef[], onSelect: (r: GitRef) => void): MenuItem[] {
+  if (refs.length === 0) return [];
+  if (refs.length === 1) return [{ label, onSelect: () => onSelect(refs[0]!) }];
+  return [{ label, items: refs.map((r) => ({ label: r.name, onSelect: () => onSelect(r) })) }];
+}
+
 function commitMenu(c: Commit): MenuItem[] {
-  const cur = useRepo.getState().info?.status.branch;
-  return [
-    { label: 'Checkout this commit', onSelect: () => A.checkoutCommit(c.hash) },
-    { label: 'Create branch here', onSelect: () => A.newBranch(c.hash) },
-    { label: 'Create tag here', onSelect: () => A.createTag(c.hash) },
+  const { info, refs } = useRepo.getState();
+  const cur = info?.status.branch ?? null;
+  const all = refs?.refs ?? [];
+  const here = all.filter((r) => r.target === c.hash);
+  const locals = here.filter((r) => r.kind === 'local');
+  const remotes = here.filter((r) => r.kind === 'remote' && !r.name.endsWith('/HEAD'));
+  const headBranch = locals.find((r) => r.isHead);
+  const branches = [...locals, ...remotes];
+  const mine = onCurrentBranch(c.hash);
+  const hasGitHub = !!refs?.remotes.some((r) => r.github) && !!useGitHub.getState().user;
+  /** The remote branch a local branch pushes to (its upstream, else origin/<name>). */
+  const remoteOf = (l: GitRef) =>
+    all.find((r) => r.kind === 'remote' && r.name === (l.upstream ?? `origin/${l.name}`));
+  const tracked = new Set(locals.map((l) => remoteOf(l)?.fullName));
+
+  const branchItems: MenuItem[] = [];
+  for (const l of locals) {
+    const remote = remoteOf(l);
+    branchItems.push({
+      label: t('Rename {name}…', { name: l.name }),
+      onSelect: () => A.renameBranch(l),
+    });
+    branchItems.push({
+      label: t('Delete {name}', { name: l.name }),
+      danger: true,
+      disabled: l.isHead,
+      onSelect: () => A.deleteBranch(l),
+    });
+    if (remote) {
+      branchItems.push({
+        label: t('Delete {name}', { name: remote.name }),
+        danger: true,
+        onSelect: () => A.deleteBranch(remote),
+      });
+      branchItems.push({
+        label: t('Delete {name} and {remote}', { name: l.name, remote: remote.name }),
+        danger: true,
+        disabled: l.isHead,
+        onSelect: () => A.deleteBranchAndRemote(l, remote),
+      });
+    }
+  }
+  for (const r of remotes.filter((r) => !tracked.has(r.fullName)))
+    branchItems.push({
+      label: t('Delete {name}', { name: r.name }),
+      danger: true,
+      onSelect: () => A.deleteBranch(r),
+    });
+
+  return tidy([
+    ...(headBranch
+      ? ([
+          { label: t('Pull (fast-forward if possible)'), onSelect: () => A.pull() },
+          { label: t('Push'), onSelect: () => A.push() },
+          { label: t('Set Upstream'), onSelect: () => A.setUpstream(headBranch) },
+          'sep',
+        ] as MenuItem[])
+      : []),
+    {
+      label: t('Checkout'),
+      items: [
+        ...branches
+          .filter((r) => !r.isHead)
+          .map((r) => ({
+            label: t('Checkout {name}', { name: r.name }),
+            onSelect: () => A.checkoutRef(r),
+          })),
+        {
+          label: t('Checkout this commit (detached)'),
+          onSelect: () => A.checkoutCommit(c.hash),
+        },
+      ],
+    },
+    {
+      label: t('Create worktree from'),
+      items: [
+        ...locals
+          .filter((r) => !r.isHead)
+          .map((r) => ({ label: r.name, onSelect: () => A.addWorktree({ branch: r.name }) })),
+        { label: t('New branch here…'), onSelect: () => A.addWorktree({ start: c.hash }) },
+      ],
+    },
     'sep',
-    { label: 'Cherry pick commit', onSelect: () => A.cherryPick(c) },
-    { label: 'Revert commit', onSelect: () => A.revertCommit(c) },
-    { label: `Reset ${cur ?? 'HEAD'} to this commit`, onSelect: () => A.resetTo(c.hash) },
+    { label: t('Create branch here'), onSelect: () => A.newBranch(c.hash) },
+    {
+      label: t('Reset {branch} to this commit', { branch: cur ?? 'HEAD' }),
+      items: [
+        { label: t('Soft — keep changes staged'), onSelect: () => A.resetWithMode(c.hash, 'soft') },
+        {
+          label: t('Mixed — keep changes in working tree'),
+          onSelect: () => A.resetWithMode(c.hash, 'mixed'),
+        },
+        {
+          label: t('Hard — discard all changes'),
+          danger: true,
+          onSelect: () => A.resetWithMode(c.hash, 'hard'),
+        },
+      ],
+    },
     'sep',
-    { label: 'Copy commit sha', onSelect: () => copyText(c.hash) },
-    { label: 'Copy commit message', onSelect: () => copyText(c.subject) },
-  ];
+    {
+      label: t('Edit commit message'),
+      disabled: !mine,
+      onSelect: () => A.editCommitMessage(c.hash),
+    },
+    { label: t('Revert commit'), onSelect: () => A.revertCommit(c) },
+    { label: t('Cherry pick commit'), onSelect: () => A.cherryPick(c) },
+    { label: t('Drop commit'), danger: true, disabled: !mine, onSelect: () => A.dropCommit(c) },
+    'sep',
+    ...(hasGitHub
+      ? perBranch(t('Start a pull request…'), locals, (r) => A.createPullRequest(r.name))
+      : []),
+    { label: t('Apply patch…'), onSelect: () => A.applyPatchFile() },
+    { label: t('Create patch from commit'), onSelect: () => A.createPatch(c.hash) },
+    'sep',
+    ...branchItems,
+    'sep',
+    ...perBranch(t('Copy branch name'), branches, (r) => copyText(r.name)),
+    { label: t('Copy commit sha'), onSelect: () => copyText(c.hash) },
+    { label: t('Copy commit message'), onSelect: () => copyText(c.subject) },
+    ...(A.hasWebRemote()
+      ? [
+          {
+            label: t('Copy link to this commit on remote'),
+            onSelect: () => A.copyCommitLink(c.hash),
+          },
+          ...perBranch(t('Copy link to branch'), branches, (r) => A.copyBranchLink(r)),
+        ]
+      : []),
+    'sep',
+    {
+      label: t('Compare commit against working directory'),
+      onSelect: () => A.compareWithWorkingDirectory(c.hash),
+    },
+    'sep',
+    { label: t('Create tag here'), onSelect: () => A.createTag(c.hash) },
+    { label: t('Create annotated tag here'), onSelect: () => A.createAnnotatedTag(c.hash) },
+  ]);
 }
 
 const laneX = (lane: number) => PAD + lane * LANE + LANE / 2;
@@ -111,7 +275,7 @@ export function CommitGraph() {
     const lanes = graph.reduce((m, r) => Math.max(m, r.width), 1);
     return Math.max(90, Math.min(MAX_GRAPH, PAD * 2 + lanes * LANE));
   }, [graph]);
-  const [refsW, setRefsW] = usePersistentWidth('refs', 200, 70, 520);
+  const [refsW, setRefsW] = usePersistentWidth('refs', 134, 70, 520);
   // 0 = automatic (fits the lanes up to MAX_GRAPH).
   const [graphUser, setGraphW] = usePersistentWidth('graph', 0, 0, 900);
   const graphWidth = graphUser >= 40 ? graphUser : autoGraph;
@@ -201,7 +365,7 @@ export function CommitGraph() {
       ['sha', 'Commit sha'],
     ] as const
   ).map(([c, label]) => ({
-    label,
+    label: t(label),
     icon: cols.has(c) ? '✓' : undefined,
     onSelect: () => toggleCol(c),
   }));
@@ -211,13 +375,13 @@ export function CommitGraph() {
 
   return (
     <div className="flex h-full min-h-0 flex-col" style={vars}>
-      <div className="flex h-7 shrink-0 items-center border-b border-border bg-surface">
+      <div className="flex h-[22px] shrink-0 items-center border-b border-border bg-surface">
         <div className={cn(headerCls, 'relative h-full leading-7')} style={{ width: REFS_W }}>
-          Branch / Tag
-          <ResizeHandle width={refsW} onResize={setRefsW} onReset={() => setRefsW(200)} />
+          {t('Branch / Tag')}
+          <ResizeHandle width={refsW} onResize={setRefsW} onReset={() => setRefsW(134)} />
         </div>
         <div className={cn(headerCls, 'relative h-full leading-7')} style={{ width: GRAPH_W }}>
-          Graph
+          {t('Graph')}
           <ResizeHandle width={graphWidth} onResize={setGraphW} onReset={() => setGraphW(0)} />
         </div>
         <div
@@ -225,7 +389,7 @@ export function CommitGraph() {
           className={cn(headerCls, 'relative h-full min-w-0 leading-7')}
           style={{ flex: 'var(--msg-flex)' }}
         >
-          Commit message
+          {t('Commit message')}
           <ResizeHandle
             width={msgW >= 120 ? msgW : (msgRef.current?.offsetWidth ?? 400)}
             onResize={(w) => setMsgW(Math.max(120, w))}
@@ -240,7 +404,7 @@ export function CommitGraph() {
               <Input
                 autoFocus
                 className="h-6 w-60 pl-7 text-xs"
-                placeholder="Search message, author or sha"
+                placeholder={t('Search message, author or sha')}
                 value={query}
                 onChange={(e) => {
                   setQuery(e.target.value);
@@ -258,14 +422,14 @@ export function CommitGraph() {
             <span className="w-12 text-center text-xs text-muted-foreground">
               {query ? `${matches.length ? Math.max(matchIdx, 0) + 1 : 0}/${matches.length}` : ''}
             </span>
-            <IconButton label="Previous match" onClick={() => jump(-1)}>
+            <IconButton label={t('Previous match')} onClick={() => jump(-1)}>
               <ChevronUp className="size-3.5" />
             </IconButton>
-            <IconButton label="Next match" onClick={() => jump(1)}>
+            <IconButton label={t('Next match')} onClick={() => jump(1)}>
               <ChevronDown className="size-3.5" />
             </IconButton>
             <IconButton
-              label="Close search"
+              label={t('Close search')}
               onClick={() => {
                 setSearchOpen(false);
                 setQuery('');
@@ -287,7 +451,7 @@ export function CommitGraph() {
                   onResize={setAuthorW}
                   onReset={() => setAuthorW(160)}
                 />
-                Author
+                {t('Author')}
               </div>
             )}
             {cols.has('date') && (
@@ -301,7 +465,7 @@ export function CommitGraph() {
                   onResize={setDateW}
                   onReset={() => setDateW(112)}
                 />
-                Date
+                {t('Date')}
               </div>
             )}
             {cols.has('sha') && (
@@ -315,17 +479,17 @@ export function CommitGraph() {
                   onResize={setShaW}
                   onReset={() => setShaW(80)}
                 />
-                Sha
+                {t('Sha')}
               </div>
             )}
-            <IconButton label="Search commits (Ctrl+F)" onClick={() => setSearchOpen(true)}>
+            <IconButton label={t('Search commits (Ctrl+F)')} onClick={() => setSearchOpen(true)}>
               <Search className="size-3.5" />
             </IconButton>
             <Dropdown items={colMenu}>
               <button
                 type="button"
-                aria-label="Graph columns"
-                title="Graph columns"
+                aria-label={t('Graph columns')}
+                title={t('Graph columns')}
                 className="mr-2 ml-0.5 flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-surface-hover"
               >
                 <Settings2 className="size-3.5" />
@@ -343,10 +507,33 @@ export function CommitGraph() {
       >
         {commits.length === 0 && !dirty && (
           <div className="p-10 text-center text-muted-foreground">
-            No commits yet. Add files to the folder and make the first commit.
+            {t('No commits yet. Add files to the folder and make the first commit.')}
           </div>
         )}
         <div style={{ height: virt.getTotalSize(), position: 'relative' }}>
+          {/* One drag strip over the graph/message separators of every row. */}
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            title={t('Drag to resize, double-click to reset')}
+            onDoubleClick={() => setGraphW(0)}
+            onPointerDown={(e) => {
+              e.preventDefault();
+              const x0 = e.clientX;
+              const w0 = graphWidth;
+              const move = (ev: PointerEvent) => setGraphW(Math.max(40, w0 + ev.clientX - x0));
+              const up = () => {
+                window.removeEventListener('pointermove', move);
+                window.removeEventListener('pointerup', up);
+                document.body.style.cursor = '';
+              };
+              document.body.style.cursor = 'col-resize';
+              window.addEventListener('pointermove', move);
+              window.addEventListener('pointerup', up);
+            }}
+            className="absolute top-0 z-20 h-full w-2 cursor-col-resize hover:bg-accent/40"
+            style={{ left: `calc(${REFS_W} + ${GRAPH_W} - 3px)` }}
+          />
           {virt.getVirtualItems().map((v) => {
             const style = {
               position: 'absolute' as const,
@@ -377,7 +564,7 @@ export function CommitGraph() {
                     className="text-accent hover:underline"
                     onClick={() => loadMore()}
                   >
-                    Load more commits…
+                    {t('Load more commits…')}
                   </button>
                 </div>
               );
@@ -437,7 +624,10 @@ function WipRow({
     <div style={style} onClick={onSelect} className="relative flex cursor-default items-center">
       <div
         className="absolute inset-y-0.5 right-0"
-        style={band(bandLeft(cx), tint(color, selected ? 34 : 18))}
+        style={{
+          ...band(bandLeft(cx), tint(color, selected ? 42 : 6)),
+          boxShadow: selected ? `inset 0 0 0 1px ${color}` : undefined,
+        }}
       />
       <div style={{ width: REFS_W }} className="shrink-0" />
       <svg width={graphWidth} height={ROW} className="relative shrink-0">
@@ -462,6 +652,10 @@ function WipRow({
           strokeDasharray="4 3"
         />
       </svg>
+      <div
+        className="relative h-full w-[2px] shrink-0"
+        style={{ background: `color-mix(in oklch, ${color} 45%, var(--border))` }}
+      />
       <div className="relative flex min-w-0 flex-1 items-center gap-3 px-2">
         <span className="rounded border border-border/70 bg-background/60 px-2 py-0.5 text-muted-foreground italic">
           {'// WIP'}
@@ -511,10 +705,22 @@ const CommitRow = memo(function CommitRow({
         onClick={onSelect}
         className={cn('group relative flex cursor-default items-center', dim && 'opacity-40')}
       >
-        {/* Branch-coloured band from the node to the end of the row. */}
+        {/* Selected row: a faint full-width highlight and a bar in the branch colour, so the
+            focused commit reads at a glance even when every row is on the same branch. */}
+        {selected && (
+          <>
+            <div className="absolute inset-y-0 right-0 left-0 bg-selection/45" />
+            <div className="absolute inset-y-0 left-0 w-[3px]" style={{ background: color }} />
+          </>
+        )}
+        {/* Branch-coloured band from the node to the end of the row. Only the focused (selected)
+            row lights up; every other row, including the checked-out one, stays faint. */}
         <div
           className="absolute inset-y-0.5 right-0"
-          style={band(bandLeft(cx), tint(color, selected ? 36 : 8))}
+          style={{
+            ...band(bandLeft(cx), tint(color, selected ? 42 : 6)),
+            boxShadow: selected ? `inset 0 0 0 1px ${color}` : undefined,
+          }}
         />
         {!selected && (
           <div
@@ -531,7 +737,7 @@ const CommitRow = memo(function CommitRow({
         >
           {stack && (
             // Just the badges, continuing downward from the row's own badge; no box around them.
-            <div className="absolute top-[5px] right-1 left-2 z-10 flex flex-col items-start gap-[3px]">
+            <div className="absolute top-[4px] right-1 left-2 z-10 flex flex-col items-start gap-[3px]">
               {groups.map((g) => (
                 <RefBadge key={g.key} group={g} color={color} />
               ))}
@@ -576,13 +782,18 @@ const CommitRow = memo(function CommitRow({
           name={c.authorName}
           withRefs={groups.length > 0}
         />
+        {/* Separator between the graph and the message; drag it (any row) to resize. */}
+        <div
+          className="relative h-full w-[2px] shrink-0"
+          style={{ background: `color-mix(in oklch, ${color} 45%, var(--border))` }}
+        />
 
         <div
           className={cn('relative min-w-0 truncate px-2', match && 'text-accent')}
           style={{ flex: 'var(--msg-flex)' }}
           title={c.body ? `${c.subject}\n\n${c.body}` : c.subject}
         >
-          <span className={cn(isHead && 'font-semibold')}>{c.subject}</span>
+          <span className={cn(selected && 'font-semibold text-foreground')}>{c.subject}</span>
           {c.body && <span className="ml-2 text-muted-foreground">{c.body}</span>}
         </div>
         <div style={{ flex: 'var(--msg-spacer)' }} />
@@ -678,7 +889,7 @@ function GraphCell({
             y={cy}
             textAnchor="middle"
             dominantBaseline="central"
-            fontSize={8.5}
+            fontSize={7.5}
             fontWeight={700}
             fill="white"
           >

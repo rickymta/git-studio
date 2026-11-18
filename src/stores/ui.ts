@@ -1,5 +1,8 @@
 import { create } from 'zustand';
 
+import { logActivity } from './activity';
+
+import { t } from '@/lib/i18n';
 export type ToastKind = 'info' | 'success' | 'error';
 
 export interface Toast {
@@ -65,6 +68,13 @@ export const useUi = create<UiStore>((set, get) => ({
   theme: savedTheme,
   toast: (kind, title, detail) => {
     const id = nextId++;
+    // Keep a trace of everything the user was told (Activity Logs → Application).
+    logActivity({
+      repo: null,
+      label: '{text}',
+      vars: { text: detail ? `${title} — ${detail}` : title },
+      status: kind === 'error' ? 'failed' : 'info',
+    });
     // Errors stay longer and longer details get more reading time.
     const base = kind === 'error' ? 9000 : kind === 'success' ? 4000 : 5000;
     const duration = base + Math.min(6000, (detail?.length ?? 0) * 30);
@@ -100,7 +110,7 @@ export const ask = (spec: PromptSpec) => useUi.getState().ask(spec);
 export async function confirm(
   title: string,
   description: string,
-  confirmLabel = 'OK',
+  confirmLabel = t('OK'),
   danger = false,
 ) {
   return (await ask({ title, description, confirmLabel, danger })) !== null;

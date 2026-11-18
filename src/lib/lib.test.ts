@@ -71,3 +71,35 @@ describe('parseDiff', () => {
     expect(parseDiff('diff --git a/x b/x\nBinary files a/x and b/x differ\n').binary).toBe(true);
   });
 });
+
+import { changeBlocks, parseConflicts, resolveConflicts } from './diff';
+
+describe('diff extras', () => {
+  it('keeps CR in patches but not in display', () => {
+    const d = parseDiff('diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\r\n+b\r\n');
+    expect(d.hunks[0]!.lines[0]!.text).toBe('a');
+    expect(hunkPatch(d, 0)).toContain('-a\r\n+b\r\n');
+  });
+
+  it('finds change blocks', () => {
+    const d = parseDiff(
+      'diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1,5 +1,5 @@\n a\n-b\n+B\n c\n-d\n+D\n',
+    );
+    expect(changeBlocks(d)).toEqual([
+      { hunk: 0, line: 1 },
+      { hunk: 0, line: 4 },
+    ]);
+  });
+
+  it('parses and resolves conflict markers', () => {
+    const text =
+      'top\n<<<<<<< HEAD\nmine\n||||||| base\nold\n=======\ntheirs\n>>>>>>> feature\nend';
+    const parts = parseConflicts(text);
+    expect(parts).toHaveLength(3);
+    const c = parts[1]!;
+    expect(c.type === 'conflict' && c.ours).toEqual(['mine']);
+    expect(c.type === 'conflict' && c.base).toEqual(['old']);
+    expect(resolveConflicts(parts, [{ ours: false, theirs: true }])).toBe('top\ntheirs\nend');
+    expect(resolveConflicts(parts, [{ ours: true, theirs: true }])).toBe('top\nmine\ntheirs\nend');
+  });
+});

@@ -1,6 +1,7 @@
 import { CheckCircle2, Info, X, XCircle } from 'lucide-react';
 import { useState } from 'react';
 
+import { t } from '@/lib/i18n';
 import { useUi, type PromptValues } from '@/stores/ui';
 import { Button, Input, Modal, Textarea } from './ui';
 
@@ -22,12 +23,12 @@ export function Toasts() {
       aria-live="polite"
       className="pointer-events-none fixed bottom-9 left-4 z-[60] flex w-[420px] max-w-[calc(100vw-32px)] flex-col-reverse gap-2"
     >
-      {toasts.map((t) => {
-        const { color, Icon } = TOAST_STYLE[t.kind];
+      {toasts.map((toast) => {
+        const { color, Icon } = TOAST_STYLE[toast.kind];
         return (
           <div
-            key={t.id}
-            role={t.kind === 'error' ? 'alert' : 'status'}
+            key={toast.id}
+            role={toast.kind === 'error' ? 'alert' : 'status'}
             className="toast-in group pointer-events-auto relative overflow-hidden rounded-lg border shadow-2xl"
             style={{
               borderColor: `color-mix(in oklch, ${color} 55%, var(--border))`,
@@ -43,17 +44,17 @@ export function Toasts() {
                 <Icon className="size-4" />
               </span>
               <div className="min-w-0 flex-1 pt-0.5">
-                <div className="text-[14px] leading-5 font-semibold">{t.title}</div>
-                {t.detail && (
+                <div className="text-[14px] leading-5 font-semibold">{toast.title}</div>
+                {toast.detail && (
                   <pre className="selectable mt-1 max-h-40 overflow-auto font-mono text-xs whitespace-pre-wrap text-muted-foreground">
-                    {t.detail}
+                    {toast.detail}
                   </pre>
                 )}
               </div>
               <button
                 type="button"
-                aria-label="Dismiss"
-                onClick={() => dismiss(t.id)}
+                aria-label={t('Dismiss')}
+                onClick={() => dismiss(toast.id)}
                 className="flex size-6 shrink-0 items-center justify-center self-start rounded text-muted-foreground hover:bg-surface-hover hover:text-foreground"
               >
                 <X className="size-4" />
@@ -65,8 +66,8 @@ export function Toasts() {
             >
               <div
                 className="toast-progress h-full origin-left group-focus-within:[animation-play-state:paused] group-hover:[animation-play-state:paused]"
-                style={{ background: color, animationDuration: `${t.duration}ms` }}
-                onAnimationEnd={() => dismiss(t.id)}
+                style={{ background: color, animationDuration: `${toast.duration}ms` }}
+                onAnimationEnd={() => dismiss(toast.id)}
               />
             </div>
           </div>
@@ -164,14 +165,14 @@ function PromptBody({ close }: { close: (v: PromptValues | null) => void }) {
           );
         })}
         <div className="mt-1 flex justify-end gap-2">
-          <Button onClick={() => close(null)}>Cancel</Button>
+          <Button onClick={() => close(null)}>{t('Cancel')}</Button>
           <Button
             type="submit"
             variant={prompt.danger ? 'danger' : 'primary'}
             disabled={missing}
             data-autofocus={fields.length === 0 ? true : undefined}
           >
-            {prompt.confirmLabel ?? 'OK'}
+            {prompt.confirmLabel ?? t('OK')}
           </Button>
         </div>
       </form>

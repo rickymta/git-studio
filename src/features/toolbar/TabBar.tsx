@@ -12,6 +12,7 @@ import {
 import { useState } from 'react';
 
 import { Avatar, Dropdown, Github, cn } from '@/components/ui';
+import { t } from '@/lib/i18n';
 import { openUrl } from '@/lib/native';
 import { useGitHub } from '@/stores/github';
 import { useRepo } from '@/stores/repo';
@@ -55,7 +56,7 @@ export function TabBar({
     'flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-hover hover:text-foreground';
 
   return (
-    <div className="flex h-9 shrink-0 items-stretch border-b border-border bg-background">
+    <div className="flex h-[34px] shrink-0 items-stretch border-b border-border bg-background">
       <Dropdown
         items={[
           ...workspaces.items.map((w) => ({
@@ -64,9 +65,9 @@ export function TabBar({
             onSelect: () => activate(w.id),
           })),
           ...(workspaces.items.length ? ['sep' as const] : []),
-          { label: 'No workspace', icon: ws ? undefined : '✓', onSelect: () => activate('') },
+          { label: t('No workspace'), icon: ws ? undefined : '✓', onSelect: () => activate('') },
           {
-            label: 'New workspace…',
+            label: t('New workspace…'),
             icon: <Plus className="size-3.5" />,
             onSelect: onNewWorkspace,
           },
@@ -74,7 +75,7 @@ export function TabBar({
       >
         <button
           type="button"
-          title="Switch workspace"
+          title={t('Switch workspace')}
           className="flex max-w-56 shrink-0 items-center gap-2 border-r border-border px-3 hover:bg-surface-hover"
         >
           {ws ? (
@@ -83,7 +84,7 @@ export function TabBar({
             <LayoutGrid className="size-3.5 shrink-0 text-muted-foreground" />
           )}
           <span className={cn('truncate', ws ? 'font-semibold' : 'text-muted-foreground')}>
-            {ws ? ws.name : 'Workspaces'}
+            {ws ? ws.name : t('Workspaces')}
           </span>
           <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
         </button>
@@ -91,8 +92,8 @@ export function TabBar({
       {ws && (
         <button
           type="button"
-          title={`${ws.name} overview`}
-          aria-label="Workspace overview"
+          title={t('{name} overview', { name: ws.name })}
+          aria-label={t('Workspace overview')}
           onClick={() => {
             onNavigate();
             useRepo.getState().newTab();
@@ -112,14 +113,14 @@ export function TabBar({
         className="flex min-w-0 flex-1 items-stretch overflow-x-auto"
         onClickCapture={onNavigate}
       >
-        {tabs.map((t, i) => {
-          const active = same(path, t.path);
+        {tabs.map((tab, i) => {
+          const active = same(path, tab.path);
           return (
             <div
-              key={t.path}
+              key={tab.path}
               role="tab"
               aria-selected={active}
-              title={t.path}
+              title={tab.path}
               draggable
               onDragStart={() => setDrag(i)}
               onDragOver={(e) => e.preventDefault()}
@@ -127,8 +128,8 @@ export function TabBar({
                 if (drag !== null && drag !== i) moveTab(drag, i);
                 setDrag(null);
               }}
-              onClick={() => open(t.path)}
-              onAuxClick={(e) => e.button === 1 && closeTab(t.path)}
+              onClick={() => open(tab.path)}
+              onAuxClick={(e) => e.button === 1 && closeTab(tab.path)}
               className={cn(
                 'group relative flex max-w-52 min-w-28 shrink-0 cursor-default items-center gap-2 border-r border-border px-3',
                 active
@@ -142,18 +143,22 @@ export function TabBar({
                 className={cn(
                   'min-w-0 flex-1 truncate',
                   active && 'font-semibold',
-                  !inWorkspace(t.path) && 'italic',
+                  !inWorkspace(tab.path) && 'italic',
                 )}
-                title={inWorkspace(t.path) ? undefined : `Not in workspace ${ws?.name}`}
+                title={
+                  inWorkspace(tab.path)
+                    ? undefined
+                    : t('Not in workspace {name}', { name: ws?.name ?? '' })
+                }
               >
-                {t.name}
+                {tab.name}
               </span>
               <button
                 type="button"
-                aria-label={`Close ${t.name}`}
+                aria-label={t('Close {name}', { name: tab.name })}
                 onClick={(e) => {
                   e.stopPropagation();
-                  closeTab(t.path);
+                  closeTab(tab.path);
                 }}
                 className={cn(
                   'flex size-4 shrink-0 items-center justify-center rounded hover:bg-surface-hover',
@@ -168,13 +173,13 @@ export function TabBar({
         {!path && !ws && (
           <div className="relative flex shrink-0 items-center gap-2 border-r border-border bg-surface px-3 font-semibold">
             <span className="absolute inset-x-0 top-0 h-0.5 bg-accent" />
-            New tab
+            {t('New tab')}
           </div>
         )}
         <button
           type="button"
-          title="Open a repository in a new tab"
-          aria-label="New tab"
+          title={t('Open a repository in a new tab')}
+          aria-label={t('New tab')}
           onClick={newTab}
           className="flex w-9 shrink-0 items-center justify-center text-muted-foreground hover:bg-surface-hover hover:text-foreground"
         >
@@ -185,8 +190,8 @@ export function TabBar({
       <div className="flex shrink-0 items-center gap-0.5 px-2">
         <button
           type="button"
-          title="Toggle theme"
-          aria-label="Toggle theme"
+          title={t('Toggle theme')}
+          aria-label={t('Toggle theme')}
           onClick={toggleTheme}
           className={iconBtn}
         >
@@ -194,8 +199,8 @@ export function TabBar({
         </button>
         <button
           type="button"
-          title="Preferences"
-          aria-label="Preferences"
+          title={t('Preferences')}
+          aria-label={t('Preferences')}
           aria-pressed={prefsOpen}
           onClick={onSettings}
           className={cn(iconBtn, prefsOpen && 'bg-accent-soft text-foreground')}
@@ -208,7 +213,7 @@ export function TabBar({
               { label: `@${user.login}`, onSelect: () => openUrl(user.htmlUrl) },
               'sep',
               {
-                label: 'Sign out of GitHub',
+                label: t('Sign out of GitHub'),
                 icon: <LogOut className="size-3.5" />,
                 onSelect: () => signOut(),
               },
@@ -216,7 +221,7 @@ export function TabBar({
           >
             <button
               type="button"
-              aria-label="GitHub account"
+              aria-label={t('GitHub account')}
               className="flex h-7 items-center gap-1.5 rounded-md px-1.5 text-xs hover:bg-surface-hover"
             >
               <Avatar name={user.login} url={user.avatarUrl} size={20} />
@@ -229,7 +234,7 @@ export function TabBar({
             onClick={onSignIn}
             className="flex h-7 items-center gap-1.5 rounded-md border border-border px-2 text-xs hover:bg-surface-hover"
           >
-            <Github className="size-3.5" /> Connect GitHub
+            <Github className="size-3.5" /> {t('Connect GitHub')}
           </button>
         )}
       </div>

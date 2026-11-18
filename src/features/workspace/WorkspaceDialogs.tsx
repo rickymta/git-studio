@@ -2,6 +2,7 @@ import { Check, FolderOpen, FolderSearch } from 'lucide-react';
 import { useState } from 'react';
 
 import { Button, Input, Modal, Spinner, cn } from '@/components/ui';
+import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import { pickFolder } from '@/lib/native';
 import { useRepo } from '@/stores/repo';
@@ -21,7 +22,7 @@ export function ColorSwatches({
         <button
           key={c}
           type="button"
-          aria-label={`Colour ${c}`}
+          aria-label={t('Colour {color}', { color: c })}
           onClick={() => onChange(c)}
           className="flex size-6 items-center justify-center rounded-full"
           style={{
@@ -59,7 +60,7 @@ function ScanPicker({
       setFound(res);
       onSelected(res.filter((p) => !isExisting(p)));
     } catch (e) {
-      toast('error', 'Scan failed', (e as Error).message);
+      toast('error', t('Scan failed'), (e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -72,47 +73,47 @@ function ScanPicker({
     <div className="flex flex-col gap-2">
       <div className="flex gap-1">
         <Input
-          placeholder="Folder that contains your repositories"
+          placeholder={t('Folder that contains your repositories')}
           value={root}
           onChange={(e) => setRoot(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && root.trim() && scan(root.trim())}
           spellCheck={false}
         />
         <Button
-          aria-label="Browse"
+          aria-label={t('Browse')}
           onClick={async () => {
-            const p = await pickFolder('Folder to scan for repositories', root || undefined);
+            const p = await pickFolder(t('Folder to scan for repositories'), root || undefined);
             if (p) await scan(p);
           }}
         >
           <FolderOpen className="size-4" />
         </Button>
         <Button onClick={() => root.trim() && scan(root.trim())} disabled={!root.trim() || busy}>
-          {busy ? <Spinner /> : <FolderSearch className="size-4" />} Scan
+          {busy ? <Spinner /> : <FolderSearch className="size-4" />} {t('Scan')}
         </Button>
       </div>
       {found && (
         <div className="max-h-64 overflow-auto rounded-md border border-border">
           {found.length === 0 ? (
             <div className="p-4 text-center text-muted-foreground">
-              No Git repositories found (searched 3 levels deep).
+              {t('No Git repositories found (searched 3 levels deep).')}
             </div>
           ) : (
             <div className="flex items-center gap-2 border-b border-border px-3 py-1.5 text-xs text-muted-foreground">
-              {found.length} found
+              {t('{n} found', { n: found.length })}
               <button
                 type="button"
                 className="ml-auto text-accent hover:underline"
                 onClick={() => onSelected(found.filter((p) => !isExisting(p)))}
               >
-                Select all
+                {t('Select all')}
               </button>
               <button
                 type="button"
                 className="text-accent hover:underline"
                 onClick={() => onSelected([])}
               >
-                None
+                {t('None')}
               </button>
             </div>
           )}
@@ -135,7 +136,7 @@ function ScanPicker({
                 />
                 <span className="font-medium">{p.split(/[\\/]/).pop()}</span>
                 <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{p}</span>
-                {already && <span className="text-xs">already added</span>}
+                {already && <span className="text-xs">{t('already added')}</span>}
               </label>
             );
           })}
@@ -165,7 +166,13 @@ function NewWorkspaceBody({ onClose }: { onClose: () => void }) {
     setBusy(true);
     try {
       const ws = await create(name, color, repos);
-      toast('success', `Workspace “${ws.name}” created with ${ws.repos.length} repositories`);
+      toast(
+        'success',
+        t('Workspace “{name}” created with {n} repositories', {
+          name: ws.name,
+          n: ws.repos.length,
+        }),
+      );
       onClose();
     } finally {
       setBusy(false);
@@ -176,32 +183,34 @@ function NewWorkspaceBody({ onClose }: { onClose: () => void }) {
     <Modal
       open
       onClose={onClose}
-      title="New workspace"
+      title={t('New workspace')}
       width={600}
-      description="A workspace groups repositories you work on together. It keeps its own tabs, and its overview shows every repository's state at a glance."
+      description={t(
+        "A workspace groups repositories you work on together. It keeps its own tabs, and its overview shows every repository's state at a glance.",
+      )}
     >
       <div className="flex flex-col gap-4">
         <label className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">Name</span>
+          <span className="text-xs text-muted-foreground">{t('Name')}</span>
           <Input
             autoFocus
-            placeholder="e.g. Backend services"
+            placeholder={t('e.g. Backend services')}
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
         </label>
         <div className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">Colour</span>
+          <span className="text-xs text-muted-foreground">{t('Colour')}</span>
           <ColorSwatches value={color} onChange={setColor} />
         </div>
         <div className="flex flex-col gap-2">
-          <span className="text-xs text-muted-foreground">Repositories</span>
+          <span className="text-xs text-muted-foreground">{t('Repositories')}</span>
           <div className="flex gap-1 rounded-md bg-surface-muted p-1">
             {(
               [
-                ['scan', 'Scan a folder'],
-                ['tabs', `Open tabs (${tabs.length})`],
-                ['empty', 'Start empty'],
+                ['scan', t('Scan a folder')],
+                ['tabs', t('Open tabs ({n})', { n: tabs.length })],
+                ['empty', t('Start empty')],
               ] as const
             ).map(([k, label]) => (
               <button
@@ -222,17 +231,19 @@ function NewWorkspaceBody({ onClose }: { onClose: () => void }) {
           )}
           {source === 'tabs' && (
             <div className="rounded-md border border-border p-2 text-xs text-muted-foreground">
-              {tabs.length === 0 ? 'No tabs are open.' : tabs.map((t) => t.name).join(', ')}
+              {tabs.length === 0 ? t('No tabs are open.') : tabs.map((t) => t.name).join(', ')}
             </div>
           )}
         </div>
         <div className="flex items-center justify-end gap-2">
           <span className="mr-auto text-xs text-muted-foreground">
-            {repos.length} repositor{repos.length === 1 ? 'y' : 'ies'} selected
+            {repos.length === 1
+              ? t('{n} repository selected', { n: repos.length })
+              : t('{n} repositories selected', { n: repos.length })}
           </span>
-          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={onClose}>{t('Cancel')}</Button>
           <Button variant="primary" disabled={!name.trim() || busy} onClick={submit}>
-            {busy && <Spinner />} Create workspace
+            {busy && <Spinner />} {t('Create workspace')}
           </Button>
         </div>
       </div>
@@ -250,20 +261,28 @@ function ScanBody({ onClose }: { onClose: () => void }) {
   const [picked, setPicked] = useState<string[]>([]);
   if (!ws) return null;
   return (
-    <Modal open onClose={onClose} title={`Add repositories to ${ws.name}`} width={600}>
+    <Modal
+      open
+      onClose={onClose}
+      title={t('Add repositories to {name}', { name: ws.name })}
+      width={600}
+    >
       <ScanPicker existing={ws.repos} selected={picked} onSelected={setPicked} />
       <div className="mt-4 flex justify-end gap-2">
-        <Button onClick={onClose}>Cancel</Button>
+        <Button onClick={onClose}>{t('Cancel')}</Button>
         <Button
           variant="primary"
           disabled={picked.length === 0}
           onClick={async () => {
             const n = await addRepos(ws.id, picked);
-            toast('success', `Added ${n} repositor${n === 1 ? 'y' : 'ies'}`);
+            toast(
+              'success',
+              n === 1 ? t('Added {n} repository', { n }) : t('Added {n} repositories', { n }),
+            );
             onClose();
           }}
         >
-          Add {picked.length || ''}
+          {picked.length ? t('Add {n}', { n: picked.length }) : t('Add')}
         </Button>
       </div>
     </Modal>

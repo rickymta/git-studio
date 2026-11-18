@@ -1,12 +1,16 @@
 //! GitStudio core: everything the UI calls goes through [`dispatch`], so the Tauri shell and the
 //! dev HTTP bridge share one command surface.
 
+pub mod credentials;
 pub mod error;
 pub mod git;
 pub mod github;
 pub mod gitkraken;
+pub mod gitlab;
 pub mod settings;
 pub mod ssh;
+pub mod terminal;
+pub mod text;
 pub mod workspace;
 
 use std::path::PathBuf;
@@ -107,18 +111,47 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
             let s: settings::Settings = arg(a, "settings")?;
             serde_json::to_value(settings::save_preferences(s)?)?
         }
+        // Global config, or the given repository's own (local) config when `repo` is set.
         "gitconfig.get" => {
             let keys: Vec<String> = arg(a, "keys")?;
+            let r = match opt::<String>(a, "repo")? {
+                Some(p) => Some(Repo::open(&PathBuf::from(p)).await?),
+                None => None,
+            };
             let mut out = serde_json::Map::new();
             for k in keys {
-                let v = git::global_config(&k).await?;
+                let v = git::config_get(r.as_ref(), &k).await?;
                 out.insert(k, json!(v));
             }
             Value::Object(out)
         }
         "gitconfig.set" => {
             let value: Option<String> = opt(a, "value")?;
-            git::set_global_config(&arg::<String>(a, "key")?, value.as_deref()).await?;
+            let r = match opt::<String>(a, "repo")? {
+                Some(p) => Some(Repo::open(&PathBuf::from(p)).await?),
+                None => None,
+            };
+            git::config_set(r.as_ref(), &arg::<String>(a, "key")?, value.as_deref()).await?;
+            return done();
+        }
+        "credentials.list" => {
+            let r = match opt::<String>(a, "repo")? {
+                Some(p) => Some(Repo::open(&PathBuf::from(p)).await?),
+                None => None,
+            };
+            serde_json::to_value(credentials::hosts(r.as_ref()).await?)?
+        }
+        "credentials.save" => {
+            credentials::save(
+                &arg::<String>(a, "host")?,
+                &arg::<String>(a, "username")?,
+                &arg::<String>(a, "password")?,
+            )
+            .await?;
+            return done();
+        }
+        "credentials.erase" => {
+            credentials::erase(&arg::<String>(a, "host")?).await?;
             return done();
         }
         "gitkraken.detect" => match gitkraken::read() {
@@ -164,7 +197,14 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
         "repo.clone" => {
             let url: String = arg(a, "url")?;
             let dest: String = arg(a, "dest")?;
-            let r = git::clone(&url, &PathBuf::from(dest), token().as_deref()).await?;
+            let opts: Option<git::CloneOptions> = opt(a, "options")?;
+            let r = git::clone_with(
+                &url,
+                &PathBuf::from(dest),
+                token().as_deref(),
+                opts.unwrap_or_default(),
+            )
+            .await?;
             let info = r.info().await?;
             settings::touch_recent(&info.path, &info.name)?;
             serde_json::to_value(info)?
@@ -186,6 +226,94 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
             let req: git::DiffRequest = arg(a, "request")?;
             json!(repo(a).await?.diff(&req).await?)
         }
+        // ---- files, blame, history ----
+        "file.read" => {
+            let rev: Option<String> = opt(a, "rev")?;
+            let enc: Option<String> = opt(a, "encoding")?;
+            serde_json::to_value(
+                repo(a)
+                    .await?
+                    .read_file(&arg::<String>(a, "path")?, rev.as_deref(), enc.as_deref())
+                    .await?,
+            )?
+        }
+        "file.write" => {
+            let format: text::TextFormat = arg(a, "format")?;
+            repo(a)
+                .await?
+                .write_file(&arg::<String>(a, "path")?, &arg::<String>(a, "content")?, &format)?;
+            return done();
+        }
+        "file.encodings" => json!(text::COMMON),
+        "repo.blame" => {
+            let rev: Option<String> = opt(a, "rev")?;
+            serde_json::to_value(repo(a).await?.blame(&arg::<String>(a, "path")?, rev.as_deref()).await?)?
+        }
+        "repo.fileHistory" => {
+            let limit: Option<u32> = opt(a, "limit")?;
+            serde_json::to_value(
+                repo(a)
+                    .await?
+                    .file_history(&arg::<String>(a, "path")?, limit.unwrap_or(500))
+                    .await?,
+            )?
+        }
+        "repo.compare" => serde_json::to_value(
+            repo(a).await?.compare_with_worktree(&arg::<String>(a, "hash")?).await?,
+        )?,
+        "history.reword" => {
+            repo(a)
+                .await?
+                .reword(&arg::<String>(a, "hash")?, &arg::<String>(a, "message")?)
+                .await?;
+            return done();
+        }
+        "history.drop" => {
+            repo(a).await?.drop_commit(&arg::<String>(a, "hash")?).await?;
+            return done();
+        }
+        "patch.create" => {
+            repo(a)
+                .await?
+                .create_patch(&arg::<String>(a, "hash")?, &PathBuf::from(arg::<String>(a, "dest")?))
+                .await?;
+            return done();
+        }
+        "patch.apply" => {
+            repo(a)
+                .await?
+                .apply_patch_file(&PathBuf::from(arg::<String>(a, "file")?))
+                .await?;
+            return done();
+        }
+
+        // ---- worktrees ----
+        "worktree.list" => serde_json::to_value(repo(a).await?.worktrees().await?)?,
+        "worktree.add" => {
+            let req: git::files::NewWorktree = arg(a, "request")?;
+            repo(a).await?.add_worktree(&req).await?;
+            return done();
+        }
+        "worktree.remove" => {
+            let force: Option<bool> = opt(a, "force")?;
+            repo(a)
+                .await?
+                .remove_worktree(&arg::<String>(a, "path")?, force.unwrap_or(false))
+                .await?;
+            return done();
+        }
+        "worktree.lock" => {
+            repo(a)
+                .await?
+                .lock_worktree(&arg::<String>(a, "path")?, arg(a, "lock")?)
+                .await?;
+            return done();
+        }
+        "worktree.prune" => {
+            repo(a).await?.prune_worktrees().await?;
+            return done();
+        }
+
         "repo.identity" => serde_json::to_value(repo(a).await?.identity().await?)?,
         "repo.setIdentity" => {
             repo(a)
@@ -214,7 +342,12 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
         "index.applyPatch" => {
             repo(a)
                 .await?
-                .apply_patch(&arg::<String>(a, "patch")?, arg(a, "cached")?, arg(a, "reverse")?)
+                .apply_patch(
+                    &arg::<String>(a, "patch")?,
+                    arg(a, "cached")?,
+                    arg(a, "reverse")?,
+                    opt::<String>(a, "encoding")?.as_deref(),
+                )
                 .await?;
             return done();
         }
@@ -399,6 +532,51 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
                 Err(e) => return Err(e),
             },
         },
+        // ---- in-app terminal ----
+        "terminal.open" => {
+            let cols: Option<u16> = opt(a, "cols")?;
+            let rows: Option<u16> = opt(a, "rows")?;
+            serde_json::to_value(terminal::open(
+                &PathBuf::from(arg::<String>(a, "cwd")?),
+                cols.unwrap_or(100),
+                rows.unwrap_or(24),
+            )?)?
+        }
+        "terminal.read" => serde_json::to_value(terminal::read(arg(a, "id")?)?)?,
+        "terminal.write" => {
+            terminal::write(arg(a, "id")?, &arg::<String>(a, "data")?)?;
+            return done();
+        }
+        "terminal.resize" => {
+            terminal::resize(arg(a, "id")?, arg(a, "cols")?, arg(a, "rows")?)?;
+            return done();
+        }
+        "terminal.close" => {
+            terminal::close(arg(a, "id")?)?;
+            return done();
+        }
+
+        // ---- GitLab ----
+        "gitlab.account" => match gitlab::load_token()? {
+            None => Value::Null,
+            Some(t) => match gitlab::user(&t).await {
+                Ok(u) => serde_json::to_value(u)?,
+                Err(Error::GitHub(msg)) if msg.contains("401") => Value::Null,
+                Err(e) => return Err(e),
+            },
+        },
+        "gitlab.signInToken" => {
+            serde_json::to_value(gitlab::sign_in_with_token(&arg::<String>(a, "token")?).await?)?
+        }
+        "gitlab.importToken" => serde_json::to_value(gitlab::import_token().await?)?,
+        "gitlab.signOut" => {
+            gitlab::delete_token()?;
+            return done();
+        }
+        "gitlab.repos" => {
+            let page: Option<u32> = opt(a, "page")?;
+            serde_json::to_value(gitlab::projects(page.unwrap_or(1)).await?)?
+        }
         "github.importToken" => {
             let source: String = arg(a, "source")?;
             serde_json::to_value(github::import_token(&source).await?)?

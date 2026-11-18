@@ -1,8 +1,10 @@
 import { create } from 'zustand';
 
 import { layoutGraph, type GraphRow } from '@/lib/graph';
+import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import type { Commit, CommitDetail, DiffRequest, Refs, RepoInfo, Settings } from '@/lib/types';
+import { logActivity, useActivity } from './activity';
 import { toast } from './ui';
 
 /** Commits per graph page: Preferences → General → Initial commits. */
@@ -154,7 +156,7 @@ export const useRepo = create<RepoStore>((set, get) => ({
     try {
       set({ settings: await api.settings() });
     } catch (e) {
-      toast('error', 'Could not load settings', (e as Error).message);
+      toast('error', t('Could not load settings'), (e as Error).message);
     }
   },
   setSettings: (settings) => set({ settings }),
@@ -167,13 +169,19 @@ export const useRepo = create<RepoStore>((set, get) => ({
       await get().adopt(info);
       return true;
     } catch (e) {
-      toast('error', 'Could not open repository', (e as Error).message);
+      toast('error', t('Could not open repository'), (e as Error).message);
       set({ loading: false });
       return false;
     }
   },
 
   adopt: async (info) => {
+    logActivity({
+      repo: null,
+      label: 'Opened repository {name}',
+      vars: { name: info.path },
+      status: 'info',
+    });
     const tabs = [...get().tabs];
     const i = tabs.findIndex((t) => samePath(t.path, info.path));
     if (i >= 0) tabs[i] = { path: info.path, name: info.name };
@@ -255,7 +263,7 @@ export const useRepo = create<RepoStore>((set, get) => ({
       }
       if (get().diff) void get().reloadDiff();
     } catch (e) {
-      toast('error', 'Refresh failed', (e as Error).message);
+      toast('error', t('Refresh failed'), (e as Error).message);
     }
   },
 
@@ -298,7 +306,7 @@ export const useRepo = create<RepoStore>((set, get) => ({
       const cur = get().selection;
       if (cur?.type === 'commit' && cur.hash === selection.hash) set({ detail });
     } catch (e) {
-      toast('error', 'Could not load commit', (e as Error).message);
+      toast('error', t('Could not load commit'), (e as Error).message);
     }
   },
 
@@ -311,7 +319,7 @@ export const useRepo = create<RepoStore>((set, get) => ({
       if (get().diff?.request === request) set({ diff: { request, text, loading: false } });
     } catch (e) {
       set({ diff: { request, text: '', loading: false } });
-      toast('error', 'Could not load diff', (e as Error).message);
+      toast('error', t('Could not load diff'), (e as Error).message);
     }
   },
 
@@ -320,7 +328,7 @@ export const useRepo = create<RepoStore>((set, get) => ({
     const info = get().info;
     if (!d || !info) return;
     // A working-tree file that left its list (staged/committed/discarded) closes its diff.
-    if (d.request.source !== 'commit') {
+    if (d.request.source === 'staged' || d.request.source === 'unstaged') {
       const list = d.request.source === 'staged' ? info.status.staged : info.status.unstaged;
       if (!list.some((f) => f.path === d.request.path)) {
         set({ diff: null });
@@ -337,12 +345,15 @@ export const useRepo = create<RepoStore>((set, get) => ({
     if (!path) return false;
     set({ busy: label });
     let ok = false;
+    const done = useActivity.getState().begin(path, label);
     try {
       await fn(path);
       ok = true;
+      done();
       if (success) toast('success', success);
     } catch (e) {
-      toast('error', `${label} failed`, (e as Error).message);
+      done((e as Error).message);
+      toast('error', t('{label} failed', { label: t(label) }), (e as Error).message);
     } finally {
       set({ busy: null });
       await get().refresh();
@@ -355,14 +366,16 @@ export const useRepo = create<RepoStore>((set, get) => ({
   undo: async () => {
     const e = get().undoStack.at(-1);
     if (!e) return;
-    const ok = await get().run(`Undo ${e.label}`, e.undo, `Undid ${e.label}`);
+    const label = t(e.label);
+    const ok = await get().run(t('Undo {label}', { label }), e.undo, t('Undid {label}', { label }));
     if (ok) set((s) => ({ undoStack: s.undoStack.slice(0, -1), redoStack: [...s.redoStack, e] }));
   },
 
   redo: async () => {
     const e = get().redoStack.at(-1);
     if (!e) return;
-    const ok = await get().run(`Redo ${e.label}`, e.redo, `Redid ${e.label}`);
+    const label = t(e.label);
+    const ok = await get().run(t('Redo {label}', { label }), e.redo, t('Redid {label}', { label }));
     if (ok) set((s) => ({ redoStack: s.redoStack.slice(0, -1), undoStack: [...s.undoStack, e] }));
   },
 }));

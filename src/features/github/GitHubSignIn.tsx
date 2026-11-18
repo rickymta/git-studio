@@ -2,6 +2,7 @@ import { Check, Copy, ExternalLink, KeyRound } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import { Button, Github, Input, Modal, Spinner } from '@/components/ui';
+import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import { copyText, openUrl } from '@/lib/native';
 import type { DeviceCode } from '@/lib/types';
@@ -39,7 +40,7 @@ function SignInBody({ onClose }: { onClose: () => void }) {
 
   const finish = (u: Awaited<ReturnType<typeof api.ghSignInToken>>) => {
     setUser(u);
-    toast('success', `Signed in to GitHub as ${u.login}`);
+    toast('success', t('Signed in to GitHub as {login}', { login: u.login }));
     onClose();
   };
 
@@ -53,7 +54,7 @@ function SignInBody({ onClose }: { onClose: () => void }) {
       await openUrl(d.verificationUri);
       void poll(d, d.interval);
     } catch (e) {
-      toast('error', 'GitHub sign-in failed', (e as Error).message);
+      toast('error', t('GitHub sign-in failed'), (e as Error).message);
       setBusy(false);
     }
   };
@@ -69,7 +70,7 @@ function SignInBody({ onClose }: { onClose: () => void }) {
         if (r.status === 'done') return finish(r.user);
         if (r.status === 'slowDown') wait = r.interval;
       } catch (e) {
-        toast('error', 'GitHub sign-in failed', (e as Error).message);
+        toast('error', t('GitHub sign-in failed'), (e as Error).message);
         setBusy(false);
         setMode('choose');
         return;
@@ -82,7 +83,7 @@ function SignInBody({ onClose }: { onClose: () => void }) {
     try {
       finish(await api.ghSignInToken(token));
     } catch (e) {
-      toast('error', 'Token rejected', (e as Error).message);
+      toast('error', t('Token rejected'), (e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -93,19 +94,25 @@ function SignInBody({ onClose }: { onClose: () => void }) {
     try {
       finish(await api.ghImportToken(source));
     } catch (e) {
-      toast('error', 'Could not reuse existing login', (e as Error).message);
+      toast('error', t('Could not reuse existing login'), (e as Error).message);
     } finally {
       setBusy(false);
     }
   };
 
+  // One sentence for translators; the scope list is rendered as code in place of {scopes}.
+  const scopesHelp = t(
+    'Create a token with the {scopes} scopes (classic), or a fine-grained token with Contents and Pull requests read/write.',
+  ).split('{scopes}');
+
   return (
-    <Modal open={open} onClose={onClose} title="Connect to GitHub" width={480}>
+    <Modal open={open} onClose={onClose} title={t('Connect to GitHub')} width={480}>
       {mode === 'choose' && (
         <div className="flex flex-col gap-3">
           <p className="text-muted-foreground">
-            GitStudio uses your GitHub account to clone private repositories, push and pull over
-            HTTPS, and work with pull requests. The token is kept in the OS credential store.
+            {t(
+              'GitStudio uses your GitHub account to clone private repositories, push and pull over HTTPS, and work with pull requests. The token is kept in the OS credential store.',
+            )}
           </p>
           <Button
             variant="primary"
@@ -113,25 +120,26 @@ function SignInBody({ onClose }: { onClose: () => void }) {
             onClick={startDevice}
             disabled={busy || !clientId}
           >
-            {busy ? <Spinner /> : <Github className="size-4" />} Sign in with browser
+            {busy ? <Spinner /> : <Github className="size-4" />} {t('Sign in with browser')}
           </Button>
           {!clientId && (
             <p className="text-xs text-muted-foreground">
-              Browser sign-in needs a GitHub OAuth App client ID (with device flow enabled) in
-              Preferences → Integrations. Until then, use one of the options below.
+              {t(
+                'Browser sign-in needs a GitHub OAuth App client ID (with device flow enabled) in Preferences → Integrations. Until then, use one of the options below.',
+              )}
             </p>
           )}
           <div className="mt-1 text-xs text-muted-foreground">
-            Already signed in elsewhere on this computer?
+            {t('Already signed in elsewhere on this computer?')}
           </div>
           <Button className="h-10" disabled={busy} onClick={() => reuse('git')}>
-            <KeyRound className="size-4" /> Use Git Credential Manager login
+            <KeyRound className="size-4" /> {t('Use Git Credential Manager login')}
           </Button>
           <Button className="h-10" disabled={busy} onClick={() => reuse('gh')}>
-            <KeyRound className="size-4" /> Use GitHub CLI login (gh)
+            <KeyRound className="size-4" /> {t('Use GitHub CLI login (gh)')}
           </Button>
           <Button className="h-10" onClick={() => setMode('token')}>
-            <KeyRound className="size-4" /> Use a personal access token
+            <KeyRound className="size-4" /> {t('Use a personal access token')}
           </Button>
         </div>
       )}
@@ -139,7 +147,7 @@ function SignInBody({ onClose }: { onClose: () => void }) {
       {mode === 'device' && device && (
         <div className="flex flex-col items-center gap-3 text-center">
           <p className="text-muted-foreground">
-            Enter this code on GitHub (it is already in your clipboard):
+            {t('Enter this code on GitHub (it is already in your clipboard):')}
           </p>
           <div className="flex items-center gap-2">
             <code className="selectable rounded-md bg-surface-muted px-4 py-2 font-mono text-2xl tracking-[0.2em]">
@@ -157,10 +165,10 @@ function SignInBody({ onClose }: { onClose: () => void }) {
             </Button>
           </div>
           <Button onClick={() => openUrl(device.verificationUri)}>
-            <ExternalLink className="size-4" /> Open {device.verificationUri}
+            <ExternalLink className="size-4" /> {t('Open {url}', { url: device.verificationUri })}
           </Button>
           <div className="flex items-center gap-2 text-muted-foreground">
-            <Spinner /> Waiting for you to approve…
+            <Spinner /> {t('Waiting for you to approve…')}
           </div>
         </div>
       )}
@@ -174,12 +182,13 @@ function SignInBody({ onClose }: { onClose: () => void }) {
           }}
         >
           <p className="text-muted-foreground">
-            Create a token with the <code>repo</code>, <code>read:org</code>,{' '}
-            <code>user:email</code>, <code>workflow</code> and <code>admin:public_key</code> scopes
-            (classic), or a fine-grained token with Contents and Pull requests read/write.
+            {scopesHelp[0]}
+            <code>repo</code>, <code>read:org</code>, <code>user:email</code>, <code>workflow</code>
+            , <code>admin:public_key</code>
+            {scopesHelp[1]}
           </p>
           <Button size="sm" className="self-start" onClick={() => openUrl(TOKEN_URL)}>
-            <ExternalLink className="size-3.5" /> Create a token on GitHub
+            <ExternalLink className="size-3.5" /> {t('Create a token on GitHub')}
           </Button>
           <Input
             autoFocus
@@ -189,9 +198,9 @@ function SignInBody({ onClose }: { onClose: () => void }) {
             onChange={(e) => setToken(e.target.value)}
           />
           <div className="flex justify-end gap-2">
-            <Button onClick={() => setMode('choose')}>Back</Button>
+            <Button onClick={() => setMode('choose')}>{t('Back')}</Button>
             <Button type="submit" variant="primary" disabled={busy || !token.trim()}>
-              {busy && <Spinner />} Connect
+              {busy && <Spinner />} {t('Connect')}
             </Button>
           </div>
         </form>

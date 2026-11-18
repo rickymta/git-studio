@@ -40,6 +40,9 @@ async fn stage_commit_branch_merge_flow() {
             untracked: true,
             commit: None,
             parent: None,
+            ignore_whitespace: false,
+            context: None,
+            encoding: None,
         })
         .await
         .unwrap();
@@ -99,11 +102,11 @@ async fn hunk_patch_and_conflicts() {
     // Stage via a patch, like the hunk button does.
     std::fs::write(dir.join("f.txt"), "a\nB\nc\n").unwrap();
     let patch = "diff --git a/f.txt b/f.txt\n--- a/f.txt\n+++ b/f.txt\n@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n";
-    r.apply_patch(patch, true, false).await.unwrap();
+    r.apply_patch(patch, true, false, None).await.unwrap();
     let st = r.status().await.unwrap();
     assert_eq!(st.staged.len(), 1);
     assert!(st.unstaged.is_empty());
-    r.apply_patch(patch, true, true).await.unwrap();
+    r.apply_patch(patch, true, true, None).await.unwrap();
     assert!(r.status().await.unwrap().staged.is_empty());
     r.discard(&["f.txt".into()], &[]).await.unwrap();
 
@@ -171,4 +174,61 @@ async fn rejects_option_injection() {
     assert!(r.checkout("--orphan=x", CheckoutKind::Branch).await.is_err());
     assert!(git::clone("--upload-pack=evil", &tmp.path().join("c"), None).await.is_err());
     assert!(git::clone("ext::sh -c evil", &tmp.path().join("c"), None).await.is_err());
+}
+
+#[tokio::test]
+async fn reword_drop_worktree_and_files() {
+    use gitstudio_core::text::TextFormat;
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("repo");
+    let r = new_repo(&dir).await;
+    for (i, name) in ["a", "b", "c"].iter().enumerate() {
+        std::fs::write(dir.join(name), format!("{i}\n")).unwrap();
+        r.stage(&[]).await.unwrap();
+        r.commit(&format!("add {name}"), false).await.unwrap();
+    }
+    let log = r.log(10, 0).await.unwrap();
+    // Reword an older commit, then HEAD.
+    r.reword(&log[1].hash, "add b (reworded)").await.unwrap();
+    let log = r.log(10, 0).await.unwrap();
+    assert_eq!(log[1].subject, "add b (reworded)");
+    assert_eq!(log.len(), 3);
+    r.reword(&log[0].hash, "add c!").await.unwrap();
+    assert_eq!(r.log(10, 0).await.unwrap()[0].subject, "add c!");
+    // Drop the middle commit.
+    let log = r.log(10, 0).await.unwrap();
+    r.drop_commit(&log[1].hash).await.unwrap();
+    let log = r.log(10, 0).await.unwrap();
+    assert_eq!(log.len(), 2);
+    assert!(!dir.join("b").exists());
+
+    // Files in another encoding round-trip through read/write.
+    std::fs::write(dir.join("w.txt"), b"caf\xE9\r\n").unwrap();
+    let d = r.read_file("w.txt", None, None).await.unwrap();
+    assert_eq!(d.text, "café\n");
+    r.write_file("w.txt", "café au lait\n", &d.format).unwrap();
+    assert_eq!(std::fs::read(dir.join("w.txt")).unwrap(), b"caf\xE9 au lait\r\n");
+    assert!(r.read_file("../x", None, None).await.is_err());
+
+    // Blame and history.
+    let blame = r.blame("a", None).await.unwrap();
+    assert_eq!(blame.lines.len(), 1);
+    assert_eq!(r.file_history("a", 10).await.unwrap().len(), 1);
+
+    // Worktrees.
+    let wt = tmp.path().join("wt");
+    r.add_worktree(&gitstudio_core::git::files::NewWorktree {
+        path: wt.display().to_string(),
+        branch: None,
+        new_branch: Some("side".into()),
+    })
+    .await
+    .unwrap();
+    let list = r.worktrees().await.unwrap();
+    assert_eq!(list.len(), 2);
+    assert!(list[0].is_main && list[0].is_current);
+    assert_eq!(list[1].branch.as_deref(), Some("side"));
+    r.remove_worktree(&wt.display().to_string(), false).await.unwrap();
+    assert_eq!(r.worktrees().await.unwrap().len(), 1);
+    let _ = TextFormat { encoding: "UTF-8".into(), bom: false, eol: "lf".into() };
 }

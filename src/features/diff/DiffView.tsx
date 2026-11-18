@@ -1,238 +1,550 @@
-import { Columns2, Minus, Plus, Rows3, Undo2, X } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import {
+  ArrowDown,
+  ArrowUp,
+  Check,
+  Columns2,
+  History,
+  Minus,
+  Pencil,
+  Pilcrow,
+  Plus,
+  Rows3,
+  ScanText,
+  TextWrap,
+  X,
+} from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { Button, IconButton, Spinner, cn } from '@/components/ui';
-import { hunkPatch, parseDiff, type DiffLine, type Hunk } from '@/lib/diff';
+import { Button, Dropdown, IconButton, Spinner, cn, type MenuItem } from '@/components/ui';
+import { parseDiff } from '@/lib/diff';
 import { short } from '@/lib/format';
+import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
+import type { Blame, DecodedText, TextFormat } from '@/lib/types';
 import { useRepo } from '@/stores/repo';
-import { confirm } from '@/stores/ui';
+import { confirm, toast } from '@/stores/ui';
+import { StatusMark } from '../panel/FileList';
+import { CodeView, type BlameInfo } from './CodeView';
+import { ConflictView } from './ConflictView';
+import { DiffBody, type DiffLayout, type DiffNav, type HunkActions } from './DiffBody';
+import { FileHistory } from './FileHistory';
+
+function usePersisted<T>(key: string, initial: T): [T, (v: T) => void] {
+  const [v, setV] = useState<T>(() => {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw === null ? initial : (JSON.parse(raw) as T);
+    } catch {
+      return initial;
+    }
+  });
+  return [
+    v,
+    (next) => {
+      setV(next);
+      try {
+        localStorage.setItem(key, JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+    },
+  ];
+}
+
+const segBtn = (on: boolean) =>
+  cn(
+    'flex h-6 items-center gap-1 px-2 text-xs',
+    on ? 'bg-accent-soft text-foreground' : 'text-muted-foreground hover:bg-surface-hover',
+  );
 
 export function DiffView() {
   const diff = useRepo((s) => s.diff)!;
   const close = useRepo((s) => s.closeDiff);
   const run = useRepo((s) => s.run);
-  const parsed = useMemo(() => parseDiff(diff.text), [diff.text]);
-  const [split, setSplit] = useState(() => {
-    try {
-      return localStorage.getItem('gitstudio.diffSplit') === '1';
-    } catch {
-      return false;
-    }
-  });
+  const select = useRepo((s) => s.select);
+  const repo = useRepo((s) => s.path)!;
+  const info = useRepo((s) => s.info);
   const req = diff.request;
-  const untracked = !!req.untracked;
 
-  const toggleSplit = () => {
-    setSplit((s) => {
-      try {
-        localStorage.setItem('gitstudio.diffSplit', s ? '0' : '1');
-      } catch {
-        /* ignore */
-      }
-      return !s;
-    });
+  const [layout, setLayout] = usePersisted<DiffLayout>('gitstudio.diff.layout', 'hunk');
+  const [ignoreWs, setIgnoreWs] = usePersisted('gitstudio.diff.ignoreWs', false);
+  const [wrap, setWrap] = usePersisted('gitstudio.diff.wrap', false);
+  const [view, setView] = useState<'diff' | 'file'>('diff');
+  const [tool, setTool] = useState<'blame' | 'history' | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [encOverride, setEncOverride] = useState<string | undefined>(undefined);
+  const [file, setFile] = useState<DecodedText | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
+  const [saveFormat, setSaveFormat] = useState<TextFormat | null>(null);
+  const [blame, setBlame] = useState<Blame | null>(null);
+  const [marks, setMarks] = useState<Map<number, 'add' | 'mod'> | undefined>(undefined);
+  const [encodings, setEncodings] = useState<string[]>([]);
+  const [nav, setNav] = useState({ current: -1, total: 0 });
+  const navRef = useRef<DiffNav>(null);
+
+  const conflicted =
+    req.source === 'unstaged' && !!info?.status.conflicted.some((f) => f.path === req.path);
+  const status =
+    info?.status.unstaged.find((f) => f.path === req.path)?.status ??
+    info?.status.staged.find((f) => f.path === req.path)?.status ??
+    (conflicted ? 'U' : 'M');
+  const deletedHere = status === 'D';
+  // Version shown in File View / Blame / used to detect the encoding.
+  const rev = req.source === 'commit' ? req.commit : undefined;
+  const canEdit =
+    (req.source === 'unstaged' || req.source === 'staged' || req.source === 'worktree') &&
+    !deletedHere &&
+    !conflicted;
+
+  useEffect(() => {
+    api
+      .encodings()
+      .then(setEncodings)
+      .catch(() => {});
+  }, []);
+
+  // The file text (also gives the encoding the diff is decoded with).
+  useEffect(() => {
+    let alive = true;
+    api
+      .readFile(repo, req.path, rev, encOverride)
+      .then((f) => {
+        if (!alive) return;
+        setFile(f);
+        setFileError(null);
+      })
+      .catch((e) => {
+        if (!alive) return;
+        setFile(null);
+        setFileError((e as Error).message);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [repo, req.path, rev, encOverride, diff.text]);
+
+  const encoding = encOverride ?? (file && !file.binary ? file.format.encoding : undefined);
+
+  // Blame for the shown version.
+  useEffect(() => {
+    if (tool !== 'blame' || !file) return;
+    let alive = true;
+    api
+      .blame(repo, req.path, rev)
+      .then((b) => alive && setBlame(b))
+      .catch((e) => toast('error', t('Could not load blame'), (e as Error).message));
+    return () => {
+      alive = false;
+    };
+  }, [tool, repo, req.path, rev, file]);
+
+  // Changed lines tinted in File View.
+  useEffect(() => {
+    if (view !== 'file' && tool !== 'blame') return;
+    let alive = true;
+    api
+      .diff(repo, { ...req, encoding })
+      .then((text) => {
+        if (!alive) return;
+        const m = new Map<number, 'add' | 'mod'>();
+        for (const h of parseDiff(text).hunks) {
+          const hasDel = h.lines.some((l) => l.kind === 'del');
+          for (const l of h.lines)
+            if (l.kind === 'add' && l.newNo) m.set(l.newNo, hasDel ? 'mod' : 'add');
+        }
+        setMarks(m);
+      })
+      .catch(() => alive && setMarks(undefined));
+    return () => {
+      alive = false;
+    };
+  }, [view, tool, repo, req, encoding]);
+
+  const blameInfo = useMemo<BlameInfo | null>(
+    () =>
+      tool === 'blame' && blame
+        ? {
+            lines: blame.lines,
+            commits: new Map(blame.commits.map((c) => [c.hash, c])),
+            onPick: (hash) => void select({ type: 'commit', hash }),
+          }
+        : null,
+    [tool, blame, select],
+  );
+
+  const actions: HunkActions =
+    req.source === 'unstaged'
+      ? req.untracked
+        ? 'none'
+        : 'unstaged'
+      : req.source === 'staged'
+        ? 'staged'
+        : req.source === 'commit'
+          ? 'commit'
+          : 'none';
+
+  const dirty = editing && file !== null && draft !== file.text;
+
+  const startEdit = () => {
+    if (!file || file.binary) return;
+    if (file.size > 8 * 1024 * 1024) {
+      toast('info', t('This file is too large to edit here.'));
+      return;
+    }
+    setDraft(file.text);
+    setSaveFormat(file.format);
+    setEditing(true);
   };
 
-  const hunkAction = async (i: number, action: 'stage' | 'unstage' | 'discard') => {
+  const stopEdit = async () => {
     if (
-      action === 'discard' &&
+      dirty &&
       !(await confirm(
-        'Discard hunk',
-        'Discard this change from the working tree? This cannot be undone.',
-        'Discard',
+        t('Discard edits'),
+        t('Close the editor without saving your changes?'),
+        t('Discard'),
         true,
       ))
     )
       return;
-    const patch = hunkPatch(parsed, i);
-    const label =
-      action === 'stage' ? 'Stage hunk' : action === 'unstage' ? 'Unstage hunk' : 'Discard hunk';
-    await run(label, (p) => api.applyPatch(p, patch, action !== 'discard', action !== 'stage'));
+    setEditing(false);
   };
 
-  const title =
-    req.source === 'commit'
-      ? `${req.path} @ ${short(req.commit ?? '')}`
-      : `${req.path} — ${req.source === 'staged' ? 'staged' : untracked ? 'untracked' : 'unstaged'}`;
+  const save = async () => {
+    if (!saveFormat) return;
+    const ok = await run('Save file', (p) => api.writeFile(p, req.path, draft, saveFormat));
+    if (ok) {
+      toast('success', t('Saved {path}', { path: req.path }));
+      setEditing(false);
+      setEncOverride(saveFormat.encoding);
+    }
+  };
+
+  const onClose = async () => {
+    if (
+      dirty &&
+      !(await confirm(
+        t('Discard edits'),
+        t('Close the editor without saving your changes?'),
+        t('Discard'),
+        true,
+      ))
+    )
+      return;
+    close();
+  };
+
+  const sourceLabel =
+    req.source === 'unstaged'
+      ? t('Unstaged')
+      : req.source === 'staged'
+        ? t('Staged')
+        : req.source === 'worktree'
+          ? t('{sha} ↔ working directory', { sha: short(req.commit ?? '') })
+          : short(req.commit ?? '');
+
+  const encodingMenu: MenuItem[] = [
+    ...(encodings.length ? encodings : ['UTF-8']).map((e) => ({
+      label: e,
+      icon: (encoding ?? 'UTF-8').toLowerCase() === e.toLowerCase() ? '✓' : undefined,
+      onSelect: () => setEncOverride(e),
+    })),
+  ];
+
+  const slash = req.path.lastIndexOf('/');
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {/* Title row */}
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border bg-surface px-3">
-        <span className="min-w-0 flex-1 truncate font-medium" title={req.path}>
+        <StatusMark status={status} />
+        <span className="min-w-0 flex-1 truncate" title={req.path}>
           {req.origPath && req.origPath !== req.path && (
             <span className="text-muted-foreground">{req.origPath} → </span>
           )}
-          {title}
+          {slash >= 0 && (
+            <span className="text-muted-foreground">{req.path.slice(0, slash + 1)}</span>
+          )}
+          <span className="font-medium">{req.path.slice(slash + 1)}</span>
         </span>
         {diff.loading && <Spinner className="text-muted-foreground" />}
+        {file && !file.binary && (
+          <Dropdown items={encodingMenu}>
+            <button
+              type="button"
+              title={t('Reopen with encoding')}
+              className="rounded px-1.5 text-[11px] text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+            >
+              {(encoding ?? 'UTF-8').toUpperCase()}
+              {file.format.bom && ' BOM'} · {file.format.eol.toUpperCase()}
+            </button>
+          </Dropdown>
+        )}
+        {file?.lossy && (
+          <span
+            className="text-[11px] text-warning"
+            title={t('Some bytes could not be decoded with this encoding')}
+          >
+            ⚠
+          </span>
+        )}
         {req.source === 'unstaged' && (
-          <Button size="sm" onClick={() => run('Stage', (p) => api.stage(p, [req.path]))}>
-            <Plus className="size-3.5" /> Stage file
+          <Button
+            size="sm"
+            className="h-6 border-success/60 bg-success-soft text-success"
+            onClick={() => run('Stage', (p) => api.stage(p, [req.path]))}
+          >
+            <Plus className="size-3.5" /> {t('Stage File')}
           </Button>
         )}
         {req.source === 'staged' && (
-          <Button size="sm" onClick={() => run('Unstage', (p) => api.unstage(p, [req.path]))}>
-            <Minus className="size-3.5" /> Unstage file
+          <Button
+            size="sm"
+            className="h-6 border-danger/60 bg-danger-soft text-danger"
+            onClick={() => run('Unstage', (p) => api.unstage(p, [req.path]))}
+          >
+            <Minus className="size-3.5" /> {t('Unstage File')}
           </Button>
         )}
-        <IconButton label={split ? 'Unified view' : 'Split view'} onClick={toggleSplit}>
-          {split ? <Rows3 className="size-4" /> : <Columns2 className="size-4" />}
-        </IconButton>
-        <IconButton label="Close diff (Esc)" onClick={close}>
+        <IconButton label={t('Close (Esc)')} onClick={onClose}>
           <X className="size-4" />
         </IconButton>
       </div>
-      <div className="selectable min-h-0 flex-1 overflow-auto bg-background font-mono text-xs leading-5">
-        {parsed.binary && (
-          <div className="p-6 text-center font-sans text-muted-foreground">
-            Binary file — no text diff.
+
+      {/* Tool row */}
+      {!conflicted && (
+        <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3">
+          {canEdit && !editing && (
+            <Button size="sm" className="h-6" onClick={startEdit} disabled={!file || file.binary}>
+              <Pencil className="size-3.5" /> {t('Edit This File')}
+            </Button>
+          )}
+          {editing && (
+            <span className="flex items-center gap-1.5 text-xs font-medium text-accent">
+              <Pencil className="size-3.5" /> {t('Editing')}
+              {dirty && <span className="text-warning">●</span>}
+            </span>
+          )}
+          <div className="flex flex-1 items-center justify-center gap-2">
+            <span className="rounded bg-accent-soft px-2 py-0.5 text-xs">{sourceLabel}</span>
+            {!editing && tool !== 'history' && (
+              <div className="flex overflow-hidden rounded-md border border-border">
+                <button
+                  type="button"
+                  className={segBtn(view === 'file')}
+                  onClick={() => setView('file')}
+                >
+                  {t('File View')}
+                </button>
+                <button
+                  type="button"
+                  className={segBtn(view === 'diff' && tool !== 'blame')}
+                  onClick={() => {
+                    setView('diff');
+                    setTool(null);
+                  }}
+                >
+                  {t('Diff View')}
+                </button>
+              </div>
+            )}
           </div>
-        )}
-        {!diff.loading && parsed.empty && (
-          <div className="p-6 text-center font-sans text-muted-foreground">
-            No changes to show (mode change or empty file).
-          </div>
-        )}
-        {/* Combined diffs of conflicted files (@@@ hunks) are shown as plain text. */}
-        {!parsed.empty && !parsed.binary && parsed.hunks.length === 0 && (
-          <pre className="p-3 whitespace-pre-wrap">{diff.text}</pre>
-        )}
-        {parsed.hunks.map((h, i) => (
-          <div key={i} className="mb-2">
-            <div className="sticky top-0 z-10 flex h-7 items-center gap-2 border-y border-border bg-surface-muted px-3 font-sans text-muted-foreground">
-              <span className="min-w-0 flex-1 truncate font-mono text-xs">{h.header}</span>
-              {req.source === 'unstaged' && !untracked && (
-                <>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-5"
-                    onClick={() => hunkAction(i, 'discard')}
+          {!editing && (
+            <>
+              <div className="flex overflow-hidden rounded-md border border-border">
+                <button
+                  type="button"
+                  className={segBtn(tool === 'blame')}
+                  disabled={deletedHere}
+                  onClick={() => setTool(tool === 'blame' ? null : 'blame')}
+                >
+                  <ScanText className="size-3.5" /> {t('Blame')}
+                </button>
+                <button
+                  type="button"
+                  className={segBtn(tool === 'history')}
+                  onClick={() => setTool(tool === 'history' ? null : 'history')}
+                >
+                  <History className="size-3.5" /> {t('History')}
+                </button>
+              </div>
+              {view === 'diff' && tool === null && (
+                <div className="flex items-center">
+                  <IconButton
+                    label={t('Previous change')}
+                    onClick={() => navRef.current?.go(-1)}
+                    disabled={nav.total === 0}
                   >
-                    <Undo2 className="size-3" /> Discard hunk
-                  </Button>
-                  <Button size="sm" className="h-5" onClick={() => hunkAction(i, 'stage')}>
-                    <Plus className="size-3" /> Stage hunk
-                  </Button>
-                </>
+                    <ArrowUp className="size-4" />
+                  </IconButton>
+                  <IconButton
+                    label={t('Next change')}
+                    onClick={() => navRef.current?.go(1)}
+                    disabled={nav.total === 0}
+                  >
+                    <ArrowDown className="size-4" />
+                  </IconButton>
+                  <span className="w-12 text-center text-[11px] text-muted-foreground tabular-nums">
+                    {nav.total ? `${nav.current < 0 ? '–' : nav.current + 1}/${nav.total}` : ''}
+                  </span>
+                </div>
               )}
-              {req.source === 'staged' && (
-                <Button size="sm" className="h-5" onClick={() => hunkAction(i, 'unstage')}>
-                  <Minus className="size-3" /> Unstage hunk
-                </Button>
+              {(view === 'diff' || tool === 'history') && tool !== 'blame' && (
+                <div className="flex overflow-hidden rounded-md border border-border">
+                  <button
+                    type="button"
+                    title={t('Hunk view')}
+                    className={segBtn(layout === 'hunk')}
+                    onClick={() => setLayout('hunk')}
+                  >
+                    <Rows3 className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    title={t('Inline view')}
+                    className={segBtn(layout === 'inline')}
+                    onClick={() => setLayout('inline')}
+                  >
+                    <ScanText className="size-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    title={t('Split view')}
+                    className={segBtn(layout === 'split')}
+                    onClick={() => setLayout('split')}
+                  >
+                    <Columns2 className="size-3.5" />
+                  </button>
+                </div>
               )}
+              <div className="flex overflow-hidden rounded-md border border-border">
+                <button
+                  type="button"
+                  title={t('Ignore leading/trailing whitespace')}
+                  className={segBtn(ignoreWs)}
+                  onClick={() => setIgnoreWs(!ignoreWs)}
+                >
+                  <Pilcrow className="size-3.5" />
+                </button>
+                <button
+                  type="button"
+                  title={t('Word wrap')}
+                  className={segBtn(wrap)}
+                  onClick={() => setWrap(!wrap)}
+                >
+                  <TextWrap className="size-3.5" />
+                </button>
+              </div>
+            </>
+          )}
+          {editing && saveFormat && (
+            <div className="flex items-center gap-2 text-xs">
+              <select
+                value={saveFormat.encoding}
+                onChange={(e) => setSaveFormat({ ...saveFormat, encoding: e.target.value })}
+                title={t('Save with encoding')}
+                className="h-6 rounded border border-border bg-background px-1"
+              >
+                {(encodings.length ? encodings : ['UTF-8'])
+                  .concat(
+                    encodings.some((x) => x.toLowerCase() === saveFormat.encoding.toLowerCase())
+                      ? []
+                      : [saveFormat.encoding],
+                  )
+                  .map((e) => (
+                    <option key={e} value={e}>
+                      {e}
+                    </option>
+                  ))}
+              </select>
+              <label className="flex items-center gap-1">
+                <input
+                  type="checkbox"
+                  checked={saveFormat.bom}
+                  onChange={(e) => setSaveFormat({ ...saveFormat, bom: e.target.checked })}
+                  className="accent-[var(--accent)]"
+                />
+                BOM
+              </label>
+              <select
+                value={saveFormat.eol}
+                onChange={(e) =>
+                  setSaveFormat({ ...saveFormat, eol: e.target.value as TextFormat['eol'] })
+                }
+                title={t('Line endings')}
+                className="h-6 rounded border border-border bg-background px-1"
+              >
+                <option value="lf">LF</option>
+                <option value="crlf">CRLF</option>
+                {saveFormat.eol === 'mixed' && <option value="mixed">{t('Mixed (keep)')}</option>}
+              </select>
+              <Button size="sm" variant="ghost" onClick={stopEdit}>
+                {t('Cancel')}
+              </Button>
+              <Button size="sm" variant="primary" onClick={save} disabled={!dirty} title="Ctrl+S">
+                <Check className="size-3.5" /> {t('Save')}
+              </Button>
             </div>
-            {split ? <SplitHunk hunk={h} /> : <UnifiedHunk hunk={h} />}
-          </div>
-        ))}
+          )}
+        </div>
+      )}
+
+      {/* Body */}
+      <div className="min-h-0 flex-1">
+        {conflicted ? (
+          <ConflictView path={req.path} wrap={wrap} />
+        ) : editing ? (
+          <CodeView
+            value={draft}
+            path={req.path}
+            editable
+            wrap={wrap}
+            onChange={setDraft}
+            onSave={save}
+          />
+        ) : tool === 'history' ? (
+          <FileHistory
+            path={req.path}
+            layout={layout}
+            ignoreWhitespace={ignoreWs}
+            wrap={wrap}
+            encoding={encoding}
+          />
+        ) : view === 'file' || tool === 'blame' ? (
+          fileError ? (
+            <div className="p-6 text-muted-foreground">{fileError}</div>
+          ) : !file ? (
+            <div className="flex h-full items-center justify-center">
+              <Spinner className="text-muted-foreground" />
+            </div>
+          ) : file.binary ? (
+            <div className="p-8 text-center text-muted-foreground">{t('Binary file')}</div>
+          ) : (
+            <CodeView
+              value={file.text}
+              path={req.path}
+              wrap={wrap}
+              lineMarks={marks}
+              blame={blameInfo}
+            />
+          )
+        ) : (
+          <DiffBody
+            request={req}
+            layout={layout}
+            ignoreWhitespace={ignoreWs}
+            wrap={wrap}
+            encoding={encoding}
+            actions={actions}
+            refreshKey={diff.text}
+            navRef={navRef}
+            onBlocks={(current, total) =>
+              setNav((n) => (n.current === current && n.total === total ? n : { current, total }))
+            }
+          />
+        )}
       </div>
     </div>
-  );
-}
-
-const bg = (k: DiffLine['kind']) =>
-  k === 'add' ? 'bg-diff-add' : k === 'del' ? 'bg-diff-del' : '';
-
-function UnifiedHunk({ hunk }: { hunk: Hunk }) {
-  return (
-    <table className="w-full border-collapse">
-      <tbody>
-        {hunk.lines.map((l, j) => (
-          <tr key={j} className={bg(l.kind)}>
-            <td className="w-12 pr-2 text-right text-muted-foreground/70 select-none">
-              {l.oldNo ?? ''}
-            </td>
-            <td className="w-12 pr-2 text-right text-muted-foreground/70 select-none">
-              {l.newNo ?? ''}
-            </td>
-            <td
-              className={cn(
-                'w-4 text-center select-none',
-                l.kind === 'add' && 'text-success',
-                l.kind === 'del' && 'text-danger',
-              )}
-            >
-              {l.kind === 'add' ? '+' : l.kind === 'del' ? '-' : ''}
-            </td>
-            <td
-              className={cn(
-                'pr-4 whitespace-pre-wrap break-all',
-                l.kind === 'meta' && 'text-muted-foreground italic',
-              )}
-            >
-              {l.text || ' '}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
-}
-
-/** Pair deletions with following additions side by side. */
-function pairLines(lines: DiffLine[]): [DiffLine | null, DiffLine | null][] {
-  const out: [DiffLine | null, DiffLine | null][] = [];
-  let i = 0;
-  while (i < lines.length) {
-    const l = lines[i]!;
-    if (l.kind === 'ctx' || l.kind === 'meta') {
-      out.push([l, l]);
-      i++;
-      continue;
-    }
-    const dels: DiffLine[] = [];
-    const adds: DiffLine[] = [];
-    while (i < lines.length && lines[i]!.kind === 'del') dels.push(lines[i++]!);
-    while (i < lines.length && lines[i]!.kind === 'add') adds.push(lines[i++]!);
-    for (let k = 0; k < Math.max(dels.length, adds.length); k++)
-      out.push([dels[k] ?? null, adds[k] ?? null]);
-  }
-  return out;
-}
-
-function SplitHunk({ hunk }: { hunk: Hunk }) {
-  const rows = useMemo(() => pairLines(hunk.lines), [hunk]);
-  return (
-    <table className="w-full table-fixed border-collapse">
-      <tbody>
-        {rows.map(([a, b], j) => (
-          <tr key={j}>
-            <td
-              className={cn(
-                'w-12 pr-2 text-right align-top text-muted-foreground/70 select-none',
-                a && bg(a.kind),
-              )}
-            >
-              {a?.oldNo ?? ''}
-            </td>
-            <td
-              className={cn(
-                'border-r border-border pr-2 align-top whitespace-pre-wrap break-all',
-                a ? bg(a.kind) : 'bg-surface-muted/50',
-              )}
-            >
-              {a?.text ?? ''}
-            </td>
-            <td
-              className={cn(
-                'w-12 pr-2 text-right align-top text-muted-foreground/70 select-none',
-                b && bg(b.kind),
-              )}
-            >
-              {b?.newNo ?? ''}
-            </td>
-            <td
-              className={cn(
-                'pr-2 align-top whitespace-pre-wrap break-all',
-                b ? bg(b.kind) : 'bg-surface-muted/50',
-              )}
-            >
-              {b?.text ?? ''}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
   );
 }

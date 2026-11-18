@@ -1,6 +1,7 @@
 import { Check, Cloud, Laptop, Tag } from 'lucide-react';
 
 import { ContextMenuWrap, cn, type MenuItem } from '@/components/ui';
+import { t } from '@/lib/i18n';
 import { copyText } from '@/lib/native';
 import type { GitRef } from '@/lib/types';
 import { useGitHub } from '@/stores/github';
@@ -15,52 +16,77 @@ export function refMenu(ref: GitRef): MenuItem[] {
     useRepo.getState().refs?.remotes.some((r) => r.github) && !!useGitHub.getState().user;
   if (ref.kind === 'tag') {
     return [
-      { label: `Check out ${ref.name}`, onSelect: () => A.checkoutRef(ref) },
-      { label: 'Create branch here', onSelect: () => A.newBranch(ref.target, ref.name) },
+      { label: t('Check out {name}', { name: ref.name }), onSelect: () => A.checkoutRef(ref) },
+      { label: t('Create branch here'), onSelect: () => A.newBranch(ref.target, ref.name) },
       'sep',
-      { label: `Push ${ref.name} to remote`, onSelect: () => A.pushTag(ref) },
-      { label: 'Copy tag name', onSelect: () => copyText(ref.name) },
+      { label: t('Push {name} to remote', { name: ref.name }), onSelect: () => A.pushTag(ref) },
+      { label: t('Copy tag name'), onSelect: () => copyText(ref.name) },
       'sep',
-      { label: `Delete ${ref.name}`, danger: true, onSelect: () => A.deleteTag(ref) },
+      {
+        label: t('Delete {name}', { name: ref.name }),
+        danger: true,
+        onSelect: () => A.deleteTag(ref),
+      },
     ];
   }
   const isCur = ref.kind === 'local' && ref.isHead;
   const items: MenuItem[] = [];
-  if (!isCur) items.push({ label: `Check out ${ref.name}`, onSelect: () => A.checkoutRef(ref) });
+  if (!isCur)
+    items.push({
+      label: t('Check out {name}', { name: ref.name }),
+      onSelect: () => A.checkoutRef(ref),
+    });
   if (!isCur && cur) {
-    items.push({ label: `Merge ${ref.name} into ${cur}`, onSelect: () => A.mergeInto(ref.name) });
-    items.push({ label: `Rebase ${cur} onto ${ref.name}`, onSelect: () => A.rebaseOnto(ref.name) });
+    items.push({
+      label: t('Merge {source} into {target}', { source: ref.name, target: cur }),
+      onSelect: () => A.mergeInto(ref.name),
+    });
+    items.push({
+      label: t('Rebase {branch} onto {target}', { branch: cur, target: ref.name }),
+      onSelect: () => A.rebaseOnto(ref.name),
+    });
   }
   items.push('sep');
   if (isCur) {
-    items.push({ label: 'Pull', onSelect: () => A.pull() });
-    items.push({ label: 'Push', onSelect: () => A.push() });
+    items.push({ label: t('Pull'), onSelect: () => A.pull() });
+    items.push({ label: t('Push'), onSelect: () => A.push() });
   } else if (ref.kind === 'local') {
-    items.push({ label: `Push ${ref.name}`, onSelect: () => A.push({ branch: ref.name }) });
-  }
-  if (ref.kind === 'local') {
-    items.push({ label: 'Set upstream…', onSelect: () => A.setUpstream(ref) });
-    if (hasGitHub)
-      items.push({ label: 'Create pull request…', onSelect: () => A.createPullRequest(ref.name) });
-  }
-  items.push('sep');
-  items.push({ label: 'Create branch here', onSelect: () => A.newBranch(ref.target, ref.name) });
-  items.push({ label: 'Create tag here', onSelect: () => A.createTag(ref.target, ref.name) });
-  if (cur && !isCur)
-    items.push({ label: `Reset ${cur} to here`, onSelect: () => A.resetTo(ref.target, ref.name) });
-  items.push({ label: 'Copy branch name', onSelect: () => copyText(ref.name) });
-  items.push('sep');
-  if (ref.kind === 'local') {
-    items.push({ label: 'Rename…', onSelect: () => A.renameBranch(ref) });
     items.push({
-      label: `Delete ${ref.name}`,
+      label: t('Push {name}', { name: ref.name }),
+      onSelect: () => A.push({ branch: ref.name }),
+    });
+  }
+  if (ref.kind === 'local') {
+    items.push({ label: t('Set upstream…'), onSelect: () => A.setUpstream(ref) });
+    if (hasGitHub)
+      items.push({
+        label: t('Create pull request…'),
+        onSelect: () => A.createPullRequest(ref.name),
+      });
+  }
+  items.push('sep');
+  items.push({ label: t('Create branch here'), onSelect: () => A.newBranch(ref.target, ref.name) });
+  items.push({ label: t('Create tag here'), onSelect: () => A.createTag(ref.target, ref.name) });
+  if (cur && !isCur)
+    items.push({
+      label: t('Reset {branch} to here', { branch: cur }),
+      onSelect: () => A.resetTo(ref.target, ref.name),
+    });
+  items.push({ label: t('Copy branch name'), onSelect: () => copyText(ref.name) });
+  if (A.branchUrl(ref))
+    items.push({ label: t('Copy link to branch'), onSelect: () => A.copyBranchLink(ref) });
+  items.push('sep');
+  if (ref.kind === 'local') {
+    items.push({ label: t('Rename…'), onSelect: () => A.renameBranch(ref) });
+    items.push({
+      label: t('Delete {name}', { name: ref.name }),
       danger: true,
       disabled: isCur,
       onSelect: () => A.deleteBranch(ref),
     });
   } else {
     items.push({
-      label: `Delete ${ref.name} on remote`,
+      label: t('Delete {name} on remote', { name: ref.name }),
       danger: true,
       onSelect: () => A.deleteBranch(ref),
     });
@@ -97,8 +123,8 @@ export function groupRefs(refs: GitRef[]): BadgeGroup[] {
     if (!used.has(r.fullName))
       groups.push({ key: r.fullName, label: r.name, refs: [r], head: false, kind: 'branch' });
   }
-  for (const t of refs.filter((r) => r.kind === 'tag')) {
-    groups.push({ key: t.fullName, label: t.name, refs: [t], head: false, kind: 'tag' });
+  for (const tag of refs.filter((r) => r.kind === 'tag')) {
+    groups.push({ key: tag.fullName, label: tag.name, refs: [tag], head: false, kind: 'tag' });
   }
   // Current branch first.
   return groups.sort((a, b) => Number(b.head) - Number(a.head));
@@ -117,7 +143,7 @@ export function RefBadge({ group, color }: { group: BadgeGroup; color: string })
         }}
         title={group.refs.map((r) => r.name).join(', ')}
         className={cn(
-          'inline-flex h-[22px] max-w-[176px] min-w-0 items-center gap-1 rounded border px-1.5 text-xs font-medium text-foreground',
+          'inline-flex h-[20px] max-w-[176px] min-w-0 items-center gap-1 rounded border px-1.5 text-xs font-medium text-foreground',
           group.head && 'font-semibold',
         )}
         style={{

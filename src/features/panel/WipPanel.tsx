@@ -13,6 +13,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { Button, IconButton, Spinner, cn, type MenuItem } from '@/components/ui';
 import { joinPath } from '@/lib/format';
+import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import { copyText, revealPath } from '@/lib/native';
 import type { FileChange } from '@/lib/types';
@@ -168,22 +169,17 @@ export function WipPanel() {
   const show = (source: ListId) => (f: FileChange) =>
     openDiff({ source, path: f.path, origPath: f.origPath, untracked: f.status === '?' });
 
-  const stage = (paths: string[]) => run('Stage', (p) => api.stage(p, paths));
-  const unstage = (paths: string[]) => run('Unstage', (p) => api.unstage(p, paths));
+  const stage = (paths: string[]) => run(t('Stage'), (p) => api.stage(p, paths));
+  const unstage = (paths: string[]) => run(t('Unstage'), (p) => api.unstage(p, paths));
 
   const discard = async (files: FileChange[]) => {
     if (files.length === 0) return;
-    const what = files.length === 1 ? files[0]!.path : `${files.length} files`;
-    if (
-      !(await confirm(
-        'Discard changes',
-        `Discard changes in ${what}? This cannot be undone.`,
-        'Discard',
-        true,
-      ))
-    )
-      return;
-    await run('Discard', (p) =>
+    const question =
+      files.length === 1
+        ? t('Discard changes in {path}? This cannot be undone.', { path: files[0]!.path })
+        : t('Discard changes in {n} files? This cannot be undone.', { n: files.length });
+    if (!(await confirm(t('Discard changes'), question, t('Discard'), true))) return;
+    await run(t('Discard'), (p) =>
       api.discard(
         p,
         files.filter((f) => f.status !== '?').map((f) => f.path),
@@ -217,13 +213,31 @@ export function WipPanel() {
     if (pushAfter) await push();
   };
 
+  // Whole sentences per case so translations never glue fragments together.
+  const andPush = canCommit && pushAfter;
+  // Ctrl+Enter commits; Ctrl+Shift+Enter stages everything first.
+  const onCommitKey = (e: React.KeyboardEvent) => {
+    if (e.key !== 'Enter' || !(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    if (e.shiftKey && summary.trim() && conflicted.length === 0) {
+      void (async () => {
+        if (await run('Stage', (p) => api.stage(p, []))) await commit();
+      })();
+    } else if (canCommit) void commit();
+  };
+
   let commitLabel: string;
-  if (conflicted.length > 0) commitLabel = 'Resolve Conflicts to Commit';
-  else if (staged.length === 0 && !amend) commitLabel = 'Stage Changes to Commit';
-  else if (!summary.trim()) commitLabel = 'Type a Message to Commit';
-  else if (amend) commitLabel = 'Amend Previous Commit';
-  else commitLabel = `Commit Changes to ${staged.length} File${staged.length === 1 ? '' : 's'}`;
-  if (canCommit && pushAfter) commitLabel += ' and Push';
+  if (conflicted.length > 0) commitLabel = t('Resolve Conflicts to Commit');
+  else if (staged.length === 0 && !amend) commitLabel = t('Stage Changes to Commit');
+  else if (!summary.trim()) commitLabel = t('Type a Message to Commit');
+  else if (amend)
+    commitLabel = andPush ? t('Amend Previous Commit and Push') : t('Amend Previous Commit');
+  else if (staged.length === 1)
+    commitLabel = andPush ? t('Commit Changes to 1 File and Push') : t('Commit Changes to 1 File');
+  else
+    commitLabel = andPush
+      ? t('Commit Changes to {n} Files and Push', { n: staged.length })
+      : t('Commit Changes to {n} Files', { n: staged.length });
 
   const fileMenu =
     (l: ListId) =>
@@ -231,27 +245,36 @@ export function WipPanel() {
       const sel = selectedIn(l);
       const many = sel.has(f.path) && sel.size > 1;
       const targets = many ? listFiles(l).filter((x) => sel.has(x.path)) : [f];
-      const n = many ? ` ${targets.length} files` : '';
+      const n = targets.length;
       return [
         l === 'unstaged'
-          ? { label: `Stage${n || ' file'}`, onSelect: () => stage(targets.map((x) => x.path)) }
+          ? {
+              label: many ? t('Stage {n} files', { n }) : t('Stage file'),
+              onSelect: () => stage(targets.map((x) => x.path)),
+            }
           : {
-              label: `Unstage${n || ' file'}`,
+              label: many ? t('Unstage {n} files', { n }) : t('Unstage file'),
               onSelect: () => unstage(targets.map((x) => x.path)),
             },
         ...(l === 'unstaged'
-          ? [{ label: `Discard changes${n}`, danger: true, onSelect: () => discard(targets) }]
+          ? [
+              {
+                label: many ? t('Discard changes {n} files', { n }) : t('Discard changes'),
+                danger: true,
+                onSelect: () => discard(targets),
+              },
+            ]
           : []),
         'sep' as const,
         {
-          label: 'Open in editor',
+          label: t('Open in editor'),
           onSelect: () =>
             api
               .openEditor(joinPath(path, f.path))
-              .catch((e) => toast('error', 'Could not open editor', (e as Error).message)),
+              .catch((e) => toast('error', t('Could not open editor'), (e as Error).message)),
         },
-        { label: 'Open with default app', onSelect: () => revealPath(joinPath(path, f.path)) },
-        { label: 'Copy file path', onSelect: () => copyText(f.path) },
+        { label: t('Open with default app'), onSelect: () => revealPath(joinPath(path, f.path)) },
+        { label: t('Copy file path'), onSelect: () => copyText(f.path) },
       ];
     };
 
@@ -277,13 +300,20 @@ export function WipPanel() {
     },
   });
 
+  // "{n} file changes on <branch>": the branch name is a styled chip inside the sentence.
+  const headerParts = (
+    total === 1
+      ? t('{n} file change on {branch}', { n: total })
+      : t('{n} file changes on {branch}', { n: total })
+  ).split('{branch}');
+
   const unstagedSel = selectedIn('unstaged');
   const stagedSel = selectedIn('staged');
   const bothOpen = openLists.unstaged && openLists.staged;
 
   const unstagedPane = (
     <Pane
-      title="Unstaged Files"
+      title={t('Unstaged Files')}
       count={unstaged.length + conflicted.length}
       open={openLists.unstaged}
       onToggle={() => setOpenLists({ ...openLists, unstaged: !openLists.unstaged })}
@@ -295,18 +325,18 @@ export function WipPanel() {
       action={
         unstagedSel.size > 1 ? (
           <PillButton tone="success" onClick={() => stage([...unstagedSel])}>
-            Stage {unstagedSel.size} Files
+            {t('Stage {n} Files', { n: unstagedSel.size })}
           </PillButton>
         ) : unstaged.length > 0 ? (
           <PillButton tone="success" onClick={() => stage([])}>
-            Stage All Changes
+            {t('Stage All Changes')}
           </PillButton>
         ) : null
       }
     >
       {conflicted.length > 0 && (
         <>
-          <div className="px-3 pt-1 pb-0.5 text-xs font-medium text-danger">Conflicts</div>
+          <div className="px-3 pt-1 pb-0.5 text-xs font-medium text-danger">{t('Conflicts')}</div>
           <FileList
             files={conflicted}
             mode={mode}
@@ -314,25 +344,25 @@ export function WipPanel() {
             onOpen={(f) => openDiff({ source: 'unstaged', path: f.path })}
             menu={(f) => [
               {
-                label: 'Take ours (current branch)',
-                onSelect: () => run('Resolve', (p) => api.resolve(p, [f.path], 'ours')),
+                label: t('Take ours (current branch)'),
+                onSelect: () => run(t('Resolve'), (p) => api.resolve(p, [f.path], 'ours')),
               },
               {
-                label: 'Take theirs (incoming)',
-                onSelect: () => run('Resolve', (p) => api.resolve(p, [f.path], 'theirs')),
+                label: t('Take theirs (incoming)'),
+                onSelect: () => run(t('Resolve'), (p) => api.resolve(p, [f.path], 'theirs')),
               },
-              { label: 'Mark as resolved', onSelect: () => stage([f.path]) },
+              { label: t('Mark as resolved'), onSelect: () => stage([f.path]) },
             ]}
             actions={(f) => (
               <PillButton tone="success" small onClick={() => stage([f.path])}>
-                <Check className="size-3" /> Mark Resolved
+                <Check className="size-3" /> {t('Mark Resolved')}
               </PillButton>
             )}
           />
         </>
       )}
       {unstaged.length === 0 && conflicted.length === 0 ? (
-        <EmptyFiles text="No unstaged changes" />
+        <EmptyFiles text={t('No unstaged changes')} />
       ) : (
         <FileList
           files={unstaged}
@@ -346,7 +376,7 @@ export function WipPanel() {
           actions={(f) => (
             <>
               <IconButton
-                label="Discard changes"
+                label={t('Discard changes')}
                 onClick={(e) => {
                   e.stopPropagation();
                   void discard([f]);
@@ -363,7 +393,7 @@ export function WipPanel() {
                   )
                 }
               >
-                <Plus className="size-3" /> Stage File
+                <Plus className="size-3" /> {t('Stage File')}
               </PillButton>
             </>
           )}
@@ -374,7 +404,7 @@ export function WipPanel() {
 
   const stagedPane = (
     <Pane
-      title="Staged Files"
+      title={t('Staged Files')}
       count={staged.length}
       open={openLists.staged}
       onToggle={() => setOpenLists({ ...openLists, staged: !openLists.staged })}
@@ -390,17 +420,17 @@ export function WipPanel() {
       action={
         stagedSel.size > 1 ? (
           <PillButton tone="danger" onClick={() => unstage([...stagedSel])}>
-            Unstage {stagedSel.size} Files
+            {t('Unstage {n} Files', { n: stagedSel.size })}
           </PillButton>
         ) : staged.length > 0 ? (
           <PillButton tone="danger" onClick={() => unstage([])}>
-            Unstage All Changes
+            {t('Unstage All Changes')}
           </PillButton>
         ) : null
       }
     >
       {staged.length === 0 ? (
-        <EmptyFiles text="Drag files here or use Stage to include them in the commit" />
+        <EmptyFiles text={t('Drag files here or use Stage to include them in the commit')} />
       ) : (
         <FileList
           files={staged}
@@ -419,7 +449,7 @@ export function WipPanel() {
                 unstage(stagedSel.has(f.path) && stagedSel.size > 1 ? [...stagedSel] : [f.path])
               }
             >
-              <Minus className="size-3" /> Unstage File
+              <Minus className="size-3" /> {t('Unstage File')}
             </PillButton>
           )}
         />
@@ -431,7 +461,7 @@ export function WipPanel() {
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
         <IconButton
-          label="Discard all changes"
+          label={t('Discard all changes')}
           disabled={st.unstaged.length === 0}
           onClick={() => discard(st.unstaged)}
           className="border border-danger/50"
@@ -439,10 +469,11 @@ export function WipPanel() {
           <Trash2 className="size-3.5 text-danger" />
         </IconButton>
         <span className="min-w-0 flex-1 truncate text-center">
-          {total} file change{total === 1 ? '' : 's'} on{' '}
+          {headerParts[0]}
           <span className="rounded bg-accent-soft px-1.5 py-0.5 font-medium text-accent">
-            {st.branch ?? 'detached HEAD'}
+            {st.branch ?? t('detached HEAD')}
           </span>
+          {headerParts[1]}
         </span>
       </div>
       <div className="flex h-10 shrink-0 items-center gap-2 px-2">
@@ -477,15 +508,17 @@ export function WipPanel() {
       >
         <div className="mb-2 flex items-center gap-1 border-b border-border">
           <span className="flex items-center gap-1.5 border-b-2 border-accent px-2 pb-1.5 font-medium">
-            <GitCommitHorizontal className="size-4" /> Commit
+            <GitCommitHorizontal className="size-4" /> {t('Commit')}
           </span>
-          <IconButton label="Stash changes" className="mb-1 ml-1" onClick={() => stash()}>
+          <IconButton label={t('Stash changes')} className="mb-1 ml-1" onClick={() => stash()}>
             <Archive className="size-3.5" />
           </IconButton>
         </div>
         {identity && (!identity.name || !identity.email) && (
           <div className="mb-2 rounded-md bg-warning-soft p-2 text-xs">
-            Git user name/email is not set. Set it in Preferences → Profile before committing.
+            {t(
+              'Git user name/email is not set. Set it in Preferences → Profile before committing.',
+            )}
           </div>
         )}
         <label className="mb-2 flex items-center gap-2">
@@ -495,17 +528,18 @@ export function WipPanel() {
             onChange={(e) => toggleAmend(e.target.checked)}
             className="accent-[var(--accent)]"
           />
-          Amend previous commit
+          {t('Amend previous commit')}
         </label>
-        <div className="flex min-h-0 flex-1 flex-col rounded-md border border-border bg-background focus-within:border-accent">
+        <div className="flex min-h-0 flex-1 flex-col rounded-md bg-background">
           <div className="flex items-center">
             <input
               className="h-9 min-w-0 flex-1 bg-transparent px-3 text-[14px] outline-none placeholder:text-muted-foreground"
-              placeholder="Commit summary"
+              id="commit-summary"
+              placeholder={t('Commit summary')}
               value={summary}
               onChange={(e) => setSummary(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && canCommit) void commit();
+                onCommitKey(e);
               }}
             />
             <span
@@ -513,18 +547,18 @@ export function WipPanel() {
                 'pr-3 text-xs tabular-nums',
                 SUMMARY_MAX - summary.length < 0 ? 'text-danger' : 'text-muted-foreground',
               )}
-              title="Characters left before the 72-character guideline"
+              title={t('Characters left before the 72-character guideline')}
             >
               {SUMMARY_MAX - summary.length}
             </span>
           </div>
           <textarea
             className="min-h-0 w-full flex-1 resize-none bg-transparent px-3 py-1 outline-none placeholder:text-muted-foreground"
-            placeholder="Description"
+            placeholder={t('Description')}
             value={body}
             onChange={(e) => setBody(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && canCommit) void commit();
+              onCommitKey(e);
             }}
           />
         </div>
@@ -534,9 +568,9 @@ export function WipPanel() {
           className="mt-2 flex items-center gap-1 self-start text-muted-foreground hover:text-foreground"
         >
           {optionsOpen ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
-          Commit options
+          {t('Commit options')}
           {!optionsOpen && pushAfter && (
-            <span className="ml-1 text-xs text-accent">· push after committing</span>
+            <span className="ml-1 text-xs text-accent">{t('· push after committing')}</span>
           )}
         </button>
         {optionsOpen && (
@@ -547,10 +581,10 @@ export function WipPanel() {
               onChange={(e) => setPushAfter(e.target.checked)}
               className="accent-[var(--accent)]"
             />
-            Push after committing
+            {t('Push after committing')}
             {!st.upstream && pushAfter && (
               <span className="text-xs text-muted-foreground">
-                (sets the upstream on first push)
+                {t('(sets the upstream on first push)')}
               </span>
             )}
           </label>
@@ -565,7 +599,7 @@ export function WipPanel() {
           onClick={commit}
           title="Ctrl+Enter"
         >
-          {busy === 'Commit' || busy === 'Push' ? (
+          {busy === 'Commit' || busy === 'Push' || busy === t('Commit') || busy === t('Push') ? (
             <Spinner />
           ) : (
             <GitCommitHorizontal className="size-4" />

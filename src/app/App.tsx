@@ -11,6 +11,8 @@ import { CommitPanel } from '@/features/panel/CommitPanel';
 import { WipPanel } from '@/features/panel/WipPanel';
 import { Preferences, type PrefSection } from '@/features/preferences/Preferences';
 import { Sidebar } from '@/features/sidebar/Sidebar';
+import { TerminalPanel } from '@/features/terminal/TerminalPanel';
+import { toggleTerminal } from '@/features/terminal/runtime';
 import { StatusBar, applyZoom, useZoom } from '@/features/toolbar/StatusBar';
 import { TabBar } from '@/features/toolbar/TabBar';
 import { Toolbar } from '@/features/toolbar/Toolbar';
@@ -22,6 +24,8 @@ import { useGitHub } from '@/stores/github';
 import { useRepo } from '@/stores/repo';
 import { useUi } from '@/stores/ui';
 import { useWorkspaces } from '@/stores/workspace';
+import { t, useLang, useLangStore } from '@/lib/i18n';
+import { LanguagePicker } from '@/features/preferences/LanguagePicker';
 import { api } from '@/lib/ipc';
 
 const STATE_LABEL = {
@@ -48,9 +52,11 @@ export function App() {
   const [prefs, setPrefs] = useState<PrefSection | null>(null);
   const [booted, setBooted] = useState(false);
   const [zoom, setZoom] = useZoom();
+  const lang = useLang();
+  const langChosen = useLangStore((s) => s.chosen);
   const [newWs, setNewWs] = useState(false);
-  const [sideW, setSideW] = usePersistentWidth('sidebar', 270, 180, 520);
-  const [panelW, setPanelW] = usePersistentWidth('panel', 380, 280, 760);
+  const [sideW, setSideW] = usePersistentWidth('sidebar', 300, 180, 520);
+  const [panelW, setPanelW] = usePersistentWidth('panel', 400, 280, 760);
   const ws = useWorkspaces((s) => s.active());
 
   useEffect(() => {
@@ -118,7 +124,10 @@ export function App() {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.ctrlKey || e.metaKey;
       const key = e.key.toLowerCase();
-      if (e.key === 'F5' || (mod && key === 'r')) {
+      if (mod && e.code === 'Backquote') {
+        e.preventDefault();
+        toggleTerminal();
+      } else if (e.key === 'F5' || (mod && key === 'r')) {
         e.preventDefault();
         void useRepo.getState().refresh();
       } else if (e.key === 'Escape' && useRepo.getState().diff && !useUi.getState().prompt) {
@@ -190,13 +199,15 @@ export function App() {
           <div className="flex shrink-0 items-center gap-3 border-b border-warning/40 bg-warning-soft px-4 py-2">
             <AlertTriangle className="size-4 text-warning" />
             <span className="flex-1">
-              <b>{STATE_LABEL[info.state]}.</b>{' '}
+              <b>{t(STATE_LABEL[info.state])}.</b>{' '}
               {info.status.conflicted.length > 0
-                ? `Resolve ${info.status.conflicted.length} conflicted file(s), stage them, then continue.`
-                : 'All conflicts resolved. Continue to finish.'}
+                ? t('Resolve {n} conflicted file(s), stage them, then continue.', {
+                    n: info.status.conflicted.length,
+                  })
+                : t('All conflicts resolved. Continue to finish.')}
             </span>
             <Button size="sm" onClick={() => A.abortOp()}>
-              Abort
+              {t('Abort')}
             </Button>
             <Button
               size="sm"
@@ -204,7 +215,7 @@ export function App() {
               disabled={info.status.conflicted.length > 0}
               onClick={() => A.continueOp()}
             >
-              Continue
+              {t('Continue')}
             </Button>
           </div>
         )}
@@ -214,11 +225,14 @@ export function App() {
             style={{ width: sideW }}
           >
             <Sidebar />
-            <ResizeHandle width={sideW} onResize={setSideW} onReset={() => setSideW(270)} />
+            <ResizeHandle width={sideW} onResize={setSideW} onReset={() => setSideW(300)} />
           </aside>
-          <main className="min-w-0 flex-1 bg-background">
-            {diff ? <DiffView /> : <CommitGraph />}
-          </main>
+          <div className="flex min-w-0 flex-1 flex-col">
+            <main className="min-h-0 min-w-0 flex-1 bg-background">
+              {diff ? <DiffView /> : <CommitGraph />}
+            </main>
+            <TerminalPanel />
+          </div>
           <aside
             className="relative shrink-0 border-l border-border bg-surface"
             style={{ width: panelW }}
@@ -227,7 +241,7 @@ export function App() {
               side="left"
               width={panelW}
               onResize={setPanelW}
-              onReset={() => setPanelW(380)}
+              onReset={() => setPanelW(400)}
             />
             {selection?.type === 'commit' ? <CommitPanel hash={selection.hash} /> : <WipPanel />}
           </aside>
@@ -236,8 +250,18 @@ export function App() {
     );
   }
 
+  if (!langChosen) {
+    return (
+      <>
+        <LanguagePicker />
+        <Toasts />
+      </>
+    );
+  }
+
   return (
-    <div className="flex h-full flex-col">
+    // Re-keyed on language change so every component re-renders its text.
+    <div key={lang} className="flex h-full flex-col">
       <TabBar
         onSignIn={() => setSignIn(true)}
         onSettings={() => setPrefs((p) => (p ? null : 'general'))}

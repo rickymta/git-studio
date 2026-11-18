@@ -10,6 +10,7 @@ import {
 import { useMemo, useState, type ReactNode } from 'react';
 
 import { ContextMenuWrap, Dropdown, cn, type MenuItem } from '@/components/ui';
+import { t } from '@/lib/i18n';
 import type { FileChange } from '@/lib/types';
 
 // ---- status marks -------------------------------------------------------------------------------
@@ -29,7 +30,7 @@ export function StatusMark({ status }: { status: string }) {
   const s = STATUS[status] ?? { mark: status, cls: '', title: status };
   return (
     <span
-      title={s.title}
+      title={t(s.title)}
       className={cn('w-4 shrink-0 text-center text-[13px] leading-none font-bold', s.cls)}
     >
       {s.mark}
@@ -84,7 +85,7 @@ export function ViewToggle({
           )}
         >
           {m === 'path' ? <List className="size-3.5" /> : <ListTree className="size-3.5" />}
-          {m === 'path' ? 'Path' : 'Tree'}
+          {m === 'path' ? t('Path') : t('Tree')}
         </button>
       ))}
     </div>
@@ -151,15 +152,15 @@ export function SortButton({
   return (
     <Dropdown
       items={(Object.keys(SORT_LABEL) as FileSort[]).map((k) => ({
-        label: SORT_LABEL[k],
+        label: t(SORT_LABEL[k]),
         icon: sort === k ? '✓' : undefined,
         onSelect: () => onChange(k),
       }))}
     >
       <button
         type="button"
-        title={`Sort files: ${SORT_LABEL[sort]}`}
-        aria-label="Sort files"
+        title={t('Sort files: {order}', { order: t(SORT_LABEL[sort]) })}
+        aria-label={t('Sort files')}
         className="flex size-7 items-center justify-center rounded text-muted-foreground hover:bg-surface-hover hover:text-foreground"
       >
         <ArrowDownUp className="size-4" />

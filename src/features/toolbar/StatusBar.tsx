@@ -1,6 +1,10 @@
-import { GitPullRequest, Minus, Plus, ZoomIn } from 'lucide-react';
+import { GitPullRequest, Keyboard, ListChecks, Minus, Plus, ZoomIn } from 'lucide-react';
+import { useState } from 'react';
 import { create } from 'zustand';
 
+import { GlobalShortcuts } from '@/features/shortcuts/GlobalShortcuts';
+import { ActivityWindow, ShortcutsWindow } from '@/features/shortcuts/Windows';
+import { t } from '@/lib/i18n';
 import { useGitHub } from '@/stores/github';
 import { useRepo } from '@/stores/repo';
 
@@ -40,6 +44,7 @@ export function applyZoom(z: number) {
 }
 
 export function StatusBar({ zoom, setZoom }: { zoom: number; setZoom: (z: number) => void }) {
+  const [win, setWindow] = useState<'activity' | 'shortcuts' | null>(null);
   const path = useRepo((s) => s.path);
   const refs = useRepo((s) => s.refs);
   const pulls = useGitHub((s) => s.pulls);
@@ -53,17 +58,43 @@ export function StatusBar({ zoom, setZoom }: { zoom: number; setZoom: (z: number
         <span className="flex items-center gap-1.5">
           <GitPullRequest className="size-3.5" />
           {!user
-            ? 'GitHub not connected'
+            ? t('GitHub not connected')
             : n === 0
-              ? 'No Pull Requests'
-              : `${n} Pull Request${n > 1 ? 's' : ''}`}
+              ? t('No Pull Requests')
+              : n === 1
+                ? t('{n} Pull Request', { n })
+                : t('{n} Pull Requests', { n })}
         </span>
       )}
       <span className="min-w-0 flex-1 truncate">{path ?? ''}</span>
+      <button
+        type="button"
+        title={`${t('Activity Logs')} (Ctrl+Shift+L)`}
+        aria-label={t('Activity Logs')}
+        onClick={() => setWindow('activity')}
+        className="flex h-full items-center px-1 hover:text-foreground"
+      >
+        <ListChecks className="size-3.5" />
+      </button>
+      <button
+        type="button"
+        title={`${t('Keyboard Shortcuts')} (Ctrl+/)`}
+        aria-label={t('Keyboard Shortcuts')}
+        onClick={() => setWindow('shortcuts')}
+        className="flex h-full items-center px-1 hover:text-foreground"
+      >
+        <Keyboard className="size-3.5" />
+      </button>
+      <GlobalShortcuts
+        onShortcuts={() => setWindow((w) => (w === 'shortcuts' ? null : 'shortcuts'))}
+        onActivity={() => setWindow((w) => (w === 'activity' ? null : 'activity'))}
+      />
+      <ShortcutsWindow open={win === 'shortcuts'} onClose={() => setWindow(null)} />
+      <ActivityWindow open={win === 'activity'} onClose={() => setWindow(null)} />
       <span className="flex items-center gap-1">
         <button
           type="button"
-          aria-label="Zoom out"
+          aria-label={t('Zoom out')}
           onClick={() => setZoom(zoom - 0.1)}
           className="hover:text-foreground"
         >
@@ -71,7 +102,7 @@ export function StatusBar({ zoom, setZoom }: { zoom: number; setZoom: (z: number
         </button>
         <button
           type="button"
-          title="Reset zoom (Ctrl+0)"
+          title={t('Reset zoom (Ctrl+0)')}
           onClick={() => setZoom(1)}
           className="flex items-center gap-1 hover:text-foreground"
         >
@@ -80,7 +111,7 @@ export function StatusBar({ zoom, setZoom }: { zoom: number; setZoom: (z: number
         </button>
         <button
           type="button"
-          aria-label="Zoom in"
+          aria-label={t('Zoom in')}
           onClick={() => setZoom(zoom + 0.1)}
           className="hover:text-foreground"
         >

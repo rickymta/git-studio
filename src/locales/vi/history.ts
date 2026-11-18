@@ -1,0 +1,163 @@
+// Vietnamese strings for the "history" group. Keys are the exact English source strings passed to t().
+export const history: Record<string, string> = {
+  // Commit context menu
+  'Pull (fast-forward if possible)': 'Pull (fast-forward nếu được)',
+  'Set Upstream': 'Đặt upstream',
+  'Checkout {name}': 'Checkout {name}',
+  'Checkout this commit (detached)': 'Checkout commit này (detached)',
+  'Create worktree from': 'Tạo worktree từ',
+  'New branch here…': 'Nhánh mới tại đây…',
+  'Start a pull request…': 'Tạo pull request…',
+  'Apply patch…': 'Áp dụng patch…',
+  'Rename {name}…': 'Đổi tên {name}…',
+  'Delete {name} and {remote}': 'Xoá {name} và {remote}',
+  'Copy link to this commit on remote': 'Sao chép liên kết tới commit này trên remote',
+  'Copy link to branch': 'Sao chép liên kết tới nhánh',
+  'Compare commit against working directory': 'So sánh commit với thư mục làm việc',
+  'Create annotated tag here': 'Tạo annotated tag tại đây',
+  'Create annotated tag': 'Tạo annotated tag',
+  Message: 'Nội dung',
+  Save: 'Lưu',
+
+  // Edit message / drop commit
+  'Edit commit message': 'Sửa nội dung commit',
+  'Rewrites {hash} and the commits after it. Avoid this on commits you already pushed.':
+    'Viết lại {hash} và các commit sau nó. Tránh làm vậy với commit bạn đã push.',
+  'Commit message updated': 'Đã cập nhật nội dung commit',
+  'Drop commit': 'Bỏ commit',
+  'Remove {hash} "{subject}" from the branch? This rewrites history: the commits after it are recreated and the changes it made are discarded from the branch.':
+    'Gỡ {hash} "{subject}" khỏi nhánh? Thao tác này viết lại lịch sử: các commit sau nó được tạo lại và những thay đổi của nó bị loại khỏi nhánh.',
+  'Dropped {hash}': 'Đã bỏ {hash}',
+  'Delete local branch {name} and {remote}? This affects everyone using the remote.':
+    'Xoá nhánh local {name} và {remote}? Việc này ảnh hưởng tới mọi người dùng remote.',
+  'Deleted {name} and {remote}': 'Đã xoá {name} và {remote}',
+
+  // Patches
+  'Choose a patch file': 'Chọn tệp patch',
+  'Apply patch': 'Áp dụng patch',
+  'Patch applied': 'Đã áp dụng patch',
+  'Create patch from commit': 'Tạo patch từ commit',
+  'Create patch': 'Tạo patch',
+  'Saves {hash} as a patch file (git format-patch).':
+    'Lưu {hash} thành tệp patch (git format-patch).',
+  'Save to': 'Lưu vào',
+  'Patch saved': 'Đã lưu patch',
+
+  // Links
+  'No GitHub or GitLab remote to link to': 'Không có remote GitHub hay GitLab để tạo liên kết',
+  'Link copied': 'Đã sao chép liên kết',
+
+  // Compare
+  'Comparing {hash} ↔ working directory': 'Đang so sánh {hash} ↔ thư mục làm việc',
+  'Stop comparing': 'Dừng so sánh',
+  'Changes since this commit': 'Thay đổi kể từ commit này',
+  'The working directory matches this commit.': 'Thư mục làm việc giống hệt commit này.',
+  'Could not compare with the working directory': 'Không thể so sánh với thư mục làm việc',
+
+  // Worktrees
+  Worktrees: 'Worktree',
+  'Worktree actions': 'Thao tác worktree',
+  'New worktree…': 'Worktree mới…',
+  'Prune stale worktrees': 'Dọn worktree cũ',
+  'Prune worktrees': 'Dọn worktree',
+  'Pruned stale worktrees': 'Đã dọn các worktree cũ',
+  'Create worktree': 'Tạo worktree',
+  Folder: 'Thư mục',
+  'A new folder; leave empty to use the suggested one.':
+    'Một thư mục mới; để trống để dùng thư mục được gợi ý.',
+  'Choose the parent folder in a dialog': 'Chọn thư mục cha bằng hộp thoại',
+  'The worktree folder is created inside the folder you pick.':
+    'Thư mục worktree sẽ được tạo bên trong thư mục bạn chọn.',
+  'Choose the parent folder for the worktree': 'Chọn thư mục cha cho worktree',
+  'New branch name': 'Tên nhánh mới',
+  'Only used for a new branch.': 'Chỉ dùng khi tạo nhánh mới.',
+  'New branch from HEAD': 'Nhánh mới từ HEAD',
+  'Checks out {name} in a separate folder.': 'Checkout {name} trong một thư mục riêng.',
+  'Creates a new branch at {ref} and checks it out in a separate folder.':
+    'Tạo nhánh mới tại {ref} và checkout nó trong một thư mục riêng.',
+  'Checks out a branch in a separate folder, so you can work on two branches at once.':
+    'Checkout một nhánh trong thư mục riêng để bạn làm việc trên hai nhánh cùng lúc.',
+  'Enter a name for the new branch': 'Hãy nhập tên cho nhánh mới',
+  'Created worktree {path}': 'Đã tạo worktree {path}',
+  'Open worktree': 'Mở worktree',
+  'Open {path} in a new tab?': 'Mở {path} trong tab mới?',
+  'Open in new tab': 'Mở trong tab mới',
+  'Remove worktree': 'Gỡ worktree',
+  'Remove the worktree at {path}? Its folder is deleted; the branch is kept.':
+    'Gỡ worktree tại {path}? Thư mục của nó sẽ bị xoá; nhánh vẫn được giữ.',
+  'Removed worktree {path}': 'Đã gỡ worktree {path}',
+  'Worktree has changes': 'Worktree có thay đổi',
+  '{path} has uncommitted changes or is locked. Remove it anyway? Those changes are lost.':
+    '{path} có thay đổi chưa commit hoặc đang bị khoá. Vẫn gỡ? Các thay đổi đó sẽ mất.',
+  'Force remove': 'Buộc gỡ',
+  'Lock worktree': 'Khoá worktree',
+  'Unlock worktree': 'Mở khoá worktree',
+  Lock: 'Khoá',
+  Unlock: 'Mở khoá',
+  'Copy path': 'Sao chép đường dẫn',
+  'Could not open a terminal': 'Không thể mở terminal',
+  bare: 'bare',
+  current: 'hiện tại',
+  main: 'chính',
+  locked: 'đã khoá',
+  prunable: 'có thể dọn',
+
+  // Credentials (global)
+  Credentials: 'Thông tin đăng nhập',
+  'Credential Helper': 'Credential helper',
+  'credential.helper in your global Git config: where git keeps usernames and passwords for HTTPS remotes.':
+    'credential.helper trong cấu hình Git toàn cục: nơi git lưu tên người dùng và mật khẩu cho các remote HTTPS.',
+  'Git Credential Manager': 'Git Credential Manager',
+  'Windows Credential Store': 'Kho thông tin đăng nhập Windows',
+  'Plain-text store (~/.git-credentials)': 'Lưu dạng văn bản thường (~/.git-credentials)',
+  'Not set': 'Chưa đặt',
+  'The plain-text store saves passwords unencrypted in your home folder.':
+    'Kiểu lưu văn bản thường giữ mật khẩu không mã hoá trong thư mục người dùng của bạn.',
+  'Stored Credentials': 'Thông tin đăng nhập đã lưu',
+  'Hosts of the open repository’s HTTPS remotes plus GitHub and GitLab. Passwords are never shown.':
+    'Các host của remote HTTPS trong repository đang mở, cùng GitHub và GitLab. Mật khẩu không bao giờ được hiển thị.',
+  'No HTTPS hosts found.': 'Không tìm thấy host HTTPS nào.',
+  'Used by {remotes}': 'Dùng bởi {remotes}',
+  'Stored for {username}': 'Đã lưu cho {username}',
+  Stored: 'Đã lưu',
+  'Not stored': 'Chưa lưu',
+  'Save credentials…': 'Lưu thông tin đăng nhập…',
+  'Save credentials for {host}': 'Lưu thông tin đăng nhập cho {host}',
+  'Saved through the credential helper selected above, so git uses them for every repository on {host}. For GitHub and GitLab use a personal access token as the password.':
+    'Được lưu qua credential helper đã chọn ở trên, nên git dùng chúng cho mọi repository trên {host}. Với GitHub và GitLab, hãy dùng personal access token làm mật khẩu.',
+  Username: 'Tên người dùng',
+  'Password or token': 'Mật khẩu hoặc token',
+  'Saved credentials for {host}': 'Đã lưu thông tin đăng nhập cho {host}',
+  'Could not save credentials': 'Không thể lưu thông tin đăng nhập',
+  'Remove credentials': 'Gỡ thông tin đăng nhập',
+  'Remove the stored credentials for {host}? Git asks for them again the next time it needs them.':
+    'Gỡ thông tin đăng nhập đã lưu cho {host}? Git sẽ hỏi lại vào lần tới cần dùng.',
+  'Removed credentials for {host}': 'Đã gỡ thông tin đăng nhập cho {host}',
+  'Could not remove credentials': 'Không thể gỡ thông tin đăng nhập',
+  'Could not read stored credentials': 'Không thể đọc thông tin đăng nhập đã lưu',
+
+  // Repository-specific preferences
+  'Repository Preferences': 'Tuỳ chọn repository',
+  'Settings for {name} only, saved in its .git/config.':
+    'Thiết lập chỉ cho {name}, lưu trong .git/config của nó.',
+  'Could not read the repository config': 'Không thể đọc cấu hình của repository',
+  'Commit Identity': 'Danh tính commit',
+  'Global identity: {name} <{email}>': 'Danh tính toàn cục: {name} <{email}>',
+  '(no name)': '(chưa có tên)',
+  'no email': 'chưa có email',
+  'Use a different identity for this repository': 'Dùng danh tính khác cho repository này',
+  'user.name for this repository.': 'user.name cho repository này.',
+  'user.email for this repository.': 'user.email cho repository này.',
+  'Credential Helper (this repository)': 'Credential helper (repository này)',
+  'credential.helper for this repository only.': 'credential.helper chỉ cho repository này.',
+  'Line Endings (this repository)': 'Ký tự xuống dòng (repository này)',
+  'core.autocrlf for this repository only.': 'core.autocrlf chỉ cho repository này.',
+  'commit.gpgsign for this repository only. Requires a signing key already configured for git.':
+    'commit.gpgsign chỉ cho repository này. Cần có sẵn khoá ký đã cấu hình cho git.',
+  'Inherit global ({value})': 'Theo cấu hình toàn cục ({value})',
+  'Inherit global (not set)': 'Theo cấu hình toàn cục (chưa đặt)',
+  on: 'bật',
+  off: 'tắt',
+  On: 'Bật',
+  Off: 'Tắt',
+};

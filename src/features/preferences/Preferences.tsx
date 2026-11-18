@@ -5,35 +5,49 @@ import {
   Copy,
   Download,
   ExternalLink,
+  FolderGit2,
   KeyRound,
   Plug,
   RefreshCw,
   Settings as SettingsIcon,
   ShieldCheck,
-  Trash2,
   User,
   Wrench,
 } from 'lucide-react';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
 import { Avatar, Button, Github, Input, Spinner, cn } from '@/components/ui';
+import { GitLabConnectOptions, GitLabIcon } from '@/features/gitlab/GitLab';
 import { GitKrakenImport } from '@/features/welcome/Welcome';
 import { useViewMode } from '@/features/panel/FileList';
 import { useZoom } from '@/features/toolbar/StatusBar';
+import { LANGUAGES, t, useLang, useLangStore } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import { copyText, openUrl, pickFile, pickFolder } from '@/lib/native';
 import type { GitHubSshKey, LocalKey, Settings, SshInfo, SshTestResult } from '@/lib/types';
 import { useGitHub } from '@/stores/github';
+import { ensureGitLabChecked, useGitLab } from '@/stores/gitlab';
+import { CredentialsPrefs } from './Credentials';
+import { RepoPrefs } from './RepoPrefs';
 import { useRepo } from '@/stores/repo';
 import { confirm, toast, useUi } from '@/stores/ui';
 
 export type PrefSection =
-  'general' | 'profile' | 'ssh' | 'integrations' | 'ui' | 'tools' | 'import';
+  | 'general'
+  | 'profile'
+  | 'ssh'
+  | 'credentials'
+  | 'integrations'
+  | 'ui'
+  | 'tools'
+  | 'import'
+  | 'repo';
 
 const SECTIONS: { id: PrefSection; label: string; icon: ReactNode }[] = [
   { id: 'general', label: 'General', icon: <SettingsIcon className="size-[18px]" /> },
   { id: 'profile', label: 'Profile', icon: <User className="size-[18px]" /> },
   { id: 'ssh', label: 'SSH', icon: <ShieldCheck className="size-[18px]" /> },
+  { id: 'credentials', label: 'Credentials', icon: <KeyRound className="size-[18px]" /> },
   { id: 'integrations', label: 'Integrations', icon: <Plug className="size-[18px]" /> },
   { id: 'ui', label: 'UI Customization', icon: <Brush className="size-[18px]" /> },
   { id: 'tools', label: 'External Tools', icon: <Wrench className="size-[18px]" /> },
@@ -53,6 +67,8 @@ export function Preferences({
   onSignIn: () => void;
 }) {
   const user = useGitHub((s) => s.user);
+  const repoPath = useRepo((s) => s.path);
+  const repoName = useRepo((s) => s.info?.name);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -70,9 +86,9 @@ export function Preferences({
           onClick={onExit}
           className="flex h-12 items-center gap-2 px-4 text-[17px] font-medium hover:bg-surface-hover"
         >
-          <ArrowLeft className="size-5" /> Exit Preferences
+          <ArrowLeft className="size-5" /> {t('Exit Preferences')}
         </button>
-        <div className="px-4 pt-2 pb-1 text-xs text-muted-foreground">Account</div>
+        <div className="px-4 pt-2 pb-1 text-xs text-muted-foreground">{t('Account')}</div>
         <div className="mx-2 flex items-center gap-2.5 rounded-md bg-surface-muted px-2.5 py-2">
           {user ? (
             <>
@@ -83,12 +99,12 @@ export function Preferences({
             <>
               <Github className="size-5 text-muted-foreground" />
               <button type="button" className="text-accent hover:underline" onClick={onSignIn}>
-                Connect GitHub
+                {t('Connect GitHub')}
               </button>
             </>
           )}
         </div>
-        <div className="px-4 pt-4 pb-1 text-xs text-muted-foreground">Preferences</div>
+        <div className="px-4 pt-4 pb-1 text-xs text-muted-foreground">{t('Preferences')}</div>
         {SECTIONS.map((s) => (
           <button
             key={s.id}
@@ -102,21 +118,43 @@ export function Preferences({
             )}
           >
             {s.icon}
-            {s.label}
+            {t(s.label)}
           </button>
         ))}
+        {repoPath && (
+          <>
+            <div className="px-4 pt-4 pb-1 text-xs text-muted-foreground">
+              {t('Repo-Specific Preferences')}
+            </div>
+            <button
+              type="button"
+              onClick={() => onSection('repo')}
+              className={cn(
+                'flex h-11 items-center gap-3 px-5 text-left text-[16px]',
+                section === 'repo'
+                  ? 'bg-accent-soft text-foreground'
+                  : 'text-muted-foreground hover:bg-surface-hover hover:text-foreground',
+              )}
+            >
+              <FolderGit2 className="size-[18px]" />
+              <span className="truncate">{t('Repo: {name}', { name: repoName ?? '' })}</span>
+            </button>
+          </>
+        )}
       </nav>
       <div className="min-w-0 flex-1 overflow-auto">
         <div className="max-w-4xl px-14 py-8">
           {section === 'general' && <General />}
           {section === 'profile' && <Profile />}
           {section === 'ssh' && <Ssh />}
+          {section === 'credentials' && <CredentialsPrefs />}
+          {section === 'repo' && repoPath && <RepoPrefs repo={repoPath} />}
           {section === 'integrations' && <Integrations onSignIn={onSignIn} />}
           {section === 'ui' && <UiPrefs />}
           {section === 'tools' && <Tools />}
           {section === 'import' && (
             <>
-              <Title>Import</Title>
+              <Title>{t('Import')}</Title>
               <Row label="GitKraken Desktop">
                 <GitKrakenImport compact />
                 <ImportFallback />
@@ -252,7 +290,7 @@ function useSettings(): [Settings | null, (patch: Partial<Settings>) => Promise<
       try {
         setSettings(await api.saveSettings(next));
       } catch (e) {
-        toast('error', 'Could not save preferences', (e as Error).message);
+        toast('error', t('Could not save preferences'), (e as Error).message);
       }
     },
     [setSettings],
@@ -274,7 +312,7 @@ function useGitConfig(keys: string[]) {
       await api.setGitConfig(key, value);
       setValues((v) => ({ ...(v ?? {}), [key]: value ?? '' }));
     } catch (e) {
-      toast('error', `Could not set ${key}`, (e as Error).message);
+      toast('error', t('Could not set {key}', { key }), (e as Error).message);
     }
   };
   return [values, set] as const;
@@ -290,15 +328,17 @@ function General() {
     api
       .gitVersion()
       .then(setVersion)
-      .catch(() => setVersion('Git was not found on PATH'));
+      .catch(() => setVersion(t('Git was not found on PATH')));
   }, []);
   if (!s) return null;
   return (
     <>
-      <Title>General</Title>
+      <Title>{t('General')}</Title>
       <Row
-        label="Auto-Fetch Interval"
-        help="In minutes, between 0 and 60 (0 disables auto-fetch). Fetches the remotes of the open repository in the background."
+        label={t('Auto-Fetch Interval')}
+        help={t(
+          'In minutes, between 0 and 60 (0 disables auto-fetch). Fetches the remotes of the open repository in the background.',
+        )}
       >
         <Field
           value={String(s.autoFetchMinutes)}
@@ -306,35 +346,38 @@ function General() {
         />
       </Row>
       <Row
-        label="Auto-Prune"
-        help="Remove remote-tracking branches that were deleted on the remote when fetching."
+        label={t('Auto-Prune')}
+        help={t('Remove remote-tracking branches that were deleted on the remote when fetching.')}
       >
         <Toggle checked={s.autoPrune} onChange={(v) => update({ autoPrune: v })} />
       </Row>
-      <Row label="Default Branch Name" help="Initial branch name when creating new repositories.">
+      <Row
+        label={t('Default Branch Name')}
+        help={t('Initial branch name when creating new repositories.')}
+      >
         <Field
           value={s.defaultBranch}
           onSave={(v) => update({ defaultBranch: v.trim() || 'main' })}
         />
       </Row>
       <Row
-        label="Pull Strategy"
-        help="What the Pull button does when your branch and its upstream have both changed."
+        label={t('Pull Strategy')}
+        help={t('What the Pull button does when your branch and its upstream have both changed.')}
       >
         <Select
           value={s.pullMode}
           onChange={(v) => update({ pullMode: v })}
           options={[
-            { value: 'merge', label: 'Merge (fast-forward if possible)' },
-            { value: 'rebase', label: 'Rebase' },
-            { value: 'ff-only', label: 'Fast-forward only' },
+            { value: 'merge', label: t('Merge (fast-forward if possible)') },
+            { value: 'rebase', label: t('Rebase') },
+            { value: 'ff-only', label: t('Fast-forward only') },
           ]}
         />
       </Row>
       <Row
-        label="Initial Commits in Graph"
-        help="Minimum 500. More commits load when you scroll to the end of the graph."
-        warn="Increasing this value may slow down large repositories."
+        label={t('Initial Commits in Graph')}
+        help={t('Minimum 500. More commits load when you scroll to the end of the graph.')}
+        warn={t('Increasing this value may slow down large repositories.')}
       >
         <Field
           value={String(s.initialCommits)}
@@ -343,31 +386,35 @@ function General() {
           }
         />
       </Row>
-      <Row label="Remember Tabs" help="Reopen the repository tabs of your last session.">
+      <Row label={t('Remember Tabs')} help={t('Reopen the repository tabs of your last session.')}>
         <Toggle checked={s.rememberTabs} onChange={(v) => update({ rememberTabs: v })} />
       </Row>
-      <Row label="Default Clone Folder">
+      <Row label={t('Default Clone Folder')}>
         <div className="flex gap-1">
           <Field value={s.cloneDir} onSave={(v) => update({ cloneDir: v })} className="w-[420px]" />
           <Button
             onClick={async () => {
-              const p = await pickFolder('Default clone folder', s.cloneDir);
+              const p = await pickFolder(t('Default clone folder'), s.cloneDir);
               if (p) await update({ cloneDir: p });
             }}
           >
-            Browse
+            {t('Browse')}
           </Button>
         </div>
       </Row>
       <Row
-        label="Git Executable"
-        help="GitStudio runs the git found on PATH, so hooks, credential helpers and LFS behave as in your terminal."
+        label={t('Git Executable')}
+        help={t(
+          'GitStudio runs the git found on PATH, so hooks, credential helpers and LFS behave as in your terminal.',
+        )}
       >
         <div className="pt-1.5 font-mono text-[13px]">{version || '…'}</div>
       </Row>
       <Row
-        label="Longpaths"
-        help="Sets core.longpaths in your global Git config. Windows only supports paths under 260 characters without it."
+        label={t('Longpaths')}
+        help={t(
+          'Sets core.longpaths in your global Git config. Windows only supports paths under 260 characters without it.',
+        )}
       >
         {git && (
           <Toggle
@@ -376,16 +423,16 @@ function General() {
           />
         )}
       </Row>
-      <Row label="Line Endings" help="core.autocrlf in your global Git config.">
+      <Row label={t('Line Endings')} help={t('core.autocrlf in your global Git config.')}>
         {git && (
           <Select
             value={(git['core.autocrlf'] || 'unset') as string}
             onChange={(v) => setGit('core.autocrlf', v === 'unset' ? null : v)}
             options={[
-              { value: 'unset', label: 'Not set (Git default)' },
-              { value: 'true', label: 'true — CRLF in working tree, LF in repo' },
-              { value: 'input', label: 'input — convert CRLF to LF on commit' },
-              { value: 'false', label: 'false — never convert' },
+              { value: 'unset', label: t('Not set (Git default)') },
+              { value: 'true', label: t('true — CRLF in working tree, LF in repo') },
+              { value: 'input', label: t('input — convert CRLF to LF on commit') },
+              { value: 'false', label: t('false — never convert') },
             ]}
           />
         )}
@@ -399,16 +446,21 @@ function Profile() {
   if (!git) return <Spinner />;
   return (
     <>
-      <Title>Profile</Title>
-      <Row label="Author Name" help="user.name in your global Git config; used for every commit.">
+      <Title>{t('Profile')}</Title>
+      <Row
+        label={t('Author Name')}
+        help={t('user.name in your global Git config; used for every commit.')}
+      >
         <Field
           value={git['user.name'] ?? ''}
           onSave={(v) => setGit('user.name', v.trim() || null)}
         />
       </Row>
       <Row
-        label="Author Email"
-        help="user.email in your global Git config. Use an email GitHub knows so commits link to your account."
+        label={t('Author Email')}
+        help={t(
+          'user.email in your global Git config. Use an email GitHub knows so commits link to your account.',
+        )}
       >
         <Field
           value={git['user.email'] ?? ''}
@@ -416,8 +468,10 @@ function Profile() {
         />
       </Row>
       <Row
-        label="Sign Commits"
-        help="commit.gpgsign in your global Git config. Requires a signing key already configured for git."
+        label={t('Sign Commits')}
+        help={t(
+          'commit.gpgsign in your global Git config. Requires a signing key already configured for git.',
+        )}
       >
         <Toggle
           checked={git['commit.gpgsign'] === 'true'}
@@ -442,7 +496,7 @@ function Ssh() {
     api
       .sshInfo()
       .then(setInfo)
-      .catch((e) => toast('error', 'Could not read SSH settings', (e as Error).message));
+      .catch((e) => toast('error', t('Could not read SSH settings'), (e as Error).message));
   }, []);
   useEffect(reload, [reload]);
 
@@ -453,7 +507,7 @@ function Ssh() {
       setInfo(await api.saveSsh({ ...s, ...patch }));
       setTest(null);
     } catch (e) {
-      toast('error', 'Could not save SSH settings', (e as Error).message);
+      toast('error', t('Could not save SSH settings'), (e as Error).message);
     }
   };
   const chooseKey = (k: LocalKey) =>
@@ -476,10 +530,10 @@ function Ssh() {
       const k = await api.sshGenerate(gen.name, gen.comment || user?.login || '', gen.passphrase);
       await chooseKey(k);
       reload();
-      toast('success', `Generated ${k.name}`, k.publicPath);
+      toast('success', t('Generated {name}', { name: k.name }), k.publicPath);
       setGen((g) => ({ ...g, passphrase: '' }));
     } catch (e) {
-      toast('error', 'Could not generate key', (e as Error).message);
+      toast('error', t('Could not generate key'), (e as Error).message);
     } finally {
       setGenerating(false);
     }
@@ -490,7 +544,10 @@ function Ssh() {
   return (
     <>
       <Title>SSH</Title>
-      <Row label="Authentication" help={info.sshVersion ? `Using ${info.sshVersion}` : undefined}>
+      <Row
+        label={t('Authentication')}
+        help={info.sshVersion ? t('Using {version}', { version: info.sshVersion }) : undefined}
+      >
         <div className="flex flex-col gap-2 pt-1">
           <label className="flex items-start gap-2">
             <input
@@ -500,10 +557,11 @@ function Ssh() {
               className="mt-0.5 accent-[var(--accent)]"
             />
             <span>
-              Use local SSH setup
+              {t('Use local SSH setup')}
               <span className="block text-xs text-muted-foreground">
-                ~/.ssh/config, default keys and ssh-agent — exactly what `git` in a terminal uses.
-                Best for passphrase-protected keys loaded in an agent.
+                {t(
+                  '~/.ssh/config, default keys and ssh-agent — exactly what `git` in a terminal uses. Best for passphrase-protected keys loaded in an agent.',
+                )}
               </span>
             </span>
           </label>
@@ -515,9 +573,9 @@ function Ssh() {
               className="mt-0.5 accent-[var(--accent)]"
             />
             <span>
-              Use a specific key
+              {t('Use a specific key')}
               <span className="block text-xs text-muted-foreground">
-                GitStudio passes this key to git for every SSH remote.
+                {t('GitStudio passes this key to git for every SSH remote.')}
               </span>
             </span>
           </label>
@@ -526,28 +584,28 @@ function Ssh() {
 
       {s.mode === 'key' && (
         <>
-          <Row label="SSH Private Key">
+          <Row label={t('SSH Private Key')}>
             <PathField
               value={s.privateKey}
               onPick={async () => {
-                const p = await pickFile('SSH private key', s.privateKey || info.sshDir);
+                const p = await pickFile(t('SSH private key'), s.privateKey || info.sshDir);
                 if (p) await save({ privateKey: p, publicKey: `${p}.pub` });
               }}
               onSave={(v) => save({ privateKey: v })}
             />
           </Row>
-          <Row label="SSH Public Key">
+          <Row label={t('SSH Public Key')}>
             <PathField
               value={s.publicKey}
               onPick={async () => {
-                const p = await pickFile('SSH public key', s.publicKey || info.sshDir);
+                const p = await pickFile(t('SSH public key'), s.publicKey || info.sshDir);
                 if (p) await save({ publicKey: p });
               }}
               onSave={(v) => save({ publicKey: v })}
             />
           </Row>
           {current && (
-            <Row label="Public Key">
+            <Row label={t('Public Key')}>
               <KeyCard k={current} />
             </Row>
           )}
@@ -555,16 +613,20 @@ function Ssh() {
       )}
 
       <Row
-        label="Test Connection"
-        help="Connects to git@github.com with the settings above. Accepts GitHub's host key on first use."
+        label={t('Test Connection')}
+        help={t(
+          "Connects to git@github.com with the settings above. Accepts GitHub's host key on first use.",
+        )}
       >
         <div className="flex items-center gap-3">
           <Button onClick={runTest} disabled={testing}>
-            {testing ? <Spinner /> : <RefreshCw className="size-4" />} Test GitHub SSH
+            {testing ? <Spinner /> : <RefreshCw className="size-4" />} {t('Test GitHub SSH')}
           </Button>
           {test && (
             <span className={cn('text-[13px]', test.ok ? 'text-success' : 'text-danger')}>
-              {test.ok ? `✓ Authenticated as ${test.user}` : '✕ Not authenticated'}
+              {test.ok
+                ? `✓ ${t('Authenticated as {user}', { user: test.user ?? '' })}`
+                : `✕ ${t('Not authenticated')}`}
             </span>
           )}
         </div>
@@ -576,16 +638,16 @@ function Ssh() {
       </Row>
 
       <Row
-        label="Remote URLs"
-        help="Use SSH instead of HTTPS URLs when cloning or adding GitHub repositories."
+        label={t('Remote URLs')}
+        help={t('Use SSH instead of HTTPS URLs when cloning or adding GitHub repositories.')}
       >
         <Toggle checked={preferSsh} onChange={(v) => update({ preferSsh: v })} />
       </Row>
 
-      <Row label="Keys in ~/.ssh" help={info.sshDir}>
+      <Row label={t('Keys in ~/.ssh')} help={info.sshDir}>
         <div className="flex flex-col gap-2">
           {info.keys.length === 0 && (
-            <span className="pt-1.5 text-muted-foreground">No keys found.</span>
+            <span className="pt-1.5 text-muted-foreground">{t('No keys found.')}</span>
           )}
           {info.keys.map((k) => {
             const active =
@@ -611,18 +673,18 @@ function Ssh() {
                   size="sm"
                   variant="ghost"
                   onClick={() =>
-                    copyText(k.publicKey).then(() => toast('success', 'Public key copied'))
+                    copyText(k.publicKey).then(() => toast('success', t('Public key copied')))
                   }
                 >
-                  <Copy className="size-3.5" /> Copy
+                  <Copy className="size-3.5" /> {t('Copy')}
                 </Button>
                 {active ? (
                   <span className="flex items-center gap-1 text-xs text-accent">
-                    <Check className="size-3.5" /> In use
+                    <Check className="size-3.5" /> {t('In use')}
                   </span>
                 ) : (
                   <Button size="sm" disabled={!k.privatePath} onClick={() => chooseKey(k)}>
-                    Use
+                    {t('Use')}
                   </Button>
                 )}
               </div>
@@ -632,34 +694,38 @@ function Ssh() {
       </Row>
 
       <Row
-        label="Generate New Key"
-        help="Creates an ed25519 key pair in ~/.ssh and switches GitStudio to it. Then add the public key to GitHub (Integrations or the button on the key)."
+        label={t('Generate New Key')}
+        help={t(
+          'Creates an ed25519 key pair in ~/.ssh and switches GitStudio to it. Then add the public key to GitHub (Integrations or the button on the key).',
+        )}
       >
         <div className="grid w-[420px] grid-cols-[110px_1fr] items-center gap-2">
-          <span className="text-xs text-muted-foreground">File name</span>
+          <span className="text-xs text-muted-foreground">{t('File name')}</span>
           <Input
             value={gen.name}
             onChange={(e) => setGen({ ...gen, name: e.target.value })}
             spellCheck={false}
           />
-          <span className="text-xs text-muted-foreground">Comment</span>
+          <span className="text-xs text-muted-foreground">{t('Comment')}</span>
           <Input
             value={gen.comment}
             placeholder={user?.login ?? 'you@example.com'}
             onChange={(e) => setGen({ ...gen, comment: e.target.value })}
           />
-          <span className="text-xs text-muted-foreground">Passphrase</span>
+          <span className="text-xs text-muted-foreground">{t('Passphrase')}</span>
           <Input
             type="password"
             value={gen.passphrase}
-            placeholder="Optional"
+            placeholder={t('Optional')}
             onChange={(e) => setGen({ ...gen, passphrase: e.target.value })}
           />
         </div>
         {gen.passphrase && (
           <div className="mt-1.5 text-xs text-warning">
-            ⚠ GitStudio cannot type a passphrase for git. Load the key into ssh-agent and use the
-            local SSH setup.
+            ⚠{' '}
+            {t(
+              'GitStudio cannot type a passphrase for git. Load the key into ssh-agent and use the local SSH setup.',
+            )}
           </div>
         )}
         <Button
@@ -668,7 +734,7 @@ function Ssh() {
           onClick={generate}
           disabled={generating || !gen.name.trim()}
         >
-          {generating && <Spinner />} Generate key
+          {generating && <Spinner />} {t('Generate key')}
         </Button>
       </Row>
     </>
@@ -689,12 +755,12 @@ function PathField({
 }) {
   return (
     <div className="flex gap-1">
-      <Button onClick={onPick}>Browse</Button>
+      <Button onClick={onPick}>{t('Browse')}</Button>
       <Field
         value={value}
         onSave={onSave}
         className="w-[460px] font-mono text-xs"
-        placeholder="Not set"
+        placeholder={t('Not set')}
       />
     </div>
   );
@@ -712,9 +778,9 @@ function KeyCard({ k }: { k: LocalKey }) {
       <div className="mt-2 flex gap-2">
         <Button
           size="sm"
-          onClick={() => copyText(k.publicKey).then(() => toast('success', 'Public key copied'))}
+          onClick={() => copyText(k.publicKey).then(() => toast('success', t('Public key copied')))}
         >
-          <Copy className="size-3.5" /> Copy public key
+          <Copy className="size-3.5" /> {t('Copy public key')}
         </Button>
         {user && (
           <Button
@@ -725,15 +791,15 @@ function KeyCard({ k }: { k: LocalKey }) {
               try {
                 const title = `GitStudio · ${k.comment || k.name}`;
                 await api.ghAddKey(title, k.publicKey);
-                toast('success', 'Key added to GitHub', title);
+                toast('success', t('Key added to GitHub'), title);
               } catch (e) {
-                toast('error', 'Could not add the key to GitHub', (e as Error).message);
+                toast('error', t('Could not add the key to GitHub'), (e as Error).message);
               } finally {
                 setAdding(false);
               }
             }}
           >
-            {adding ? <Spinner /> : <Github className="size-3.5" />} Add to GitHub
+            {adding ? <Spinner /> : <Github className="size-3.5" />} {t('Add to GitHub')}
           </Button>
         )}
       </div>
@@ -741,7 +807,119 @@ function KeyCard({ k }: { k: LocalKey }) {
   );
 }
 
+type Provider = 'github' | 'gitlab';
+
+const DANGER_OUTLINE =
+  'inline-flex h-7 shrink-0 items-center rounded-md border border-danger px-2.5 text-xs font-medium whitespace-nowrap text-danger hover:bg-danger-soft disabled:opacity-50';
+
+/** Sizes an element to fill the scrolling preferences pane (escaping its max-width wrapper). */
+function useFillPane() {
+  const [el, setEl] = useState<HTMLDivElement | null>(null);
+  const [size, setSize] = useState<{ width: number; minHeight: number } | null>(null);
+  useEffect(() => {
+    const pane = el?.parentElement?.parentElement;
+    if (!pane) return;
+    const measure = () => setSize({ width: pane.clientWidth, minHeight: pane.clientHeight });
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(pane);
+    return () => ro.disconnect();
+  }, [el]);
+  return [setEl, size ?? undefined] as const;
+}
+
 function Integrations({ onSignIn }: { onSignIn: () => void }) {
+  const [provider, setProvider] = useState<Provider>('github');
+  const [fillRef, fillStyle] = useFillPane();
+  const items: { id: Provider; label: string; icon: ReactNode }[] = [
+    { id: 'github', label: 'GitHub', icon: <Github className="size-[18px]" /> },
+    { id: 'gitlab', label: 'GitLab', icon: <GitLabIcon className="size-[18px]" /> },
+  ];
+
+  return (
+    <div ref={fillRef} style={fillStyle} className="-mx-14 -my-8 flex">
+      <nav className="flex w-[250px] shrink-0 flex-col border-r border-border bg-surface py-4">
+        <div className="px-5 pb-2 text-xs text-muted-foreground">{t('Integrations')}</div>
+        {items.map((it) => (
+          <button
+            key={it.id}
+            type="button"
+            onClick={() => setProvider(it.id)}
+            className={cn(
+              'flex h-10 items-center gap-3 px-5 text-left text-[15px]',
+              provider === it.id
+                ? 'bg-accent-soft text-foreground'
+                : 'text-muted-foreground hover:bg-surface-hover hover:text-foreground',
+            )}
+          >
+            {it.icon}
+            {it.label}
+          </button>
+        ))}
+      </nav>
+      <div className="min-w-0 flex-1 px-10 py-8">
+        {provider === 'github' ? <GitHubIntegration onSignIn={onSignIn} /> : <GitLabIntegration />}
+      </div>
+    </div>
+  );
+}
+
+const ProviderTitle = ({ children }: { children: ReactNode }) => (
+  <h1 className="mb-6 text-[24px] font-semibold">{children}</h1>
+);
+
+/** Connected account card: avatar + login · “Connected” · Disconnect. */
+function AccountCard({
+  login,
+  name,
+  avatarUrl,
+  htmlUrl,
+  onDisconnect,
+}: {
+  login: string;
+  name: string | null;
+  avatarUrl: string;
+  htmlUrl: string;
+  onDisconnect: () => void;
+}) {
+  return (
+    <div className="mb-8 flex w-[500px] max-w-full items-center gap-4 rounded-lg border border-border bg-surface px-4 py-3">
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <Avatar name={login} url={avatarUrl} size={36} />
+        <div className="min-w-0">
+          <div className="truncate font-medium">{name ?? login}</div>
+          <button
+            type="button"
+            className="text-xs text-accent hover:underline"
+            onClick={() => openUrl(htmlUrl)}
+          >
+            @{login}
+          </button>
+        </div>
+      </div>
+      <span className="flex shrink-0 items-center gap-1 font-medium text-success">
+        <Check className="size-4" /> {t('Connected')}
+      </span>
+      <div className="flex flex-1 justify-end">
+        <button type="button" className={DANGER_OUTLINE} onClick={onDisconnect}>
+          {t('Disconnect')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Not-connected card: a short line and the connect options, centred. */
+function ConnectCard({ text, children }: { text: string; children: ReactNode }) {
+  return (
+    <div className="mb-8 flex w-[500px] max-w-full flex-col items-center gap-4 rounded-lg border border-border bg-surface px-6 py-6 text-center">
+      <div className="text-muted-foreground">{text}</div>
+      {children}
+    </div>
+  );
+}
+
+function GitHubIntegration({ onSignIn }: { onSignIn: () => void }) {
   const { user, signOut, check } = useGitHub();
   const [, update] = useSettings();
   const clientId = useRepo((s) => s.settings?.githubClientId ?? '');
@@ -772,9 +950,9 @@ function Integrations({ onSignIn }: { onSignIn: () => void }) {
     try {
       const u = await api.ghImportToken(source);
       useGitHub.getState().setUser(u);
-      toast('success', `Connected to GitHub as ${u.login}`);
+      toast('success', t('Connected to GitHub as {login}', { login: u.login }));
     } catch (e) {
-      toast('error', 'Could not reuse existing credentials', (e as Error).message);
+      toast('error', t('Could not reuse existing credentials'), (e as Error).message);
     }
   };
 
@@ -785,58 +963,40 @@ function Integrations({ onSignIn }: { onSignIn: () => void }) {
 
   return (
     <>
-      <Title>Integrations</Title>
-      <div className="mb-6 flex items-center gap-3 border-b border-border pb-4">
-        <Github className="size-7" />
-        <h2 className="text-[20px] font-semibold">GitHub</h2>
-      </div>
-
+      <ProviderTitle>GitHub</ProviderTitle>
       {user ? (
         <>
-          <Row label="Account">
-            <div className="flex items-center gap-3">
-              <Avatar name={user.login} url={user.avatarUrl} size={40} />
-              <div className="min-w-0">
-                <div className="font-medium">{user.name ?? user.login}</div>
-                <button
-                  type="button"
-                  className="text-xs text-accent hover:underline"
-                  onClick={() => openUrl(user.htmlUrl)}
-                >
-                  @{user.login}
-                </button>
-              </div>
-              <Button
-                className="ml-6"
-                variant="ghost"
-                onClick={async () => {
-                  if (
-                    await confirm(
-                      'Disconnect GitHub',
-                      'Remove the stored GitHub token from this computer?',
-                      'Disconnect',
-                      true,
-                    )
-                  ) {
-                    await signOut();
-                    setKeys(null);
-                  }
-                }}
-              >
-                Disconnect
-              </Button>
-            </div>
-          </Row>
+          <AccountCard
+            login={user.login}
+            name={user.name}
+            avatarUrl={user.avatarUrl}
+            htmlUrl={user.htmlUrl}
+            onDisconnect={async () => {
+              if (
+                await confirm(
+                  t('Disconnect GitHub'),
+                  t('Remove the stored GitHub token from this computer?'),
+                  t('Disconnect'),
+                  true,
+                )
+              ) {
+                await signOut();
+                setKeys(null);
+              }
+            }}
+          />
           <Row
-            label="Token Permissions"
+            label={t('Token Permissions')}
             help={
               scopes === null || scopes === undefined
-                ? 'Fine-grained token: permissions are set per repository on GitHub.'
+                ? t('Fine-grained token: permissions are set per repository on GitHub.')
                 : undefined
             }
             warn={
               !canManageKeys
-                ? 'This token cannot manage SSH keys (admin:public_key). Reconnect with a token that has it to add keys from GitStudio.'
+                ? t(
+                    'This token cannot manage SSH keys (admin:public_key). Reconnect with a token that has it to add keys from GitStudio.',
+                  )
                 : undefined
             }
           >
@@ -847,20 +1007,22 @@ function Integrations({ onSignIn }: { onSignIn: () => void }) {
                 </span>
               ))}
               <Button size="sm" variant="ghost" onClick={() => check()}>
-                <RefreshCw className="size-3.5" /> Recheck
+                <RefreshCw className="size-3.5" /> {t('Recheck')}
               </Button>
             </div>
           </Row>
           <Row
-            label="SSH Keys on GitHub"
-            help="Keys marked “this computer” match a key in your ~/.ssh folder."
+            label={t('SSH Key')}
+            help={t('Keys marked “this computer” match a key in your ~/.ssh folder.')}
           >
             {keysError && (
               <div className="mb-2 text-xs whitespace-pre-wrap text-danger">{keysError}</div>
             )}
             {!keys && !keysError && <Spinner />}
             {keys && keys.length === 0 && (
-              <div className="pt-1.5 text-muted-foreground">No SSH keys on your account.</div>
+              <div className="pt-1.5 text-muted-foreground">
+                {t('No SSH keys on your account.')}
+              </div>
             )}
             <div className="flex flex-col gap-2">
               {keys?.map((k) => {
@@ -872,27 +1034,37 @@ function Integrations({ onSignIn }: { onSignIn: () => void }) {
                   >
                     <KeyRound className="size-4 shrink-0 text-muted-foreground" />
                     <div className="min-w-0 flex-1">
-                      <div className="font-medium">{k.title}</div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium">{k.title}</span>
+                        {mine && (
+                          <span className="rounded bg-accent-soft px-2 py-0.5 text-xs text-accent">
+                            {t('this computer')} · {mine}
+                          </span>
+                        )}
+                      </div>
+                      {k.createdAt && (
+                        <div className="text-xs text-muted-foreground">
+                          {t('added {date}', {
+                            date: new Date(k.createdAt).toLocaleDateString(),
+                          })}
+                        </div>
+                      )}
                       <div className="truncate font-mono text-xs text-muted-foreground">
                         {k.key.split(' ')[0]} …{k.key.split(' ')[1]?.slice(-16)}
-                        {k.createdAt && ` · added ${new Date(k.createdAt).toLocaleDateString()}`}
                       </div>
                     </div>
-                    {mine && (
-                      <span className="rounded bg-accent-soft px-2 py-0.5 text-xs text-accent">
-                        this computer · {mine}
-                      </span>
-                    )}
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      aria-label={`Delete ${k.title}`}
+                    <button
+                      type="button"
+                      className={DANGER_OUTLINE}
                       onClick={async () => {
                         if (
                           !(await confirm(
-                            'Delete SSH key',
-                            `Delete “${k.title}” from your GitHub account? Machines using it will lose SSH access.`,
-                            'Delete',
+                            t('Delete SSH key'),
+                            t(
+                              'Delete “{title}” from your GitHub account? Machines using it will lose SSH access.',
+                              { title: k.title },
+                            ),
+                            t('Delete'),
                             true,
                           ))
                         )
@@ -901,12 +1073,12 @@ function Integrations({ onSignIn }: { onSignIn: () => void }) {
                           await api.ghDeleteKey(k.id);
                           loadKeys();
                         } catch (e) {
-                          toast('error', 'Could not delete key', (e as Error).message);
+                          toast('error', t('Could not delete key'), (e as Error).message);
                         }
                       }}
                     >
-                      <Trash2 className="size-3.5 text-danger" />
-                    </Button>
+                      {t('Remove and Delete')}
+                    </button>
                   </div>
                 );
               })}
@@ -922,36 +1094,38 @@ function Integrations({ onSignIn }: { onSignIn: () => void }) {
           </Row>
         </>
       ) : (
-        <Row
-          label="Connect"
-          help="The token is stored in the Windows Credential Manager and used for GitHub API calls and HTTPS git operations."
+        <ConnectCard
+          text={t(
+            'The token is stored in the Windows Credential Manager and used for GitHub API calls and HTTPS git operations.',
+          )}
         >
-          <div className="flex w-[460px] flex-col gap-2">
+          <div className="flex w-full max-w-[420px] flex-col gap-2">
             <Button variant="primary" className="h-10 justify-start" onClick={onSignIn}>
-              <Github className="size-4" /> Sign in with browser or token…
+              <Github className="size-4" /> {t('Sign in with browser or token…')}
             </Button>
             <Button className="h-10 justify-start" onClick={() => importFrom('gh')}>
-              <KeyRound className="size-4" /> Use GitHub CLI login (gh)
+              <KeyRound className="size-4" /> {t('Use GitHub CLI login (gh)')}
             </Button>
             <Button className="h-10 justify-start" onClick={() => importFrom('git')}>
-              <KeyRound className="size-4" /> Use Git Credential Manager login
+              <KeyRound className="size-4" /> {t('Use Git Credential Manager login')}
             </Button>
           </div>
-        </Row>
+        </ConnectCard>
       )}
 
       <Row
-        label="OAuth App Client ID"
+        label={t('OAuth App Client ID')}
         help={
           <>
-            Needed only for “Sign in with browser”. Create an OAuth App on GitHub (Settings →
-            Developer settings → OAuth Apps), tick “Enable Device Flow”, and paste its Client ID.{' '}
+            {t(
+              'Needed only for “Sign in with browser”. Create an OAuth App on GitHub (Settings → Developer settings → OAuth Apps), tick “Enable Device Flow”, and paste its Client ID.',
+            )}{' '}
             <button
               type="button"
               className="text-accent hover:underline"
               onClick={() => openUrl('https://github.com/settings/applications/new')}
             >
-              Create one <ExternalLink className="inline size-3" />
+              {t('Create one')} <ExternalLink className="inline size-3" />
             </button>
           </>
         }
@@ -966,12 +1140,60 @@ function Integrations({ onSignIn }: { onSignIn: () => void }) {
   );
 }
 
+function GitLabIntegration() {
+  const user = useGitLab((s) => s.user);
+  const checked = useGitLab((s) => s.checked);
+  useEffect(() => ensureGitLabChecked(), []);
+
+  return (
+    <>
+      <ProviderTitle>GitLab</ProviderTitle>
+      {!checked ? (
+        <Spinner />
+      ) : user ? (
+        <AccountCard
+          login={user.login}
+          name={user.name}
+          avatarUrl={user.avatarUrl}
+          htmlUrl={user.htmlUrl}
+          onDisconnect={async () => {
+            if (
+              await confirm(
+                t('Disconnect GitLab'),
+                t('Remove the stored GitLab token from this computer?'),
+                t('Disconnect'),
+                true,
+              )
+            ) {
+              try {
+                await useGitLab.getState().signOut();
+              } catch (e) {
+                toast('error', t('Could not disconnect GitLab'), (e as Error).message);
+              }
+            }
+          }}
+        />
+      ) : (
+        <ConnectCard
+          text={t(
+            'Connect GitLab.com to browse and clone your projects. The token is stored in the Windows Credential Manager.',
+          )}
+        >
+          <div className="flex w-full justify-center text-left">
+            <GitLabConnectOptions />
+          </div>
+        </ConnectCard>
+      )}
+    </>
+  );
+}
+
 function AddLocalKey({ keys, onAdded }: { keys: LocalKey[]; onAdded: () => void }) {
   const [busy, setBusy] = useState<string | null>(null);
   if (keys.length === 0) return null;
   return (
     <div className="mt-3 flex flex-wrap items-center gap-2">
-      <span className="text-xs text-muted-foreground">Add a key from this computer:</span>
+      <span className="text-xs text-muted-foreground">{t('Add a key from this computer:')}</span>
       {keys.map((k) => (
         <Button
           key={k.publicPath}
@@ -981,10 +1203,10 @@ function AddLocalKey({ keys, onAdded }: { keys: LocalKey[]; onAdded: () => void 
             setBusy(k.name);
             try {
               await api.ghAddKey(`GitStudio · ${k.comment || k.name}`, k.publicKey);
-              toast('success', `Added ${k.name} to GitHub`);
+              toast('success', t('Added {name} to GitHub', { name: k.name }));
               onAdded();
             } catch (e) {
-              toast('error', 'Could not add the key to GitHub', (e as Error).message);
+              toast('error', t('Could not add the key to GitHub'), (e as Error).message);
             } finally {
               setBusy(null);
             }
@@ -998,24 +1220,36 @@ function AddLocalKey({ keys, onAdded }: { keys: LocalKey[]; onAdded: () => void 
 }
 
 function UiPrefs() {
+  const lang = useLang();
+  const setLang = useLangStore((s) => s.setLang);
   const theme = useUi((s) => s.theme);
   const toggleTheme = useUi((s) => s.toggleTheme);
   const [zoom, setZoom] = useZoom();
   const [view, setView] = useViewMode();
   return (
     <>
-      <Title>UI Customization</Title>
-      <Row label="Theme">
+      <Title>{t('UI Customization')}</Title>
+      <Row label={t('Language')} help="Ngôn ngữ giao diện · Interface language">
+        <Select
+          value={lang}
+          onChange={setLang}
+          options={LANGUAGES.map((l) => ({
+            value: l.id,
+            label: l.native === l.label ? l.native : `${l.native} (${l.label})`,
+          }))}
+        />
+      </Row>
+      <Row label={t('Theme')}>
         <Select
           value={theme}
           onChange={(v) => v !== theme && toggleTheme()}
           options={[
-            { value: 'dark', label: 'Dark' },
-            { value: 'light', label: 'Light' },
+            { value: 'dark', label: t('Dark') },
+            { value: 'light', label: t('Light') },
           ]}
         />
       </Row>
-      <Row label="Zoom" help="Ctrl + / Ctrl − / Ctrl 0 anywhere in the app.">
+      <Row label={t('Zoom')} help={t('Ctrl + / Ctrl − / Ctrl 0 anywhere in the app.')}>
         <Select
           value={String(zoom)}
           onChange={(v) => setZoom(Number(v))}
@@ -1025,13 +1259,13 @@ function UiPrefs() {
           }))}
         />
       </Row>
-      <Row label="File List" help="How changed files are listed in the right panel.">
+      <Row label={t('File List')} help={t('How changed files are listed in the right panel.')}>
         <Select
           value={view}
           onChange={setView}
           options={[
-            { value: 'path', label: 'Path — full path on one line' },
-            { value: 'tree', label: 'Tree — grouped by folder' },
+            { value: 'path', label: t('Path — full path on one line') },
+            { value: 'tree', label: t('Tree — grouped by folder') },
           ]}
         />
       </Row>
@@ -1044,10 +1278,12 @@ function Tools() {
   if (!s) return null;
   return (
     <>
-      <Title>External Tools</Title>
+      <Title>{t('External Tools')}</Title>
       <Row
-        label="External Editor"
-        help="Command that opens a file or folder, e.g. code, cursor, subl, idea64. Used by “Open in editor”."
+        label={t('External Editor')}
+        help={t(
+          'Command that opens a file or folder, e.g. code, cursor, subl, idea64. Used by “Open in editor”.',
+        )}
       >
         <Field
           value={s.externalEditor}
@@ -1055,15 +1291,18 @@ function Tools() {
           placeholder="code"
         />
       </Row>
-      <Row label="Terminal" help="Opened by the Terminal button in the toolbar and in workspaces.">
+      <Row
+        label={t('Terminal')}
+        help={t('Opened by the Terminal button in the toolbar and in workspaces.')}
+      >
         <Select
           value={s.terminal}
           onChange={(v) => update({ terminal: v })}
           options={[
-            { value: 'auto', label: 'Automatic (Windows Terminal, else Command Prompt)' },
+            { value: 'auto', label: t('Automatic (Windows Terminal, else Command Prompt)') },
             { value: 'wt', label: 'Windows Terminal' },
             { value: 'powershell', label: 'PowerShell' },
-            { value: 'cmd', label: 'Command Prompt' },
+            { value: 'cmd', label: t('Command Prompt') },
             { value: 'gitbash', label: 'Git Bash' },
           ]}
         />
@@ -1083,7 +1322,7 @@ function ImportFallback() {
   if (found !== false) return null;
   return (
     <div className="pt-1.5 text-muted-foreground">
-      GitKraken Desktop was not found on this computer.
+      {t('GitKraken Desktop was not found on this computer.')}
     </div>
   );
 }
