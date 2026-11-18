@@ -1,14 +1,17 @@
-import { Check, Minus, Plus, Undo2 } from 'lucide-react';
+import { Check, GitCommitHorizontal, Minus, Plus, Trash2, Undo2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import { Button, IconButton, SectionTitle, Spinner, Textarea } from '@/components/ui';
+import { Button, IconButton, Spinner, Textarea, cn } from '@/components/ui';
+import { joinPath } from '@/lib/format';
 import { api } from '@/lib/ipc';
 import { copyText, revealPath } from '@/lib/native';
 import type { FileChange } from '@/lib/types';
 import { useRepo } from '@/stores/repo';
-import { confirm, toast } from '@/stores/ui';
-import { joinPath } from '@/lib/format';
-import { FileRow } from './FileList';
+import { confirm } from '@/stores/ui';
+import { commitChanges } from '../actions';
+import { EmptyFiles, FileList, FilesSection, ViewToggle, useViewMode } from './FileList';
+
+const SUMMARY_MAX = 72;
 
 export function WipPanel() {
   const info = useRepo((s) => s.info);
@@ -17,6 +20,7 @@ export function WipPanel() {
   const run = useRepo((s) => s.run);
   const busy = useRepo((s) => s.busy);
   const path = useRepo((s) => s.path)!;
+  const [mode, setMode] = useViewMode();
   const [summary, setSummary] = useState('');
   const [body, setBody] = useState('');
   const [amend, setAmend] = useState(false);
@@ -31,11 +35,12 @@ export function WipPanel() {
 
   if (!info) return null;
   const st = info.status;
+  const total = st.staged.length + st.unstaged.length + st.conflicted.length;
 
-  const isActive = (f: FileChange, source: 'staged' | 'unstaged') =>
+  const isActive = (source: 'staged' | 'unstaged') => (f: FileChange) =>
     diff?.request.source === source && diff.request.path === f.path;
 
-  const show = (f: FileChange, source: 'staged' | 'unstaged') =>
+  const show = (source: 'staged' | 'unstaged') => (f: FileChange) =>
     openDiff({ source, path: f.path, origPath: f.origPath, untracked: f.status === '?' });
 
   const discard = async (files: FileChange[]) => {
@@ -77,205 +82,193 @@ export function WipPanel() {
     !!summary.trim() && (st.staged.length > 0 || amend) && st.conflicted.length === 0;
 
   const commit = async () => {
-    const ok = await run('Commit', (p) => api.commitChanges(p, message, amend));
-    if (ok) {
+    if (await commitChanges(message, amend)) {
       setSummary('');
       setBody('');
       setAmend(false);
-      toast('success', amend ? 'Commit amended' : 'Committed');
     }
   };
 
-  const fileMenu = (f: FileChange) => () => [
-    { label: 'Copy path', onSelect: () => copyText(f.path) },
+  const stage = (paths: string[]) => run('Stage', (p) => api.stage(p, paths));
+  const unstage = (paths: string[]) => run('Unstage', (p) => api.unstage(p, paths));
+  const common = (f: FileChange) => [
+    { label: 'Copy file path', onSelect: () => copyText(f.path) },
     { label: 'Open file', onSelect: () => revealPath(joinPath(path, f.path)) },
   ];
 
+  let commitLabel = 'Stage Changes to Commit';
+  if (st.conflicted.length > 0) commitLabel = 'Resolve conflicts to commit';
+  else if (amend) commitLabel = 'Amend Previous Commit';
+  else if (st.staged.length > 0 && !summary.trim()) commitLabel = 'Type a Commit Summary';
+  else if (st.staged.length > 0)
+    commitLabel = `Commit Changes to ${st.staged.length} File${st.staged.length > 1 ? 's' : ''}`;
+
   return (
     <div className="flex h-full min-h-0 flex-col">
+      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
+        {total > 0 && (
+          <IconButton label="Discard all changes" onClick={() => discard(st.unstaged)}>
+            <Trash2 className="size-4 text-danger" />
+          </IconButton>
+        )}
+        <span className="min-w-0 flex-1 truncate">
+          {total} file change{total === 1 ? '' : 's'} on{' '}
+          <span className="rounded bg-accent-soft px-1.5 py-0.5 font-medium text-accent">
+            {st.branch ?? 'detached HEAD'}
+          </span>
+        </span>
+      </div>
+      <div className="flex h-10 shrink-0 items-center justify-end px-3">
+        <ViewToggle mode={mode} onChange={setMode} />
+      </div>
+
       <div className="min-h-0 flex-1 overflow-auto">
         {st.conflicted.length > 0 && (
-          <>
-            <SectionTitle>
-              <span className="text-danger">Conflicts ({st.conflicted.length})</span>
-            </SectionTitle>
-            {st.conflicted.map((f) => (
-              <FileRow
-                key={'c' + f.path}
-                file={f}
-                active={isActive(f, 'unstaged')}
-                onClick={() => openDiff({ source: 'unstaged', path: f.path })}
-                menu={() => [
-                  {
-                    label: 'Take ours (current branch)',
-                    onSelect: () => run('Resolve', (p) => api.resolve(p, [f.path], 'ours')),
-                  },
-                  {
-                    label: 'Take theirs (incoming)',
-                    onSelect: () => run('Resolve', (p) => api.resolve(p, [f.path], 'theirs')),
-                  },
-                  {
-                    label: 'Mark as resolved (stage)',
-                    onSelect: () => run('Stage', (p) => api.stage(p, [f.path])),
-                  },
-                  'sep',
-                  { label: 'Open file', onSelect: () => revealPath(joinPath(path, f.path)) },
-                ]}
-                actions={
-                  <IconButton
-                    label="Mark resolved"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void run('Stage', (p) => api.stage(p, [f.path]));
-                    }}
-                  >
-                    <Check className="size-3.5" />
-                  </IconButton>
-                }
-              />
-            ))}
-          </>
+          <FilesSection title="Conflicted Files" count={st.conflicted.length} tone="danger">
+            <FileList
+              files={st.conflicted}
+              mode={mode}
+              isActive={isActive('unstaged')}
+              onOpen={(f) => openDiff({ source: 'unstaged', path: f.path })}
+              menu={(f) => [
+                {
+                  label: 'Take ours (current branch)',
+                  onSelect: () => run('Resolve', (p) => api.resolve(p, [f.path], 'ours')),
+                },
+                {
+                  label: 'Take theirs (incoming)',
+                  onSelect: () => run('Resolve', (p) => api.resolve(p, [f.path], 'theirs')),
+                },
+                { label: 'Mark as resolved', onSelect: () => stage([f.path]) },
+                'sep',
+                ...common(f),
+              ]}
+              actions={(f) => (
+                <IconButton
+                  label="Mark resolved"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void stage([f.path]);
+                  }}
+                >
+                  <Check className="size-3.5" />
+                </IconButton>
+              )}
+            />
+          </FilesSection>
         )}
 
-        <SectionTitle
+        <FilesSection
+          title="Unstaged Files"
+          count={st.unstaged.length}
           right={
             st.unstaged.length > 0 && (
-              <>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-6 normal-case"
-                  onClick={() => discard(st.unstaged)}
-                >
-                  Discard all
-                </Button>
-                <Button
-                  size="sm"
-                  className="h-6 normal-case"
-                  onClick={() => run('Stage all', (p) => api.stage(p, []))}
-                >
-                  Stage all
-                </Button>
-              </>
+              <button
+                type="button"
+                onClick={() => stage([])}
+                className="h-6 rounded border border-success/60 bg-success-soft px-2 text-xs font-medium text-success hover:brightness-110"
+              >
+                Stage All Changes
+              </button>
             )
           }
         >
-          Unstaged ({st.unstaged.length})
-        </SectionTitle>
-        {st.unstaged.map((f) => (
-          <FileRow
-            key={'u' + f.path}
-            file={f}
-            active={isActive(f, 'unstaged')}
-            onClick={() => show(f, 'unstaged')}
-            menu={() => [
-              { label: 'Stage', onSelect: () => run('Stage', (p) => api.stage(p, [f.path])) },
-              { label: 'Discard changes', danger: true, onSelect: () => discard([f]) },
-              'sep',
-              ...fileMenu(f)(),
-            ]}
-            actions={
-              <>
-                <IconButton
-                  label="Discard"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void discard([f]);
-                  }}
-                >
-                  <Undo2 className="size-3.5" />
-                </IconButton>
-                <IconButton
-                  label="Stage"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void run('Stage', (p) => api.stage(p, [f.path]));
-                  }}
-                >
-                  <Plus className="size-3.5" />
-                </IconButton>
-              </>
-            }
-          />
-        ))}
+          {st.unstaged.length === 0 ? (
+            <EmptyFiles text="No unstaged changes" />
+          ) : (
+            <FileList
+              files={st.unstaged}
+              mode={mode}
+              isActive={isActive('unstaged')}
+              onOpen={show('unstaged')}
+              menu={(f) => [
+                { label: 'Stage file', onSelect: () => stage([f.path]) },
+                { label: 'Discard changes', danger: true, onSelect: () => discard([f]) },
+                'sep',
+                ...common(f),
+              ]}
+              actions={(f) => (
+                <>
+                  <IconButton
+                    label="Discard"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void discard([f]);
+                    }}
+                  >
+                    <Undo2 className="size-3.5" />
+                  </IconButton>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void stage([f.path]);
+                    }}
+                    className="flex h-5 items-center gap-0.5 rounded bg-success-soft px-1.5 text-xs text-success"
+                  >
+                    <Plus className="size-3" /> Stage
+                  </button>
+                </>
+              )}
+            />
+          )}
+        </FilesSection>
 
-        <SectionTitle
+        <FilesSection
+          title="Staged Files"
+          count={st.staged.length}
           right={
             st.staged.length > 0 && (
-              <Button
-                size="sm"
-                className="h-6 normal-case"
-                onClick={() => run('Unstage all', (p) => api.unstage(p, []))}
+              <button
+                type="button"
+                onClick={() => unstage([])}
+                className="h-6 rounded border border-danger/60 bg-danger-soft px-2 text-xs font-medium text-danger hover:brightness-110"
               >
-                Unstage all
-              </Button>
+                Unstage All Changes
+              </button>
             )
           }
         >
-          Staged ({st.staged.length})
-        </SectionTitle>
-        {st.staged.map((f) => (
-          <FileRow
-            key={'s' + f.path}
-            file={f}
-            active={isActive(f, 'staged')}
-            onClick={() => show(f, 'staged')}
-            menu={() => [
-              { label: 'Unstage', onSelect: () => run('Unstage', (p) => api.unstage(p, [f.path])) },
-              'sep',
-              ...fileMenu(f)(),
-            ]}
-            actions={
-              <IconButton
-                label="Unstage"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void run('Unstage', (p) => api.unstage(p, [f.path]));
-                }}
-              >
-                <Minus className="size-3.5" />
-              </IconButton>
-            }
-          />
-        ))}
-        {st.staged.length + st.unstaged.length + st.conflicted.length === 0 && (
-          <div className="px-4 py-6 text-center text-muted-foreground">Working tree clean.</div>
-        )}
+          {st.staged.length === 0 ? (
+            <EmptyFiles text="Stage files to include them in the commit" />
+          ) : (
+            <FileList
+              files={st.staged}
+              mode={mode}
+              isActive={isActive('staged')}
+              onOpen={show('staged')}
+              menu={(f) => [
+                { label: 'Unstage file', onSelect: () => unstage([f.path]) },
+                'sep',
+                ...common(f),
+              ]}
+              actions={(f) => (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void unstage([f.path]);
+                  }}
+                  className="flex h-5 items-center gap-0.5 rounded bg-danger-soft px-1.5 text-xs text-danger"
+                >
+                  <Minus className="size-3" /> Unstage
+                </button>
+              )}
+            />
+          )}
+        </FilesSection>
       </div>
 
       <div className="shrink-0 border-t border-border p-3">
+        <div className="mb-2 flex items-center gap-1.5 font-medium">
+          <GitCommitHorizontal className="size-4" /> Commit
+        </div>
         {identity && (!identity.name || !identity.email) && (
           <div className="mb-2 rounded-md bg-warning-soft p-2 text-xs">
             Git user name/email is not set. Set it in Settings before committing.
           </div>
         )}
-        <div className="relative">
-          <input
-            className="h-8 w-full rounded-md border border-border bg-background px-2.5 pr-10 outline-none placeholder:text-muted-foreground focus:border-accent"
-            placeholder="Summary"
-            value={summary}
-            onChange={(e) => setSummary(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && canCommit) void commit();
-            }}
-          />
-          <span
-            className={`absolute top-2 right-2 text-xs ${summary.length > 72 ? 'text-warning' : 'text-muted-foreground'}`}
-          >
-            {summary.length}
-          </span>
-        </div>
-        <Textarea
-          className="mt-2"
-          rows={4}
-          placeholder="Description (optional)"
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && canCommit) void commit();
-          }}
-        />
-        <label className="mt-2 flex items-center gap-2 text-xs">
+        <label className="mb-2 flex items-center gap-2">
           <input
             type="checkbox"
             checked={amend}
@@ -284,22 +277,51 @@ export function WipPanel() {
           />
           Amend previous commit
         </label>
+        <div className="rounded-md border border-border bg-background focus-within:border-accent">
+          <div className="flex items-center">
+            <input
+              className="h-9 min-w-0 flex-1 bg-transparent px-3 text-[14px] outline-none placeholder:text-muted-foreground"
+              placeholder="Commit summary"
+              value={summary}
+              onChange={(e) => setSummary(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && canCommit) void commit();
+              }}
+            />
+            <span
+              className={cn(
+                'pr-3 text-xs tabular-nums',
+                SUMMARY_MAX - summary.length < 0 ? 'text-danger' : 'text-muted-foreground',
+              )}
+              title="Characters left before the 72-character guideline"
+            >
+              {SUMMARY_MAX - summary.length}
+            </span>
+          </div>
+          <Textarea
+            className="rounded-none border-0 border-t border-border bg-transparent focus:border-border"
+            rows={4}
+            placeholder="Description"
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && canCommit) void commit();
+            }}
+          />
+        </div>
         <Button
-          variant="primary"
-          className="mt-2 h-9 w-full"
+          variant={canCommit ? 'primary' : 'ghost'}
+          className={cn(
+            'mt-2 h-9 w-full',
+            !canCommit && 'border border-success/40 bg-success-soft text-success',
+          )}
           disabled={!canCommit || !!busy}
           onClick={commit}
         >
           {busy === 'Commit' && <Spinner />}
-          {amend
-            ? 'Amend commit'
-            : st.staged.length > 0
-              ? `Commit ${st.staged.length} file${st.staged.length > 1 ? 's' : ''}`
-              : 'Stage files to commit'}
+          <GitCommitHorizontal className="size-4" />
+          {commitLabel}
         </Button>
-        <div className="mt-1 text-center text-[11px] text-muted-foreground">
-          Ctrl+Enter to commit
-        </div>
       </div>
     </div>
   );

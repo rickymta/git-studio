@@ -1,6 +1,6 @@
 import { ContextMenu, Dialog, DropdownMenu } from 'radix-ui';
 import { Loader2, X } from 'lucide-react';
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import { useCallback, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
 
 import { hue, initials } from '@/lib/format';
 
@@ -160,7 +160,11 @@ export function ContextMenuWrap({
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>{children}</ContextMenu.Trigger>
       <ContextMenu.Portal>
-        <ContextMenu.Content className={contentCls}>
+        <ContextMenu.Content
+          className={contentCls}
+          // Menu items often open a dialog; don't pull focus back to the trigger over it.
+          onCloseAutoFocus={(e) => e.preventDefault()}
+        >
           {renderItems(items(), ContextMenu)}
         </ContextMenu.Content>
       </ContextMenu.Portal>
@@ -173,7 +177,12 @@ export function Dropdown({ items, children }: { items: MenuItem[]; children: Rea
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>{children}</DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <DropdownMenu.Content align="start" sideOffset={4} className={contentCls}>
+        <DropdownMenu.Content
+          align="start"
+          sideOffset={4}
+          className={contentCls}
+          onCloseAutoFocus={(e) => e.preventDefault()}
+        >
           {renderItems(items, DropdownMenu)}
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
@@ -206,6 +215,20 @@ export function Modal({
           className="fixed top-1/2 left-1/2 z-50 max-h-[85vh] -translate-x-1/2 -translate-y-1/2 overflow-auto rounded-lg border border-border bg-surface p-5 shadow-2xl"
           style={{ width: `min(${width}px, calc(100vw - 32px))` }}
           aria-describedby={undefined}
+          // Radix focuses the first tabbable element (the close button). Prefer an element marked
+          // data-autofocus, then the first text field.
+          onOpenAutoFocus={(e) => {
+            const root = e.currentTarget as HTMLElement;
+            const el =
+              root.querySelector<HTMLElement>('[data-autofocus]') ??
+              root.querySelector<HTMLElement>(
+                'input:not([type=checkbox]):not([type=radio]):not([disabled]), textarea:not([disabled])',
+              );
+            if (el) {
+              e.preventDefault();
+              el.focus();
+            }
+          }}
         >
           <div className="mb-3 flex items-start gap-2">
             <div className="min-w-0 flex-1">
@@ -244,5 +267,89 @@ export function Github({ className }: { className?: string }) {
     <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" className={className}>
       <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
     </svg>
+  );
+}
+
+// ---- resizable widths ---------------------------------------------------------------------------
+
+/** A width in px persisted in localStorage, clamped to [min, max]. */
+export function usePersistentWidth(
+  key: string,
+  initial: number,
+  min: number,
+  max: number,
+): [number, (w: number) => void] {
+  const [w, setW] = useState(() => {
+    try {
+      const v = Number(localStorage.getItem(`gitstudio.width.${key}`));
+      return v >= min && v <= max ? v : initial;
+    } catch {
+      return initial;
+    }
+  });
+  const set = useCallback(
+    (v: number) => {
+      const c = Math.round(Math.min(max, Math.max(min, v)));
+      setW(c);
+      try {
+        localStorage.setItem(`gitstudio.width.${key}`, String(c));
+      } catch {
+        /* ignore */
+      }
+    },
+    [key, min, max],
+  );
+  return [w, set];
+}
+
+/**
+ * Drag handle on the edge of a column or panel. `side="left"` sits on the left edge (dragging
+ * left makes the element wider), for panels docked on the right.
+ */
+export function ResizeHandle({
+  width,
+  onResize,
+  side = 'right',
+  onReset,
+  className,
+}: {
+  width: number;
+  onResize: (w: number) => void;
+  side?: 'left' | 'right';
+  onReset?: () => void;
+  className?: string;
+}) {
+  const start = (e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const x0 = e.clientX;
+    const w0 = width;
+    const move = (ev: PointerEvent) => {
+      const dx = ev.clientX - x0;
+      onResize(side === 'right' ? w0 + dx : w0 - dx);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      document.body.style.cursor = '';
+    };
+    document.body.style.cursor = 'col-resize';
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      title="Drag to resize, double-click to reset"
+      onPointerDown={start}
+      onDoubleClick={onReset}
+      onClick={(e) => e.stopPropagation()}
+      className={cn(
+        'absolute top-0 z-20 h-full w-1.5 cursor-col-resize hover:bg-accent/60 active:bg-accent',
+        side === 'right' ? '-right-[3px]' : '-left-[3px]',
+        className,
+      )}
+    />
   );
 }

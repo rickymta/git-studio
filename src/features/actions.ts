@@ -12,6 +12,57 @@ const run = (...a: Parameters<ReturnType<typeof repo>['run']>) => repo().run(...
 
 export const currentBranch = () => repo().info?.status.branch ?? null;
 
+/** Where HEAD is now: branch name or detached commit. */
+function headState() {
+  const st = repo().info?.status;
+  return { branch: st?.branch ?? null, head: st?.head ?? null };
+}
+
+function backTo(h: { branch: string | null; head: string | null }) {
+  return (p: string) =>
+    h.branch ? api.checkout(p, h.branch, 'branch') : api.checkout(p, h.head!, 'detached');
+}
+
+/** Run `fn`; when it succeeds, record an Undo entry built from HEAD before and after. */
+async function journaled(
+  label: string,
+  fn: (p: string) => Promise<unknown>,
+  inverse: (
+    before: ReturnType<typeof headState>,
+    after: ReturnType<typeof headState>,
+  ) => { undo: (p: string) => Promise<unknown>; redo: (p: string) => Promise<unknown> } | null,
+  success?: string,
+) {
+  const before = headState();
+  const ok = await run(label, fn, success);
+  if (!ok) return false;
+  const e = inverse(before, headState());
+  if (e) repo().record({ label: label.toLowerCase(), ...e });
+  return true;
+}
+
+export async function commitChanges(message: string, amend: boolean) {
+  return journaled(
+    amend ? 'Amend' : 'Commit',
+    (p) => api.commitChanges(p, message, amend),
+    (b, a) =>
+      b.head && a.head
+        ? {
+            undo: (p) => api.reset(p, b.head!, 'soft'),
+            redo: (p) => api.reset(p, a.head!, 'soft'),
+          }
+        : null,
+  );
+}
+
+export async function undo() {
+  await repo().undo();
+}
+
+export async function redo() {
+  await repo().redo();
+}
+
 export async function fetchAll() {
   await run('Fetch', (p) => api.fetch(p), 'Fetched all remotes');
 }
@@ -62,9 +113,21 @@ export async function newBranch(start?: string, startLabel?: string) {
   });
   if (!v) return;
   const name = (v.name as string).trim();
-  await run(
+  const checkout = v.checkout as boolean;
+  await journaled(
     'Create branch',
-    (p) => api.createBranch(p, name, start, v.checkout as boolean),
+    (p) => api.createBranch(p, name, start, checkout),
+    (b) => {
+      const target = repo().refs?.refs.find((r) => r.kind === 'local' && r.name === name)?.target;
+      if (!target) return null;
+      return {
+        undo: async (p) => {
+          if (checkout) await backTo(b)(p);
+          await api.deleteBranch(p, name, true);
+        },
+        redo: (p) => api.createBranch(p, name, target, checkout),
+      };
+    },
     `Created ${name}`,
   );
 }
@@ -72,9 +135,18 @@ export async function newBranch(start?: string, startLabel?: string) {
 export async function checkoutRef(ref: GitRef) {
   if (ref.kind === 'local') {
     if (ref.isHead) return;
-    await run('Checkout', (p) => api.checkout(p, ref.name, 'branch'), `Switched to ${ref.name}`);
+    await journaled(
+      'Checkout',
+      (p) => api.checkout(p, ref.name, 'branch'),
+      (b, a) => ({ undo: backTo(b), redo: backTo(a) }),
+      `Switched to ${ref.name}`,
+    );
   } else if (ref.kind === 'remote') {
-    await run('Checkout', (p) => api.checkout(p, ref.name, 'remote'));
+    await journaled(
+      'Checkout',
+      (p) => api.checkout(p, ref.name, 'remote'),
+      (b, a) => ({ undo: backTo(b), redo: backTo(a) }),
+    );
   } else {
     await checkoutCommit(ref.target, ref.name);
   }
@@ -86,7 +158,12 @@ export async function checkoutCommit(hash: string, label?: string) {
     `This puts the repository in "detached HEAD" at ${label ?? short(hash)}. Create a branch if you want to keep new commits.`,
     'Check out',
   );
-  if (ok) await run('Checkout', (p) => api.checkout(p, hash, 'detached'));
+  if (ok)
+    await journaled(
+      'Checkout',
+      (p) => api.checkout(p, hash, 'detached'),
+      (b, a) => ({ undo: backTo(b), redo: backTo(a) }),
+    );
 }
 
 export async function deleteBranch(ref: GitRef) {
@@ -110,8 +187,15 @@ export async function deleteBranch(ref: GitRef) {
   const ok = await confirm('Delete branch', `Delete local branch ${ref.name}?`, 'Delete', true);
   if (!ok) return;
   const path = repo().path!;
+  const recordDelete = () =>
+    repo().record({
+      label: 'delete branch',
+      undo: (p) => api.createBranch(p, ref.name, ref.target, false),
+      redo: (p) => api.deleteBranch(p, ref.name, true),
+    });
   try {
     await api.deleteBranch(path, ref.name, false);
+    recordDelete();
     toast('success', `Deleted ${ref.name}`);
   } catch (e) {
     const msg = (e as Error).message;
@@ -122,12 +206,15 @@ export async function deleteBranch(ref: GitRef) {
         'Force delete',
         true,
       );
-      if (force)
-        await run(
+      if (
+        force &&
+        (await run(
           'Delete branch',
           (p) => api.deleteBranch(p, ref.name, true),
           `Deleted ${ref.name}`,
-        );
+        ))
+      )
+        recordDelete();
     } else toast('error', 'Delete branch failed', msg);
   }
   await repo().refresh();
@@ -239,7 +326,18 @@ export async function resetTo(hash: string, label?: string) {
     ))
   )
     return;
-  await run('Reset', (p) => api.reset(p, hash, mode));
+  await journaled(
+    'Reset',
+    (p) => api.reset(p, hash, mode),
+    (b, a) =>
+      b.head && a.head
+        ? {
+            // Moving back with --soft keeps whatever the reset left in the working tree.
+            undo: (p) => api.reset(p, b.head!, mode === 'hard' ? 'hard' : 'soft'),
+            redo: (p) => api.reset(p, a.head!, mode),
+          }
+        : null,
+  );
 }
 
 export async function createTag(target: string, label?: string) {

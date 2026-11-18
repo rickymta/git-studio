@@ -1,4 +1,4 @@
-import { Download, FolderOpen, FolderPlus, GitBranch, X } from 'lucide-react';
+import { Download, FolderOpen, FolderPlus, GitBranch, LayoutGrid, Plus, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import { Avatar, Github, IconButton } from '@/components/ui';
@@ -8,8 +8,19 @@ import { pickFolder } from '@/lib/native';
 import { useGitHub } from '@/stores/github';
 import { useRepo } from '@/stores/repo';
 import { ask, toast } from '@/stores/ui';
+import { useWorkspaces } from '@/stores/workspace';
 
-export function Welcome({ onClone, onSignIn }: { onClone: () => void; onSignIn: () => void }) {
+export function Welcome({
+  onClone,
+  onSignIn,
+  onNewWorkspace,
+}: {
+  onClone: () => void;
+  onSignIn: () => void;
+  onNewWorkspace: () => void;
+}) {
+  const workspaces = useWorkspaces((s) => s.data.items);
+  const activate = useWorkspaces((s) => s.activate);
   const settings = useRepo((s) => s.settings);
   const open = useRepo((s) => s.open);
   const adopt = useRepo((s) => s.adopt);
@@ -100,6 +111,51 @@ export function Welcome({ onClone, onSignIn }: { onClone: () => void; onSignIn: 
             </>
           )}
         </div>
+
+        <div className="mt-8 mb-2 flex items-center">
+          <h2 className="flex-1 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+            Workspaces
+          </h2>
+          <button
+            type="button"
+            onClick={onNewWorkspace}
+            className="flex items-center gap-1 text-xs text-accent hover:underline"
+          >
+            <Plus className="size-3.5" /> New workspace
+          </button>
+        </div>
+        {workspaces.length === 0 ? (
+          <button
+            type="button"
+            onClick={onNewWorkspace}
+            className="flex w-full items-center gap-3 rounded-lg border border-dashed border-border p-4 text-left text-muted-foreground hover:border-accent hover:bg-surface-hover"
+          >
+            <LayoutGrid className="size-6 shrink-0" />
+            <span>
+              Group the repositories you work on together. Each workspace keeps its own tabs and
+              shows branches, unpushed work and pull requests of all its repositories on one page.
+            </span>
+          </button>
+        ) : (
+          <div className="grid grid-cols-3 gap-3">
+            {workspaces.map((w) => (
+              <button
+                key={w.id}
+                type="button"
+                onClick={() => activate(w.id)}
+                className="flex items-center gap-3 rounded-lg border border-border bg-surface p-3 text-left hover:border-accent hover:bg-surface-hover"
+              >
+                <span className="size-3 shrink-0 rounded-full" style={{ background: w.color }} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">{w.name}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {w.repos.length} repositor{w.repos.length === 1 ? 'y' : 'ies'}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
 
         <h2 className="mt-8 mb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
           Recent repositories

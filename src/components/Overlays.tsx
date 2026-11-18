@@ -136,7 +136,7 @@ function PromptBody({ close }: { close: (v: PromptValues | null) => void }) {
             type="submit"
             variant={prompt.danger ? 'danger' : 'primary'}
             disabled={missing}
-            autoFocus={fields.length === 0}
+            data-autofocus={fields.length === 0 ? true : undefined}
           >
             {prompt.confirmLabel ?? 'OK'}
           </Button>

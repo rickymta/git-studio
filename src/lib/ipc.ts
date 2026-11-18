@@ -45,6 +45,12 @@ export const isTauri = inTauri;
 /** Typed wrappers. Every repo-scoped call takes the repo path first. */
 export const api = {
   gitVersion: () => call<string>('app.gitVersion'),
+  openTerminal: (path: string) => call<null>('app.openTerminal', { path }),
+  workspaces: () => call<T.Workspaces>('workspace.list'),
+  saveWorkspaces: (workspaces: T.Workspaces) =>
+    call<T.Workspaces>('workspace.save', { workspaces }),
+  scanRepos: (root: string, depth = 3) => call<string[]>('workspace.scan', { root, depth }),
+  workspaceStatus: (repos: string[]) => call<T.RepoSummary[]>('workspace.status', { repos }),
   settings: () => call<T.Settings>('settings.get'),
   saveSettings: (settings: T.Settings) => call<T.Settings>('settings.set', { settings }),
   forgetRecent: (path: string) => call<T.Settings>('settings.forgetRecent', { path }),

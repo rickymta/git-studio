@@ -12,7 +12,7 @@ import {
   Search,
   Tag,
 } from 'lucide-react';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { Avatar, ContextMenuWrap, IconButton, cn } from '@/components/ui';
 import { relativeTime } from '@/lib/format';
@@ -55,21 +55,23 @@ function Section({
     }
   };
   return (
-    <div>
-      <div className="group flex h-8 items-center gap-1.5 px-2 text-xs font-semibold text-muted-foreground">
+    <div className="border-b border-border/60">
+      <div className="group flex h-[30px] items-center gap-1 pr-2 pl-1.5 text-xs font-semibold text-muted-foreground hover:bg-surface-hover">
         <button
           type="button"
           onClick={toggle}
-          className="flex min-w-0 flex-1 items-center gap-1.5 uppercase tracking-wide hover:text-foreground"
+          className="flex h-full min-w-0 flex-1 items-center gap-1.5 tracking-wide uppercase hover:text-foreground"
         >
           {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
           {icon}
           <span className="truncate">{title}</span>
-          {count !== undefined && <span className="font-normal">{count}</span>}
         </button>
         <span className="flex opacity-0 group-hover:opacity-100">{actions}</span>
+        {count !== undefined && (
+          <span className="w-6 text-right font-normal tabular-nums">{count}</span>
+        )}
       </div>
-      {open && <div className="pb-2">{children}</div>}
+      {open && <div className="pb-1.5">{children}</div>}
     </div>
   );
 }
@@ -165,6 +167,18 @@ export function Sidebar() {
   const info = useRepo((s) => s.info);
   const { user, pulls, pullsError, loadPulls } = useGitHub();
   const [filter, setFilter] = useState('');
+  const filterRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        filterRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const ghRemote =
     refs?.remotes.find((r) => r.name === 'origin' && r.github) ??
@@ -201,15 +215,25 @@ export function Sidebar() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="shrink-0 p-2">
+      <div className="shrink-0 border-b border-border/60 px-2.5 pt-2.5 pb-2">
+        <div className="mb-1.5 text-xs text-muted-foreground">
+          Viewing{' '}
+          <span className="font-semibold text-accent">
+            {locals.length +
+              tags.length +
+              all.filter((r) => r.kind === 'remote' && match(r)).length}
+          </span>
+        </div>
         <div className="relative">
-          <Search className="absolute top-2 left-2 size-3.5 text-muted-foreground" />
           <input
+            ref={filterRef}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            placeholder="Filter branches and tags"
-            className="h-7 w-full rounded-md border border-border bg-background pr-2 pl-7 text-xs outline-none focus:border-accent"
+            onKeyDown={(e) => e.key === 'Escape' && setFilter('')}
+            placeholder="Filter (Ctrl + Alt + F)"
+            className="h-7 w-full rounded border border-border bg-background pr-7 pl-2 text-xs outline-none focus:border-accent"
           />
+          <Search className="absolute top-2 right-2 size-3.5 text-muted-foreground" />
         </div>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">

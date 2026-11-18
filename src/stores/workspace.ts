@@ -1,0 +1,203 @@
+import { create } from 'zustand';
+
+import { api } from '@/lib/ipc';
+import type { RepoSummary, Workspace, Workspaces } from '@/lib/types';
+import { useRepo } from './repo';
+import { toast } from './ui';
+
+export const WORKSPACE_COLORS = [
+  '#38bdf8',
+  '#a78bfa',
+  '#f472b6',
+  '#fb923c',
+  '#facc15',
+  '#4ade80',
+  '#2dd4bf',
+  '#f87171',
+];
+
+export type BulkOp = 'fetch' | 'pull';
+
+const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+export const samePath = (a: string, b: string) => norm(a) === norm(b);
+
+interface WorkspaceStore {
+  data: Workspaces;
+  loaded: boolean;
+  summaries: Record<string, RepoSummary>;
+  summariesLoading: boolean;
+  /** Repos with an operation in flight, keyed by normalised path. */
+  running: Record<string, BulkOp>;
+
+  load: () => Promise<void>;
+  active: () => Workspace | null;
+  create: (name: string, color: string, repos: string[]) => Promise<Workspace>;
+  update: (id: string, patch: Partial<Omit<Workspace, 'id'>>) => Promise<void>;
+  remove: (id: string) => Promise<void>;
+  addRepos: (id: string, paths: string[]) => Promise<number>;
+  removeRepo: (id: string, path: string) => Promise<void>;
+  /** Activate a workspace ('' for none); swaps the open tabs to that workspace's set. */
+  activate: (id: string) => Promise<void>;
+  refreshSummaries: (paths?: string[]) => Promise<void>;
+  bulk: (op: BulkOp, paths: string[]) => Promise<void>;
+}
+
+const newId = () => Math.random().toString(36).slice(2, 10);
+
+export const useWorkspaces = create<WorkspaceStore>((set, get) => {
+  const persist = async (data: Workspaces) => {
+    set({ data });
+    try {
+      set({ data: await api.saveWorkspaces(data) });
+    } catch (e) {
+      toast('error', 'Could not save workspaces', (e as Error).message);
+    }
+  };
+
+  return {
+    data: { items: [], active: '' },
+    loaded: false,
+    summaries: {},
+    summariesLoading: false,
+    running: {},
+
+    load: async () => {
+      try {
+        const data = await api.workspaces();
+        if (data.active && !data.items.some((w) => w.id === data.active)) data.active = '';
+        set({ data, loaded: true });
+      } catch {
+        set({ loaded: true });
+      }
+    },
+
+    active: () => {
+      const { data } = get();
+      return data.items.find((w) => w.id === data.active) ?? null;
+    },
+
+    create: async (name, color, repos) => {
+      const ws: Workspace = { id: newId(), name: name.trim(), color, repos: dedupe(repos) };
+      await persist({ ...get().data, items: [...get().data.items, ws] });
+      await get().activate(ws.id);
+      return ws;
+    },
+
+    update: async (id, patch) => {
+      const data = get().data;
+      await persist({
+        ...data,
+        items: data.items.map((w) => (w.id === id ? { ...w, ...patch } : w)),
+      });
+    },
+
+    remove: async (id) => {
+      const data = get().data;
+      const wasActive = data.active === id;
+      await persist({
+        items: data.items.filter((w) => w.id !== id),
+        active: wasActive ? '' : data.active,
+      });
+      try {
+        localStorage.removeItem(`gitstudio.tabs.${id}`);
+        localStorage.removeItem(`gitstudio.lastRepo.${id}`);
+      } catch {
+        /* ignore */
+      }
+      if (wasActive) useRepo.getState().setScope('');
+    },
+
+    addRepos: async (id, paths) => {
+      const ws = get().data.items.find((w) => w.id === id);
+      if (!ws) return 0;
+      const merged = dedupe([...ws.repos, ...paths]);
+      const added = merged.length - ws.repos.length;
+      await get().update(id, { repos: merged });
+      if (added > 0) void get().refreshSummaries(merged.slice(ws.repos.length));
+      return added;
+    },
+
+    removeRepo: async (id, path) => {
+      const ws = get().data.items.find((w) => w.id === id);
+      if (!ws) return;
+      await get().update(id, { repos: ws.repos.filter((p) => !samePath(p, path)) });
+    },
+
+    activate: async (id) => {
+      if (get().data.active === id) {
+        // Re-selecting the active workspace shows its overview.
+        if (id) useRepo.getState().newTab();
+        return;
+      }
+      await persist({ ...get().data, active: id });
+      await useRepo.getState().setScope(id);
+      if (id) void get().refreshSummaries();
+    },
+
+    refreshSummaries: async (paths) => {
+      const ws = get().active();
+      const list = paths ?? ws?.repos ?? [];
+      if (list.length === 0) return;
+      set({ summariesLoading: true });
+      try {
+        const res = await api.workspaceStatus(list);
+        const next = { ...get().summaries };
+        for (const s of res) next[norm(s.path)] = s;
+        set({ summaries: next });
+      } catch (e) {
+        toast('error', 'Could not read repository status', (e as Error).message);
+      } finally {
+        set({ summariesLoading: false });
+      }
+    },
+
+    bulk: async (op, paths) => {
+      const label = op === 'fetch' ? 'Fetch' : 'Pull';
+      const failures: string[] = [];
+      let done = 0;
+      const queue = [...paths];
+      const worker = async () => {
+        for (let p = queue.shift(); p; p = queue.shift()) {
+          const key = norm(p);
+          set((s) => ({ running: { ...s.running, [key]: op } }));
+          try {
+            // Pull is fast-forward only in bulk: never creates merge commits behind your back.
+            if (op === 'fetch') await api.fetch(p);
+            else await api.pull(p, 'ff-only');
+            done++;
+          } catch (e) {
+            failures.push(`${p.split(/[\\/]/).pop()}: ${(e as Error).message.split('\n')[0]}`);
+          } finally {
+            set((s) => {
+              const running = { ...s.running };
+              delete running[key];
+              return { running };
+            });
+            void get().refreshSummaries([p]);
+          }
+        }
+      };
+      await Promise.all([worker(), worker(), worker(), worker()]);
+      if (failures.length === 0)
+        toast('success', `${label}: ${done} repositor${done === 1 ? 'y' : 'ies'} done`);
+      else toast('error', `${label}: ${done} done, ${failures.length} failed`, failures.join('\n'));
+      const cur = useRepo.getState().path;
+      if (cur && paths.some((p) => samePath(p, cur))) void useRepo.getState().refresh();
+    },
+  };
+});
+
+function dedupe(paths: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const p of paths) {
+    const k = norm(p);
+    if (!seen.has(k)) {
+      seen.add(k);
+      out.push(p);
+    }
+  }
+  return out;
+}
+
+export const summaryKey = norm;

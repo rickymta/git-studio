@@ -6,6 +6,18 @@ import type { Commit, CommitDetail, DiffRequest, Refs, RepoInfo, Settings } from
 import { toast } from './ui';
 
 const PAGE = 1500;
+/** Each workspace keeps its own open tabs; '' is "no workspace". */
+let scope = '';
+const tabsKey = () => (scope ? `gitstudio.tabs.${scope}` : 'gitstudio.tabs');
+const lastKey = () => (scope ? `gitstudio.lastRepo.${scope}` : 'gitstudio.lastRepo');
+
+export function lastRepoOfScope(): string | null {
+  try {
+    return localStorage.getItem(lastKey());
+  } catch {
+    return null;
+  }
+}
 
 export type Selection = { type: 'wip' } | { type: 'commit'; hash: string };
 
@@ -15,8 +27,24 @@ export interface OpenDiff {
   loading: boolean;
 }
 
+export interface RepoTab {
+  path: string;
+  name: string;
+}
+
+/** A reversible operation for Undo/Redo. */
+export interface JournalEntry {
+  label: string;
+  undo: (repo: string) => Promise<unknown>;
+  redo: (repo: string) => Promise<unknown>;
+}
+
 interface RepoStore {
+  /** Active workspace id ('' for none); decides which tab set is shown. */
+  scope: string;
+  setScope: (id: string) => Promise<void>;
   settings: Settings | null;
+  tabs: RepoTab[];
   path: string | null;
   info: RepoInfo | null;
   commits: Commit[];
@@ -29,11 +57,17 @@ interface RepoStore {
   /** Label of the running operation, shown in the toolbar. */
   busy: string | null;
   loading: boolean;
+  undoStack: JournalEntry[];
+  redoStack: JournalEntry[];
 
   loadSettings: () => Promise<void>;
   setSettings: (s: Settings) => void;
   open: (path: string) => Promise<boolean>;
   adopt: (info: RepoInfo) => Promise<void>;
+  /** Show the start page in a new tab (current repository tab stays open). */
+  newTab: () => void;
+  closeTab: (path: string) => void;
+  moveTab: (from: number, to: number) => void;
   close: () => void;
   refresh: () => Promise<void>;
   refreshStatus: () => Promise<void>;
@@ -48,10 +82,57 @@ interface RepoStore {
     fn: (repo: string) => Promise<unknown>,
     success?: string,
   ) => Promise<boolean>;
+  record: (e: JournalEntry) => void;
+  undo: () => Promise<void>;
+  redo: () => Promise<void>;
 }
 
+function loadTabs(): RepoTab[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(tabsKey()) ?? '[]');
+    return Array.isArray(v) ? v.filter((t) => t && typeof t.path === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveTabs(tabs: RepoTab[], current: string | null) {
+  try {
+    localStorage.setItem(tabsKey(), JSON.stringify(tabs));
+    if (current) localStorage.setItem(lastKey(), current);
+    else localStorage.removeItem(lastKey());
+  } catch {
+    /* ignore */
+  }
+}
+
+const samePath = (a: string, b: string) =>
+  a.replace(/\\/g, '/').toLowerCase() === b.replace(/\\/g, '/').toLowerCase();
+
+const emptyRepo = {
+  path: null,
+  info: null,
+  commits: [],
+  graph: [],
+  refs: null,
+  selection: null,
+  detail: null,
+  diff: null,
+  undoStack: [],
+  redoStack: [],
+};
+
 export const useRepo = create<RepoStore>((set, get) => ({
+  scope: '',
+  setScope: async (id) => {
+    scope = id;
+    set({ ...emptyRepo, scope: id, tabs: loadTabs() });
+    const last = lastRepoOfScope();
+    const target = last ?? get().tabs[0]?.path;
+    if (target && last) await get().open(target);
+  },
   settings: null,
+  tabs: loadTabs(),
   path: null,
   info: null,
   commits: [],
@@ -63,6 +144,8 @@ export const useRepo = create<RepoStore>((set, get) => ({
   diff: null,
   busy: null,
   loading: false,
+  undoStack: [],
+  redoStack: [],
 
   loadSettings: async () => {
     try {
@@ -74,6 +157,7 @@ export const useRepo = create<RepoStore>((set, get) => ({
   setSettings: (settings) => set({ settings }),
 
   open: async (path) => {
+    if (get().path && samePath(get().path!, path)) return true;
     set({ loading: true });
     try {
       const info = await api.open(path);
@@ -87,44 +171,56 @@ export const useRepo = create<RepoStore>((set, get) => ({
   },
 
   adopt: async (info) => {
+    const tabs = [...get().tabs];
+    const i = tabs.findIndex((t) => samePath(t.path, info.path));
+    if (i >= 0) tabs[i] = { path: info.path, name: info.name };
+    else tabs.push({ path: info.path, name: info.name });
+    saveTabs(tabs, info.path);
     set({
+      ...emptyRepo,
+      tabs,
       path: info.path,
       info,
-      commits: [],
-      graph: [],
-      refs: null,
       selection: { type: 'wip' },
-      detail: null,
-      diff: null,
       loading: true,
     });
-    try {
-      localStorage.setItem('gitstudio.lastRepo', info.path);
-    } catch {
-      /* ignore */
-    }
     await get().refresh();
     set({ loading: false });
     void get().loadSettings();
   },
 
-  close: () => {
-    try {
-      localStorage.removeItem('gitstudio.lastRepo');
-    } catch {
-      /* ignore */
-    }
-    set({
-      path: null,
-      info: null,
-      commits: [],
-      graph: [],
-      refs: null,
-      selection: null,
-      detail: null,
-      diff: null,
-    });
+  newTab: () => {
+    saveTabs(get().tabs, null);
+    set({ ...emptyRepo });
     void get().loadSettings();
+  },
+
+  closeTab: (path) => {
+    const tabs = get().tabs;
+    const idx = tabs.findIndex((t) => samePath(t.path, path));
+    const rest = tabs.filter((_, i) => i !== idx);
+    const wasCurrent = !!get().path && samePath(get().path!, path);
+    saveTabs(rest, wasCurrent ? null : get().path);
+    set({ tabs: rest });
+    if (!wasCurrent) return;
+    const next = rest[Math.min(idx, rest.length - 1)];
+    set({ ...emptyRepo });
+    if (next) void get().open(next.path);
+    else void get().loadSettings();
+  },
+
+  moveTab: (from, to) => {
+    const tabs = [...get().tabs];
+    const [t] = tabs.splice(from, 1);
+    if (!t) return;
+    tabs.splice(to, 0, t);
+    saveTabs(tabs, get().path);
+    set({ tabs });
+  },
+
+  close: () => {
+    const p = get().path;
+    if (p) get().closeTab(p);
   },
 
   refresh: async () => {
@@ -242,5 +338,21 @@ export const useRepo = create<RepoStore>((set, get) => ({
       await get().refresh();
     }
     return ok;
+  },
+
+  record: (e) => set((s) => ({ undoStack: [...s.undoStack.slice(-49), e], redoStack: [] })),
+
+  undo: async () => {
+    const e = get().undoStack.at(-1);
+    if (!e) return;
+    const ok = await get().run(`Undo ${e.label}`, e.undo, `Undid ${e.label}`);
+    if (ok) set((s) => ({ undoStack: s.undoStack.slice(0, -1), redoStack: [...s.redoStack, e] }));
+  },
+
+  redo: async () => {
+    const e = get().redoStack.at(-1);
+    if (!e) return;
+    const ok = await get().run(`Redo ${e.label}`, e.redo, `Redid ${e.label}`);
+    if (ok) set((s) => ({ redoStack: s.redoStack.slice(0, -1), undoStack: [...s.undoStack, e] }));
   },
 }));

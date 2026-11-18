@@ -1,58 +1,128 @@
-import type { ReactNode } from 'react';
+import { ChevronDown, ChevronRight, FileDiff, Folder, ListTree, List } from 'lucide-react';
+import { useMemo, useState, type ReactNode } from 'react';
 
 import { ContextMenuWrap, cn, type MenuItem } from '@/components/ui';
 import type { FileChange } from '@/lib/types';
 
-const STATUS: Record<string, { label: string; cls: string }> = {
-  M: { label: 'M', cls: 'text-warning' },
-  A: { label: 'A', cls: 'text-success' },
-  '?': { label: 'A', cls: 'text-success' },
-  D: { label: 'D', cls: 'text-danger' },
-  R: { label: 'R', cls: 'text-accent' },
-  C: { label: 'C', cls: 'text-accent' },
-  T: { label: 'T', cls: 'text-warning' },
-  U: { label: '!', cls: 'text-danger' },
+// ---- status marks -------------------------------------------------------------------------------
+
+const STATUS: Record<string, { mark: string; cls: string; title: string }> = {
+  M: { mark: '✎', cls: 'text-warning', title: 'Modified' },
+  T: { mark: '✎', cls: 'text-warning', title: 'Type changed' },
+  A: { mark: '+', cls: 'text-success', title: 'Added' },
+  '?': { mark: '+', cls: 'text-success', title: 'Untracked' },
+  D: { mark: '−', cls: 'text-danger', title: 'Deleted' },
+  R: { mark: '→', cls: 'text-accent', title: 'Renamed' },
+  C: { mark: '⧉', cls: 'text-accent', title: 'Copied' },
+  U: { mark: '!', cls: 'text-danger', title: 'Conflict' },
 };
 
-export function StatusLetter({ status }: { status: string }) {
-  const s = STATUS[status] ?? { label: status, cls: '' };
+export function StatusMark({ status }: { status: string }) {
+  const s = STATUS[status] ?? { mark: status, cls: '', title: status };
   return (
-    <span className={cn('w-4 shrink-0 text-center font-mono text-xs font-bold', s.cls)}>
-      {s.label}
+    <span
+      title={s.title}
+      className={cn('w-4 shrink-0 text-center text-[13px] leading-none font-bold', s.cls)}
+    >
+      {s.mark}
     </span>
   );
 }
 
-export function FileRow({
+// ---- view mode ----------------------------------------------------------------------------------
+
+export type ViewMode = 'path' | 'tree';
+
+export function useViewMode(): [ViewMode, (m: ViewMode) => void] {
+  const [mode, setMode] = useState<ViewMode>(() => {
+    try {
+      return localStorage.getItem('gitstudio.fileView') === 'tree' ? 'tree' : 'path';
+    } catch {
+      return 'path';
+    }
+  });
+  return [
+    mode,
+    (m) => {
+      setMode(m);
+      try {
+        localStorage.setItem('gitstudio.fileView', m);
+      } catch {
+        /* ignore */
+      }
+    },
+  ];
+}
+
+export function ViewToggle({
+  mode,
+  onChange,
+}: {
+  mode: ViewMode;
+  onChange: (m: ViewMode) => void;
+}) {
+  return (
+    <div className="flex overflow-hidden rounded-md border border-border">
+      {(['path', 'tree'] as const).map((m) => (
+        <button
+          key={m}
+          type="button"
+          onClick={() => onChange(m)}
+          className={cn(
+            'flex h-6 items-center gap-1 px-2 text-xs',
+            mode === m
+              ? 'bg-accent-soft text-foreground'
+              : 'text-muted-foreground hover:bg-surface-hover',
+          )}
+        >
+          {m === 'path' ? <List className="size-3.5" /> : <ListTree className="size-3.5" />}
+          {m === 'path' ? 'Path' : 'Tree'}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ---- rows ---------------------------------------------------------------------------------------
+
+export interface FileListProps {
+  files: FileChange[];
+  mode: ViewMode;
+  isActive: (f: FileChange) => boolean;
+  onOpen: (f: FileChange) => void;
+  actions?: (f: FileChange) => ReactNode;
+  menu?: (f: FileChange) => MenuItem[];
+}
+
+function Row({
   file,
+  label,
+  depth,
   active,
-  onClick,
+  onOpen,
   actions,
   menu,
 }: {
   file: FileChange;
+  label: ReactNode;
+  depth: number;
   active: boolean;
-  onClick: () => void;
+  onOpen: () => void;
   actions?: ReactNode;
   menu?: () => MenuItem[];
 }) {
-  const slash = file.path.lastIndexOf('/');
-  const name = file.path.slice(slash + 1);
-  const dir = slash >= 0 ? file.path.slice(0, slash) : '';
   const row = (
     <div
-      onClick={onClick}
+      onClick={onOpen}
       title={file.origPath ? `${file.origPath} → ${file.path}` : file.path}
+      style={{ paddingLeft: 10 + depth * 14 }}
       className={cn(
-        'group flex h-7 cursor-default items-center gap-1.5 px-2',
+        'group flex h-7 cursor-default items-center gap-1.5 pr-2',
         active ? 'bg-selection' : 'hover:bg-surface-hover',
       )}
     >
-      <StatusLetter status={file.status} />
-      <span className="min-w-0 flex-1 truncate">
-        {name}
-        {dir && <span className="ml-1.5 text-xs text-muted-foreground">{dir}</span>}
-      </span>
+      <StatusMark status={file.status} />
+      <span className="min-w-0 flex-1 truncate">{label}</span>
       {actions && (
         <span className="flex shrink-0 gap-0.5 opacity-0 group-hover:opacity-100">{actions}</span>
       )}
@@ -60,3 +130,151 @@ export function FileRow({
   );
   return menu ? <ContextMenuWrap items={menu}>{row}</ContextMenuWrap> : row;
 }
+
+/** Path mode: `src/dir/` dimmed, then the file name. */
+function PathLabel({ path }: { path: string }) {
+  const slash = path.lastIndexOf('/');
+  return (
+    <>
+      {slash >= 0 && <span className="text-muted-foreground">{path.slice(0, slash + 1)}</span>}
+      <span>{path.slice(slash + 1)}</span>
+    </>
+  );
+}
+
+interface Dir {
+  name: string;
+  dirs: Map<string, Dir>;
+  files: FileChange[];
+}
+
+function buildTree(files: FileChange[]): Dir {
+  const root: Dir = { name: '', dirs: new Map(), files: [] };
+  for (const f of files) {
+    const parts = f.path.split('/');
+    let d = root;
+    for (const part of parts.slice(0, -1)) {
+      let next = d.dirs.get(part);
+      if (!next) {
+        next = { name: part, dirs: new Map(), files: [] };
+        d.dirs.set(part, next);
+      }
+      d = next;
+    }
+    d.files.push(f);
+  }
+  // Collapse single-child chains: src/features/x → one row.
+  const compact = (d: Dir): Dir => {
+    for (const [k, c] of d.dirs) d.dirs.set(k, compact(c));
+    if (d.name && d.files.length === 0 && d.dirs.size === 1) {
+      const only = [...d.dirs.values()][0]!;
+      return { ...only, name: `${d.name}/${only.name}` };
+    }
+    return d;
+  };
+  return compact(root);
+}
+
+function DirRows({ dir, depth, props }: { dir: Dir; depth: number; props: FileListProps }) {
+  const [open, setOpen] = useState(true);
+  const inner = (
+    <>
+      {[...dir.dirs.values()]
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((d) => (
+          <DirRows key={d.name} dir={d} depth={dir.name ? depth + 1 : depth} props={props} />
+        ))}
+      {dir.files.map((f) => (
+        <Row
+          key={f.path}
+          file={f}
+          depth={dir.name ? depth + 1 : depth}
+          label={f.path.slice(f.path.lastIndexOf('/') + 1)}
+          active={props.isActive(f)}
+          onOpen={() => props.onOpen(f)}
+          actions={props.actions?.(f)}
+          menu={props.menu ? () => props.menu!(f) : undefined}
+        />
+      ))}
+    </>
+  );
+  if (!dir.name) return inner;
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        style={{ paddingLeft: 6 + depth * 14 }}
+        className="flex h-7 w-full items-center gap-1 pr-2 text-left text-muted-foreground hover:bg-surface-hover"
+      >
+        {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+        <Folder className="size-3.5" />
+        <span className="truncate">{dir.name}</span>
+      </button>
+      {open && inner}
+    </>
+  );
+}
+
+export function FileList(props: FileListProps) {
+  const tree = useMemo(() => buildTree(props.files), [props.files]);
+  if (props.mode === 'tree') return <DirRows dir={tree} depth={0} props={props} />;
+  return (
+    <>
+      {props.files.map((f) => (
+        <Row
+          key={f.path}
+          file={f}
+          depth={0}
+          label={<PathLabel path={f.path} />}
+          active={props.isActive(f)}
+          onOpen={() => props.onOpen(f)}
+          actions={props.actions?.(f)}
+          menu={props.menu ? () => props.menu!(f) : undefined}
+        />
+      ))}
+    </>
+  );
+}
+
+/** Collapsible "Unstaged Files (13)" header. */
+export function FilesSection({
+  title,
+  count,
+  right,
+  tone,
+  children,
+}: {
+  title: string;
+  count: number;
+  right?: ReactNode;
+  tone?: 'danger';
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div>
+      <div className="flex h-9 items-center gap-2 pr-2 pl-2">
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          className={cn(
+            'flex flex-1 items-center gap-1 text-[13px] font-medium',
+            tone === 'danger' && 'text-danger',
+          )}
+        >
+          {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+          {title} ({count})
+        </button>
+        {right}
+      </div>
+      {open && children}
+    </div>
+  );
+}
+
+export const EmptyFiles = ({ text }: { text: string }) => (
+  <div className="flex items-center gap-2 px-4 py-3 text-xs text-muted-foreground">
+    <FileDiff className="size-3.5" /> {text}
+  </div>
+);

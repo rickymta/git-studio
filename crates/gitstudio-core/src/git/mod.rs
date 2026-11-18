@@ -218,6 +218,7 @@ impl Repo {
             committer_name: f[5].to_string(),
             commit_time: f[6].parse().unwrap_or(0),
             subject: f[7].to_string(),
+            body: String::new(),
         };
         let files = self.commit_files(&commit).await?;
         Ok(CommitDetail {
@@ -770,6 +771,32 @@ pub async fn clone(url: &str, dest: &Path, token: Option<&str>) -> Result<Repo> 
     let dest_s = dest.to_string_lossy().into_owned();
     run::ok(parent, &["clone", "--", url, &dest_s], net(token)).await?;
     Repo::open(dest).await
+}
+
+/// Open a terminal window in `path` (Windows Terminal when available).
+pub fn open_terminal(path: &Path) -> Result<()> {
+    if !path.is_dir() {
+        return Err(Error::Invalid(format!("Folder not found: {}", path.display())));
+    }
+    #[cfg(windows)]
+    {
+        let wt = std::process::Command::new("wt.exe").arg("-d").arg(path).spawn();
+        if wt.is_err() {
+            std::process::Command::new("cmd.exe")
+                .args(["/C", "start", "", "cmd.exe"])
+                .current_dir(path)
+                .spawn()?;
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open").args(["-a", "Terminal"]).arg(path).spawn()?;
+    }
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        std::process::Command::new("x-terminal-emulator").current_dir(path).spawn()?;
+    }
+    Ok(())
 }
 
 pub async fn version() -> Result<String> {

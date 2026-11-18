@@ -117,12 +117,13 @@ export function RefBadge({ group, color }: { group: BadgeGroup; color: string })
         }}
         title={group.refs.map((r) => r.name).join(', ')}
         className={cn(
-          'inline-flex h-5 max-w-full min-w-0 items-center gap-1 rounded border px-1.5 text-xs',
-          group.head ? 'font-semibold' : '',
+          'inline-flex h-[22px] max-w-[176px] min-w-0 items-center gap-1 rounded border px-1.5 text-xs font-medium text-foreground',
+          group.head && 'font-semibold',
         )}
         style={{
           borderColor: color,
-          background: `color-mix(in oklch, ${color} ${group.head ? 35 : 18}%, transparent)`,
+          // Opaque so the connector line to the graph runs behind the badge.
+          background: `color-mix(in oklch, ${color} ${group.head ? 60 : 42}%, var(--background))`,
         }}
       >
         {group.head && <Check className="size-3 shrink-0" />}

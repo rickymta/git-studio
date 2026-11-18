@@ -6,7 +6,7 @@ pub const US: char = '\u{1f}';
 pub const RS: char = '\u{1e}';
 
 /// `git log` format matching [`parse_log`].
-pub const LOG_FORMAT: &str = "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%cn%x1f%ct%x1f%s%x1e";
+pub const LOG_FORMAT: &str = "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%cn%x1f%ct%x1f%s%x1f%b%x1e";
 
 pub fn parse_log(text: &str) -> Vec<Commit> {
     text.split(RS)
@@ -28,9 +28,24 @@ pub fn parse_log(text: &str) -> Vec<Commit> {
                 committer_name: f[5].to_string(),
                 commit_time: f[6].parse().unwrap_or(0),
                 subject: f[7].to_string(),
+                body: f.get(8).map(|b| flatten_body(b)).unwrap_or_default(),
             })
         })
         .collect()
+}
+
+/// Body as one line for the graph (bounded length).
+fn flatten_body(b: &str) -> String {
+    let mut out = b.split_whitespace().collect::<Vec<_>>().join(" ");
+    if out.len() > 240 {
+        let mut cut = 240;
+        while !out.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        out.truncate(cut);
+        out.push('…');
+    }
+    out
 }
 
 /// `git for-each-ref` format matching [`parse_refs`].

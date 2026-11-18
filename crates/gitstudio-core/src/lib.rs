@@ -5,6 +5,7 @@ pub mod error;
 pub mod git;
 pub mod github;
 pub mod settings;
+pub mod workspace;
 
 use std::path::PathBuf;
 
@@ -49,6 +50,30 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
     Ok(match cmd {
         // ---- app ----
         "app.gitVersion" => json!(git::version().await?),
+        // ---- workspaces ----
+        "workspace.list" => serde_json::to_value(workspace::load())?,
+        "workspace.save" => {
+            let w: workspace::Workspaces = arg(a, "workspaces")?;
+            workspace::save(&w)?;
+            serde_json::to_value(workspace::load())?
+        }
+        "workspace.scan" => {
+            let root: String = arg(a, "root")?;
+            let depth: Option<u32> = opt(a, "depth")?;
+            let root = PathBuf::from(root);
+            let depth = depth.unwrap_or(3).min(6);
+            json!(tokio::task::spawn_blocking(move || workspace::scan(&root, depth))
+                .await
+                .map_err(|e| Error::Invalid(e.to_string()))?)
+        }
+        "workspace.status" => {
+            let repos: Vec<String> = arg(a, "repos")?;
+            serde_json::to_value(workspace::status(repos).await)?
+        }
+        "app.openTerminal" => {
+            git::open_terminal(&PathBuf::from(arg::<String>(a, "path")?))?;
+            return done();
+        }
         "settings.get" => serde_json::to_value(settings::load())?,
         "settings.set" => {
             let s: settings::Settings = arg(a, "settings")?;

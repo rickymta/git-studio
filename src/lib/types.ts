@@ -9,6 +9,8 @@ export interface Commit {
   committerName: string;
   commitTime: number;
   subject: string;
+  /** First lines of the body, flattened (log only). */
+  body?: string;
 }
 
 export type FileStatus = 'M' | 'A' | 'D' | 'R' | 'C' | 'T' | 'U' | '?';
@@ -174,4 +176,31 @@ export type DevicePoll =
 export interface AppError {
   kind: string;
   message: string;
+}
+
+export interface Workspace {
+  id: string;
+  name: string;
+  color: string;
+  repos: string[];
+}
+
+export interface Workspaces {
+  items: Workspace[];
+  active: string;
+}
+
+export interface RepoSummary {
+  path: string;
+  name: string;
+  error: string | null;
+  branch: string | null;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  changes: number;
+  conflicts: number;
+  state: RepoState | null;
+  lastCommit: { hash: string; subject: string; author: string; time: number } | null;
+  github: GitHubSlug | null;
 }

@@ -14,6 +14,9 @@ pub struct Commit {
     pub committer_name: String,
     pub commit_time: i64,
     pub subject: String,
+    /// First lines of the body, flattened (empty in details, which carry the full body).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub body: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
