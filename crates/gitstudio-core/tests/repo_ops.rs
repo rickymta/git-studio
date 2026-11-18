@@ -1,0 +1,174 @@
+//! End-to-end checks against real repositories created with the `git` CLI.
+
+use std::path::Path;
+
+use gitstudio_core::git::model::RepoState;
+use gitstudio_core::git::{self, CheckoutKind, DiffRequest, DiffSource, PushRequest, Repo};
+
+fn sh(dir: &Path, args: &[&str]) {
+    let st = std::process::Command::new("git")
+        .current_dir(dir)
+        .args(args)
+        .status()
+        .unwrap();
+    assert!(st.success(), "git {args:?}");
+}
+
+async fn new_repo(dir: &Path) -> Repo {
+    let r = git::init(dir, "main").await.unwrap();
+    r.set_identity("Tester", "tester@example.com", false).await.unwrap();
+    sh(dir, &["config", "commit.gpgsign", "false"]);
+    r
+}
+
+#[tokio::test]
+async fn stage_commit_branch_merge_flow() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("repo");
+    let r = new_repo(&dir).await;
+
+    // Empty repository: no history, untracked file shows up.
+    assert!(r.log(100, 0).await.unwrap().is_empty());
+    std::fs::write(dir.join("a.txt"), "one\ntwo\n").unwrap();
+    let st = r.status().await.unwrap();
+    assert_eq!(st.unstaged[0].status, '?');
+    let d = r
+        .diff(&DiffRequest {
+            source: DiffSource::Unstaged,
+            path: "a.txt".into(),
+            orig_path: None,
+            untracked: true,
+            commit: None,
+            parent: None,
+        })
+        .await
+        .unwrap();
+    assert!(d.contains("+one"), "{d}");
+
+    // Stage + unstage on an unborn branch, then commit.
+    r.stage(&["a.txt".into()]).await.unwrap();
+    r.unstage(&["a.txt".into()]).await.unwrap();
+    assert!(r.status().await.unwrap().staged.is_empty());
+    r.stage(&[]).await.unwrap();
+    r.commit("first", false).await.unwrap();
+    let log = r.log(100, 0).await.unwrap();
+    assert_eq!(log.len(), 1);
+    assert_eq!(log[0].subject, "first");
+
+    // Feature branch with a change, merge back with --no-ff.
+    r.create_branch("feature/x", None, true).await.unwrap();
+    std::fs::write(dir.join("a.txt"), "one\ntwo\nthree\n").unwrap();
+    r.stage(&[]).await.unwrap();
+    r.commit("add three", false).await.unwrap();
+    r.checkout("main", CheckoutKind::Branch).await.unwrap();
+    r.merge("feature/x", true).await.unwrap();
+    let log = r.log(100, 0).await.unwrap();
+    assert_eq!(log.len(), 3);
+    assert_eq!(log[0].parents.len(), 2);
+
+    let detail = r.commit_detail(&log[1].hash).await.unwrap();
+    assert_eq!(detail.files[0].path, "a.txt");
+    let refs = r.refs().await.unwrap();
+    assert!(refs.refs.iter().any(|x| x.name == "feature/x"));
+    assert!(refs.refs.iter().any(|x| x.name == "main" && x.is_head));
+
+    // Tags, stash, amend.
+    r.create_tag("v1", "HEAD", Some("release")).await.unwrap();
+    std::fs::write(dir.join("b.txt"), "b").unwrap();
+    r.stash_save(Some("wip"), true).await.unwrap();
+    let refs = r.refs().await.unwrap();
+    assert_eq!(refs.stashes.len(), 1);
+    assert_eq!(refs.refs.iter().find(|x| x.name == "v1").unwrap().target, log[0].hash);
+    r.stash_op("pop", 0).await.unwrap();
+    assert!(dir.join("b.txt").exists());
+    r.discard(&[], &["b.txt".into()]).await.unwrap();
+    assert!(!dir.join("b.txt").exists());
+    r.commit("merge renamed", true).await.unwrap();
+    assert_eq!(r.head_message().await.unwrap(), "merge renamed");
+}
+
+#[tokio::test]
+async fn hunk_patch_and_conflicts() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("repo");
+    let r = new_repo(&dir).await;
+    std::fs::write(dir.join("f.txt"), "a\nb\nc\n").unwrap();
+    r.stage(&[]).await.unwrap();
+    r.commit("base", false).await.unwrap();
+
+    // Stage via a patch, like the hunk button does.
+    std::fs::write(dir.join("f.txt"), "a\nB\nc\n").unwrap();
+    let patch = "diff --git a/f.txt b/f.txt\n--- a/f.txt\n+++ b/f.txt\n@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n";
+    r.apply_patch(patch, true, false).await.unwrap();
+    let st = r.status().await.unwrap();
+    assert_eq!(st.staged.len(), 1);
+    assert!(st.unstaged.is_empty());
+    r.apply_patch(patch, true, true).await.unwrap();
+    assert!(r.status().await.unwrap().staged.is_empty());
+    r.discard(&["f.txt".into()], &[]).await.unwrap();
+
+    // Conflict, inspect state, resolve with "theirs", continue.
+    r.create_branch("other", None, true).await.unwrap();
+    std::fs::write(dir.join("f.txt"), "a\nOTHER\nc\n").unwrap();
+    r.stage(&[]).await.unwrap();
+    r.commit("other", false).await.unwrap();
+    r.checkout("main", CheckoutKind::Branch).await.unwrap();
+    std::fs::write(dir.join("f.txt"), "a\nMAIN\nc\n").unwrap();
+    r.stage(&[]).await.unwrap();
+    r.commit("main", false).await.unwrap();
+    assert!(r.merge("other", false).await.is_err());
+    assert_eq!(r.state(), RepoState::Merging);
+    assert_eq!(r.status().await.unwrap().conflicted.len(), 1);
+    r.resolve(&["f.txt".into()], "theirs").await.unwrap();
+    r.continue_op().await.unwrap();
+    assert_eq!(r.state(), RepoState::Clean);
+    assert_eq!(std::fs::read_to_string(dir.join("f.txt")).unwrap().replace("\r\n", "\n"), "a\nOTHER\nc\n");
+}
+
+#[tokio::test]
+async fn clone_push_pull_with_local_remote() {
+    let tmp = tempfile::tempdir().unwrap();
+    let origin = tmp.path().join("origin.git");
+    std::fs::create_dir_all(&origin).unwrap();
+    sh(&origin, &["init", "--bare", "-b", "main"]);
+
+    let a_dir = tmp.path().join("a");
+    let a = new_repo(&a_dir).await;
+    a.add_remote("origin", origin.to_str().unwrap()).await.unwrap();
+    std::fs::write(a_dir.join("x"), "1").unwrap();
+    a.stage(&[]).await.unwrap();
+    a.commit("one", false).await.unwrap();
+    // First push sets the upstream.
+    a.push(&PushRequest::default(), None).await.unwrap();
+    assert_eq!(a.status().await.unwrap().upstream.as_deref(), Some("origin/main"));
+
+    let b_dir = tmp.path().join("b");
+    let b = git::clone(origin.to_str().unwrap(), &b_dir, None).await.unwrap();
+    b.set_identity("B", "b@example.com", false).await.unwrap();
+    std::fs::write(b_dir.join("y"), "2").unwrap();
+    b.stage(&[]).await.unwrap();
+    b.commit("two", false).await.unwrap();
+    b.push(&PushRequest::default(), None).await.unwrap();
+
+    a.fetch(None, None).await.unwrap();
+    assert_eq!(a.status().await.unwrap().behind, 1);
+    a.pull("ff-only", None).await.unwrap();
+    assert!(a_dir.join("y").exists());
+
+    // Remote branch checkout creates a tracking branch.
+    b.create_branch("topic", None, true).await.unwrap();
+    b.push(&PushRequest::default(), None).await.unwrap();
+    a.fetch(Some("origin"), None).await.unwrap();
+    a.checkout("origin/topic", CheckoutKind::Remote).await.unwrap();
+    assert_eq!(a.status().await.unwrap().branch.as_deref(), Some("topic"));
+    a.delete_remote_ref("origin", "topic", None).await.unwrap();
+}
+
+#[tokio::test]
+async fn rejects_option_injection() {
+    let tmp = tempfile::tempdir().unwrap();
+    let r = new_repo(&tmp.path().join("r")).await;
+    assert!(r.checkout("--orphan=x", CheckoutKind::Branch).await.is_err());
+    assert!(git::clone("--upload-pack=evil", &tmp.path().join("c"), None).await.is_err());
+    assert!(git::clone("ext::sh -c evil", &tmp.path().join("c"), None).await.is_err());
+}

@@ -1,0 +1,136 @@
+import type * as T from './types';
+
+const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+const BRIDGE = 'http://127.0.0.1:1421/call';
+
+export class IpcError extends Error {
+  kind: string;
+  constructor(e: T.AppError) {
+    super(e.message);
+    this.kind = e.kind;
+  }
+}
+
+function toError(e: unknown): IpcError {
+  if (e instanceof IpcError) return e;
+  if (e && typeof e === 'object' && 'message' in e) {
+    const o = e as { kind?: string; message: string };
+    return new IpcError({ kind: o.kind ?? 'unknown', message: o.message });
+  }
+  return new IpcError({ kind: 'unknown', message: String(e) });
+}
+
+/** Call one backend command (Tauri in the app, the dev HTTP bridge in a plain browser). */
+export async function call<R>(cmd: string, args: Record<string, unknown> = {}): Promise<R> {
+  try {
+    if (inTauri) {
+      const { invoke } = await import('@tauri-apps/api/core');
+      return await invoke<R>('call', { cmd, args });
+    }
+    const res = await fetch(BRIDGE, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ cmd, args }),
+    });
+    const body = await res.json();
+    if (!res.ok) throw body;
+    return body as R;
+  } catch (e) {
+    throw toError(e);
+  }
+}
+
+export const isTauri = inTauri;
+
+/** Typed wrappers. Every repo-scoped call takes the repo path first. */
+export const api = {
+  gitVersion: () => call<string>('app.gitVersion'),
+  settings: () => call<T.Settings>('settings.get'),
+  saveSettings: (settings: T.Settings) => call<T.Settings>('settings.set', { settings }),
+  forgetRecent: (path: string) => call<T.Settings>('settings.forgetRecent', { path }),
+
+  open: (repo: string) => call<T.RepoInfo>('repo.open', { repo }),
+  init: (path: string, branch = 'main') => call<T.RepoInfo>('repo.init', { path, branch }),
+  clone: (url: string, dest: string) => call<T.RepoInfo>('repo.clone', { url, dest }),
+  info: (repo: string) => call<T.RepoInfo>('repo.info', { repo }),
+  log: (repo: string, limit: number, skip = 0) =>
+    call<T.Commit[]>('repo.log', { repo, limit, skip }),
+  refs: (repo: string) => call<T.Refs>('repo.refs', { repo }),
+  commit: (repo: string, hash: string) => call<T.CommitDetail>('repo.commit', { repo, hash }),
+  diff: (repo: string, request: T.DiffRequest) => call<string>('repo.diff', { repo, request }),
+  identity: (repo: string) => call<T.Identity>('repo.identity', { repo }),
+  setIdentity: (repo: string, name: string, email: string, global: boolean) =>
+    call<null>('repo.setIdentity', { repo, name, email, global }),
+  headMessage: (repo: string) => call<string>('repo.headMessage', { repo }),
+
+  stage: (repo: string, paths: string[]) => call<null>('index.stage', { repo, paths }),
+  unstage: (repo: string, paths: string[]) => call<null>('index.unstage', { repo, paths }),
+  discard: (repo: string, tracked: string[], untracked: string[]) =>
+    call<null>('index.discard', { repo, tracked, untracked }),
+  applyPatch: (repo: string, patch: string, cached: boolean, reverse: boolean) =>
+    call<null>('index.applyPatch', { repo, patch, cached, reverse }),
+  commitChanges: (repo: string, message: string, amend: boolean) =>
+    call<null>('index.commit', { repo, message, amend }),
+  resolve: (repo: string, paths: string[], side: 'ours' | 'theirs') =>
+    call<null>('index.resolve', { repo, paths, side }),
+  abort: (repo: string) => call<null>('op.abort', { repo }),
+  continueOp: (repo: string) => call<null>('op.continue', { repo }),
+
+  checkout: (repo: string, target: string, kind: 'branch' | 'remote' | 'detached') =>
+    call<null>('branch.checkout', { repo, target, kind }),
+  createBranch: (repo: string, name: string, start?: string, checkout = true) =>
+    call<null>('branch.create', { repo, name, start, checkout }),
+  deleteBranch: (repo: string, name: string, force = false) =>
+    call<null>('branch.delete', { repo, name, force }),
+  renameBranch: (repo: string, old: string, name: string) =>
+    call<null>('branch.rename', { repo, old, new: name }),
+  setUpstream: (repo: string, branch: string, upstream: string | null) =>
+    call<null>('branch.setUpstream', { repo, branch, upstream }),
+  deleteRemoteBranch: (repo: string, remote: string, name: string) =>
+    call<null>('branch.deleteRemote', { repo, remote, name }),
+
+  merge: (repo: string, target: string, noFf = false) =>
+    call<null>('history.merge', { repo, target, noFf }),
+  rebase: (repo: string, onto: string) => call<null>('history.rebase', { repo, onto }),
+  cherryPick: (repo: string, hash: string, isMerge: boolean) =>
+    call<null>('history.cherryPick', { repo, hash, isMerge }),
+  revert: (repo: string, hash: string, isMerge: boolean) =>
+    call<null>('history.revert', { repo, hash, isMerge }),
+  reset: (repo: string, target: string, mode: 'soft' | 'mixed' | 'hard') =>
+    call<null>('history.reset', { repo, target, mode }),
+
+  createTag: (repo: string, name: string, target: string, message?: string) =>
+    call<null>('tag.create', { repo, name, target, message }),
+  deleteTag: (repo: string, name: string) => call<null>('tag.delete', { repo, name }),
+  stashSave: (repo: string, message?: string, includeUntracked = true) =>
+    call<null>('stash.save', { repo, message, includeUntracked }),
+  stashOp: (repo: string, op: 'apply' | 'pop' | 'drop', index: number) =>
+    call<null>('stash.op', { repo, op, index }),
+
+  fetch: (repo: string, remote?: string) => call<null>('remote.fetch', { repo, remote }),
+  pull: (repo: string, mode?: string) => call<null>('remote.pull', { repo, mode }),
+  push: (repo: string, request: T.PushRequest = {}) => call<null>('remote.push', { repo, request }),
+  addRemote: (repo: string, name: string, url: string) =>
+    call<null>('remote.add', { repo, name, url }),
+  removeRemote: (repo: string, name: string) => call<null>('remote.remove', { repo, name }),
+
+  ghAccount: () => call<T.GitHubUser | null>('github.account'),
+  ghSignInToken: (token: string) => call<T.GitHubUser>('github.signInToken', { token }),
+  ghDeviceStart: (clientId?: string) => call<T.DeviceCode>('github.deviceStart', { clientId }),
+  ghDevicePoll: (deviceCode: string, clientId?: string) =>
+    call<T.DevicePoll>('github.devicePoll', { deviceCode, clientId }),
+  ghSignOut: () => call<null>('github.signOut'),
+  ghRepos: (page = 1) => call<T.GitHubRepo[]>('github.repos', { page }),
+  ghPulls: (owner: string, repo: string) => call<T.PullRequest[]>('github.pulls', { owner, repo }),
+  ghCreatePull: (pr: {
+    owner: string;
+    repo: string;
+    title: string;
+    body: string;
+    head: string;
+    base: string;
+    draft: boolean;
+  }) => call<T.PullRequest>('github.createPull', { pr }),
+  ghCreateRepo: (name: string, description: string, isPrivate: boolean) =>
+    call<T.GitHubRepo>('github.createRepo', { name, description, private: isPrivate }),
+};

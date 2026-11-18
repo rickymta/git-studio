@@ -1,0 +1,24 @@
+[package]
+name = "gitstudio-core"
+description = "Git and GitHub operations behind GitStudio (UI-agnostic)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+
+[dependencies]
+base64.workspace = true
+dirs.workspace = true
+keyring.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,38 @@
+[package]
+name = "gitstudio"
+description = "GitStudio desktop application (thin Tauri shell around gitstudio-core)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+default-run = "gitstudio"
+
+[lib]
+name = "gitstudio_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "gitstudio-bridge"
+path = "src/bin/bridge.rs"
+required-features = ["dev-bridge"]
+
+[build-dependencies]
+tauri-build = { version = "2.7.4", features = [] }
+
+[dependencies]
+gitstudio-core.workspace = true
+serde_json.workspace = true
+tauri = { version = "2.12.5", features = [] }
+tauri-plugin-dialog = "2.8.4"
+tauri-plugin-opener = "2.5.5"
+tokio.workspace = true
+axum = { workspace = true, optional = true }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+# Debug-only HTTP bridge so the UI can run in a plain browser against the real backend.
+dev-bridge = ["dep:axum", "tokio/net"]
+
+[lints]
+workspace = true
