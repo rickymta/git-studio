@@ -22,6 +22,13 @@ import { GitLabConnectOptions, GitLabIcon } from '@/features/gitlab/GitLab';
 import { GitKrakenImport } from '@/features/welcome/Welcome';
 import { useViewMode } from '@/features/panel/FileList';
 import { useZoom } from '@/features/toolbar/StatusBar';
+import {
+  BRIGHTNESS_MAX,
+  BRIGHTNESS_MIN,
+  BRIGHTNESS_STEP,
+  useBrightness,
+  type ThemeName,
+} from '@/lib/brightness';
 import { LANGUAGES, t, useLang, useLangStore } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import { copyText, openUrl, pickFile, pickFolder } from '@/lib/native';
@@ -244,6 +251,42 @@ function Select<T extends string>({
         </option>
       ))}
     </select>
+  );
+}
+
+/** Brightness of one theme: a slider (live preview), the value, and a reset to 100%. */
+function BrightnessSlider({ theme }: { theme: ThemeName }) {
+  const [value, setValue] = useBrightness(theme);
+  return (
+    <div className="flex h-9 w-full max-w-[460px] items-center gap-3">
+      <span className="text-xs text-muted-foreground" aria-hidden>
+        {t('Darker')}
+      </span>
+      <input
+        type="range"
+        min={BRIGHTNESS_MIN}
+        max={BRIGHTNESS_MAX}
+        step={BRIGHTNESS_STEP}
+        value={value}
+        onChange={(e) => setValue(Number(e.target.value))}
+        aria-label={theme === 'dark' ? t('Brightness — dark theme') : t('Brightness — light theme')}
+        aria-valuetext={`${value}%`}
+        className="min-w-0 flex-1 accent-[var(--accent)]"
+      />
+      <span className="text-xs text-muted-foreground" aria-hidden>
+        {t('Brighter')}
+      </span>
+      <span className="w-10 text-right font-mono text-xs tabular-nums">{value}%</span>
+      <Button
+        variant="ghost"
+        size="sm"
+        disabled={value === 100}
+        onClick={() => setValue(100)}
+        title={t('Reset to 100%')}
+      >
+        {t('Reset')}
+      </Button>
+    </div>
   );
 }
 
@@ -1378,6 +1421,20 @@ function UiPrefs() {
             { value: 'light', label: t('Light') },
           ]}
         />
+      </Row>
+      <Row
+        label={t('Brightness — dark theme')}
+        help={t(
+          'Dims or brightens everything on screen while the dark theme is on. Saved for you only.',
+        )}
+      >
+        <BrightnessSlider theme="dark" />
+      </Row>
+      <Row
+        label={t('Brightness — light theme')}
+        help={t('Same for the light theme; each theme keeps its own value.')}
+      >
+        <BrightnessSlider theme="light" />
       </Row>
       <Row label={t('Zoom')} help={t('Ctrl + / Ctrl − / Ctrl 0 anywhere in the app.')}>
         <Select

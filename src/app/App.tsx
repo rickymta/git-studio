@@ -28,6 +28,7 @@ import { useWorkspaces } from '@/stores/workspace';
 import { t, useLang, useLangStore } from '@/lib/i18n';
 import { LanguagePicker } from '@/features/preferences/LanguagePicker';
 import { api } from '@/lib/ipc';
+import { applyBrightness, useBrightnessStore } from '@/lib/brightness';
 
 const STATE_LABEL = {
   merging: 'Merge in progress',
@@ -65,6 +66,9 @@ export function App() {
   }, [theme]);
 
   useEffect(() => applyZoom(zoom), [zoom]);
+
+  const brightness = useBrightnessStore((s) => s[theme]);
+  useEffect(() => applyBrightness(brightness), [brightness]);
 
   useEffect(() => {
     (async () => {

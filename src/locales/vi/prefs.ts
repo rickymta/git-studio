@@ -228,4 +228,15 @@ export const prefs: Record<string, string> = {
     'Vượt quá dung lượng này, các mục cũ nhất sẽ tự động bị xoá.',
   'Warn when larger than (MB)': 'Cảnh báo khi lớn hơn (MB)',
   '{size} · {n} entries': '{size} · {n} mục',
+
+  // Brightness (UI Customization)
+  'Brightness — dark theme': 'Độ sáng — giao diện tối',
+  'Brightness — light theme': 'Độ sáng — giao diện sáng',
+  'Dims or brightens everything on screen while the dark theme is on. Saved for you only.':
+    'Làm tối hoặc sáng toàn bộ màn hình khi dùng giao diện tối. Chỉ lưu cho riêng bạn.',
+  'Same for the light theme; each theme keeps its own value.':
+    'Tương tự cho giao diện sáng; mỗi giao diện giữ mức riêng.',
+  Darker: 'Tối hơn',
+  Brighter: 'Sáng hơn',
+  'Reset to 100%': 'Về lại 100%',
 };
