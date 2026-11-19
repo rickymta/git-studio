@@ -6,6 +6,8 @@ Các thay đổi đáng chú ý của GitStudio. File này do `pnpm release` c�
 
 Thay đổi từ v0.1.1.
 
+- feat(ui): new app icon and GitStudio mark in the status bar (95433b6)
+- fix(terminal): build Windows Terminal font parsing only on Windows (97586ae)
 - fix(ui): visible scrollbars, real app version, select the merge result (c128450)
 - fix(terminal): use the font configured in Windows Terminal (1741940)
 
