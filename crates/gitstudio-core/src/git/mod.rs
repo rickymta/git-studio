@@ -552,6 +552,28 @@ impl Repo {
         .map(drop)
     }
 
+    /// Remote-tracking branches (`origin/main`, …) whose history already contains `hash`, so
+    /// rewriting it would rewrite published history even when the branch has no upstream.
+    pub async fn remotes_containing(&self, hash: &str) -> Result<Vec<String>> {
+        check_rev(hash)?;
+        let out = self
+            .git(&[
+                "branch",
+                "-r",
+                "--format=%(refname:short)",
+                "--contains",
+                hash,
+            ])
+            .await?;
+        Ok(out
+            .lines()
+            .map(str::trim)
+            // `origin/HEAD` is only a pointer to another remote branch.
+            .filter(|l| !l.is_empty() && !l.ends_with("/HEAD"))
+            .map(str::to_string)
+            .collect())
+    }
+
     /// Replace the message of HEAD, which must still be `expected` (the commit the user was
     /// editing), without folding in staged changes: `commit --amend --only` with no paths commits
     /// HEAD's own tree, leaving the index and working tree as they are. Returns the new HEAD.

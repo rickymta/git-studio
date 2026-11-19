@@ -34,9 +34,15 @@ export const emptyForm = (): SupportForm => ({
   includeSystem: true,
 });
 
-/** Loose `local@domain.tld` check. */
+/** Loose `local@domain.tld` check; the same rule as `valid_email` in `support.rs`. */
 export function isValidEmail(s: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.trim());
+  const v = s.trim();
+  const at = v.indexOf('@');
+  if (at <= 0 || /\s/.test(v)) return false;
+  const domain = v.slice(at + 1);
+  if (domain.includes('@')) return false;
+  const dot = domain.lastIndexOf('.');
+  return dot > 0 && dot < domain.length - 1;
 }
 
 export function validate(f: SupportForm): FormErrors {

@@ -243,6 +243,8 @@ export interface TokenInfo {
   kind: TokenKind;
   /** RFC 3339; null when the token has no expiry date. */
   expiresAt: string | null;
+  /** The host could not be asked; `expiresAt` says nothing (keep the known date). */
+  expiryUnknown?: boolean;
 }
 
 export interface GitHubRepo {

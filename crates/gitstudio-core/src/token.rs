@@ -24,6 +24,10 @@ pub struct TokenInfo {
     /// RFC 3339 time the token stops working; `None` when it has no expiry (or the host does not
     /// say).
     pub expires_at: Option<String>,
+    /// The host could not be asked (network or server error), so `expires_at` says nothing; the
+    /// UI keeps the date it already knew instead of showing "no expiry".
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub expiry_unknown: bool,
 }
 
 /// Kind of a GitHub token from its prefix.
@@ -216,10 +220,20 @@ mod tests {
         let info = TokenInfo {
             kind: TokenKind::FineGrained,
             expires_at: Some("2026-12-01T00:00:00Z".into()),
+            expiry_unknown: false,
         };
         assert_eq!(
             serde_json::to_value(info).unwrap(),
             json!({ "kind": "fineGrained", "expiresAt": "2026-12-01T00:00:00Z" })
+        );
+        let unknown = TokenInfo {
+            kind: TokenKind::Pat,
+            expires_at: None,
+            expiry_unknown: true,
+        };
+        assert_eq!(
+            serde_json::to_value(unknown).unwrap(),
+            json!({ "kind": "pat", "expiresAt": null, "expiryUnknown": true })
         );
     }
 }

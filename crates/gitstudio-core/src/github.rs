@@ -332,6 +332,7 @@ impl Api {
                 .get("github-authentication-token-expiration")
                 .and_then(|h| h.to_str().ok())
                 .and_then(crate::token::parse_github_expiration),
+            expiry_unknown: false,
         };
         Ok(user)
     }

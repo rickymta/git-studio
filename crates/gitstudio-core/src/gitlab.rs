@@ -144,14 +144,21 @@ async fn token_info(token: &str) -> crate::token::TokenInfo {
         Ok(v) => TokenInfo {
             kind: TokenKind::Pat,
             expires_at: parse_gitlab_expires_at(&v),
+            expiry_unknown: false,
         },
-        Err(_) => TokenInfo {
-            kind: match gitlab_kind(token) {
+        Err(_) => {
+            let kind = match gitlab_kind(token) {
                 TokenKind::Unknown => TokenKind::Oauth,
                 k => k,
-            },
-            expires_at: None,
-        },
+            };
+            TokenInfo {
+                kind,
+                expires_at: None,
+                // A `glpat-` token can always describe itself, so a failure here is the request
+                // (5xx, timeout), not "no expiry": don't let it wipe the date we already have.
+                expiry_unknown: kind == TokenKind::Pat,
+            }
+        }
     }
 }
 

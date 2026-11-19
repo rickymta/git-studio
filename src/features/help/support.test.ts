@@ -17,7 +17,8 @@ describe('support form', () => {
     for (const ok of ['a@b.co', 'first.last+tag@sub.example.org', '  a@b.co  ']) {
       expect(isValidEmail(ok)).toBe(true);
     }
-    for (const bad of ['', 'a', 'a@', '@b.co', 'a@b', 'a b@c.co', 'a@b@c.co']) {
+    // Same rule as the Rust check, so the server never rejects what the form accepted.
+    for (const bad of ['', 'a', 'a@', '@b.co', 'a@b', 'a b@c.co', 'a@b@c.co', 'a@b.c.', 'a@.co']) {
       expect(isValidEmail(bad)).toBe(false);
     }
   });

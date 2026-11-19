@@ -142,6 +142,26 @@ describe('recordFrom / keepAfterRejected', () => {
     });
   });
 
+  it('keeps the known date when the host could not say this time', () => {
+    const prev = recordFrom(
+      'gitlab',
+      { login: 'me', token: { kind: 'pat', expiresAt: '2026-12-01T00:00:00Z' } },
+      NOW - HOUR,
+    );
+    const failed = {
+      login: 'me',
+      token: { kind: 'pat' as const, expiresAt: null, expiryUnknown: true },
+    };
+    expect(recordFrom('gitlab', failed, NOW, prev)).toMatchObject({
+      expiresAt: '2026-12-01T00:00:00Z',
+      checkedAt: NOW,
+    });
+    // A different account (or a real "no expiry" answer) does not inherit the old date.
+    expect(recordFrom('gitlab', { ...failed, login: 'other' }, NOW, prev).expiresAt).toBeNull();
+    const noExpiry = { login: 'me', token: { kind: 'pat' as const, expiresAt: null } };
+    expect(recordFrom('gitlab', noExpiry, NOW, prev).expiresAt).toBeNull();
+  });
+
   it('keeps an expired record while the token is still stored, drops the rest', () => {
     const expired = rec({ expiresAt: at(-HOUR) });
     expect(keepAfterRejected(expired, true, NOW)).toBe(expired);

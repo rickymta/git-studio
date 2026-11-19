@@ -337,6 +337,12 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
                 .amend_message(&arg::<String>(a, "hash")?, &arg::<String>(a, "message")?)
                 .await?
         ),
+        "history.remotesContaining" => json!(
+            repo(a)
+                .await?
+                .remotes_containing(&arg::<String>(a, "hash")?)
+                .await?
+        ),
         "history.move" => {
             repo(a)
                 .await?
