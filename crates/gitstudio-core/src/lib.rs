@@ -329,6 +329,12 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
                 .await?;
             return done();
         }
+        "history.amendMessage" => json!(
+            repo(a)
+                .await?
+                .amend_message(&arg::<String>(a, "hash")?, &arg::<String>(a, "message")?)
+                .await?
+        ),
         "history.move" => {
             repo(a)
                 .await?

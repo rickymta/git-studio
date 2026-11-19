@@ -545,3 +545,91 @@ async fn longpaths_default_respects_an_existing_choice() {
     assert!(!git::ensure_longpaths(Some(&file)).await.unwrap());
     assert_eq!(get(), "false");
 }
+
+#[tokio::test]
+async fn amend_message_keeps_staged_and_unstaged_changes_out() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("repo");
+    let r = new_repo(&dir).await;
+    std::fs::write(dir.join("a.txt"), "one\n").unwrap();
+    r.stage(&[]).await.unwrap();
+    r.commit("first", false).await.unwrap();
+    std::fs::write(dir.join("b.txt"), "two\n").unwrap();
+    r.stage(&[]).await.unwrap();
+    r.commit("second", false).await.unwrap();
+    let old = r.log(10, 0).await.unwrap()[0].clone();
+
+    // A staged edit and an unstaged one stay where they are.
+    std::fs::write(dir.join("a.txt"), "one\nstaged\n").unwrap();
+    r.stage(&["a.txt".into()]).await.unwrap();
+    std::fs::write(dir.join("b.txt"), "two\nunstaged\n").unwrap();
+
+    let new = r
+        .amend_message(&old.hash, "second, reworded\n\nWith a body.")
+        .await
+        .unwrap();
+    assert_ne!(new, old.hash);
+    let log = r.log(10, 0).await.unwrap();
+    assert_eq!(log.len(), 2);
+    assert_eq!(log[0].hash, new);
+    assert_eq!(log[0].subject, "second, reworded");
+    assert_eq!(log[0].parents, old.parents);
+    assert_eq!(log[0].author_time, old.author_time);
+    let detail = r.commit_detail(&new).await.unwrap();
+    assert!(detail.body.contains("With a body."), "{}", detail.body);
+    // Only b.txt (the commit's own change) is in the amended commit.
+    let files: Vec<_> = detail.files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(files, ["b.txt"]);
+    let st = r.status().await.unwrap();
+    assert_eq!(st.staged.len(), 1);
+    assert_eq!(st.staged[0].path, "a.txt");
+    assert_eq!(st.unstaged.len(), 1);
+    assert_eq!(st.unstaged[0].path, "b.txt");
+
+    // A stale hash (HEAD moved), an older commit, an empty message or an option are refused.
+    assert!(r.amend_message(&old.hash, "again").await.is_err());
+    assert!(r.amend_message(&log[1].hash, "again").await.is_err());
+    assert!(r.amend_message(&new, "  \n").await.is_err());
+    assert!(r.amend_message("--evil", "again").await.is_err());
+    assert_eq!(r.log(10, 0).await.unwrap()[0].hash, new);
+}
+
+#[tokio::test]
+async fn amend_message_of_a_merge_commit() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("repo");
+    let r = new_repo(&dir).await;
+    std::fs::write(dir.join("a.txt"), "one\n").unwrap();
+    r.stage(&[]).await.unwrap();
+    r.commit("first", false).await.unwrap();
+    sh(&dir, &["checkout", "-q", "-b", "side"]);
+    std::fs::write(dir.join("s.txt"), "side\n").unwrap();
+    sh(&dir, &["add", "."]);
+    sh(&dir, &["commit", "-q", "-m", "side"]);
+    sh(&dir, &["checkout", "-q", "main"]);
+    std::fs::write(dir.join("m.txt"), "main\n").unwrap();
+    sh(&dir, &["add", "."]);
+    sh(&dir, &["commit", "-q", "-m", "main"]);
+    sh(
+        &dir,
+        &[
+            "merge",
+            "-q",
+            "--no-ff",
+            "-m",
+            "Merge branch 'side'",
+            "side",
+        ],
+    );
+    let old = r.log(10, 0).await.unwrap()[0].clone();
+    assert_eq!(old.parents.len(), 2);
+
+    let new = r
+        .amend_message(&old.hash, "Merge side into main")
+        .await
+        .unwrap();
+    let head = r.log(10, 0).await.unwrap()[0].clone();
+    assert_eq!(head.hash, new);
+    assert_eq!(head.subject, "Merge side into main");
+    assert_eq!(head.parents, old.parents);
+}

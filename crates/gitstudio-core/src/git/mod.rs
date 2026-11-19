@@ -552,6 +552,45 @@ impl Repo {
         .map(drop)
     }
 
+    /// Replace the message of HEAD, which must still be `expected` (the commit the user was
+    /// editing), without folding in staged changes: `commit --amend --only` with no paths commits
+    /// HEAD's own tree, leaving the index and working tree as they are. Returns the new HEAD.
+    pub async fn amend_message(&self, expected: &str, message: &str) -> Result<String> {
+        check_rev(expected)?;
+        if message.trim().is_empty() {
+            return Err(Error::Invalid("Commit message is empty".into()));
+        }
+        if self.state() != RepoState::Clean {
+            return Err(Error::Invalid(
+                "Finish or abort the operation in progress first".into(),
+            ));
+        }
+        let head = self.git(&["rev-parse", "--verify", "-q", "HEAD"]).await?;
+        let want = self
+            .git(&[
+                "rev-parse",
+                "--verify",
+                "-q",
+                &format!("{expected}^{{commit}}"),
+            ])
+            .await?;
+        if head.trim() != want.trim() {
+            return Err(Error::Invalid(
+                "HEAD has moved; only the latest commit of the current branch can be amended"
+                    .into(),
+            ));
+        }
+        self.git_opts(
+            &["commit", "--amend", "--only", "--allow-empty", "-F", "-"],
+            Opts {
+                stdin: Some(message.as_bytes()),
+                env: Vec::new(),
+            },
+        )
+        .await?;
+        Ok(self.git(&["rev-parse", "HEAD"]).await?.trim().to_string())
+    }
+
     pub async fn head_message(&self) -> Result<String> {
         Ok(self
             .git(&["log", "-1", "--format=%B"])
