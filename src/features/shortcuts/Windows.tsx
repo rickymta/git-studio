@@ -193,7 +193,7 @@ export function ActivityWindow({ open, onClose }: { open: boolean; onClose: () =
       }
     >
       <div className="flex h-9 shrink-0 items-stretch border-b border-border bg-surface">
-        {tabBtn('app', <img src="/icon.svg" alt="" className="size-4" />, t('Application'))}
+        {tabBtn('app', <img src="/icon.png" alt="" className="size-4" />, t('Application'))}
         {tabBtn(
           'repo',
           <FolderGit2 className="size-4" />,

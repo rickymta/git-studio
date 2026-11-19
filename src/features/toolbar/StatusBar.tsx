@@ -118,7 +118,20 @@ export function StatusBar({ zoom, setZoom }: { zoom: number; setZoom: (z: number
           <Plus className="size-[13px]" />
         </button>
       </span>
-      <span className="font-mono">GitStudio {__APP_VERSION__}</span>
+      <span className="flex items-center gap-[6.3px] font-mono">
+        {/* The mark is a white PNG used as a mask, so it takes the text colour in either theme. */}
+        <span
+          aria-hidden
+          className="size-[15.3px] shrink-0 bg-current"
+          style={{
+            maskImage: 'url(/app-mark.png)',
+            maskSize: 'contain',
+            maskRepeat: 'no-repeat',
+            maskPosition: 'center',
+          }}
+        />
+        GitStudio {__APP_VERSION__}
+      </span>
     </div>
   );
 }
