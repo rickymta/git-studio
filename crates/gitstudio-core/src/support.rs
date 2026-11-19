@@ -15,6 +15,8 @@ use crate::error::{Error, Result};
 /// Where support requests are delivered.
 pub const SUPPORT_EMAIL: &str = "rickymta@gmail.com";
 const ENDPOINT: &str = "https://formsubmit.co/ajax/";
+/// Sent as the form's page (`_url`, and the Referer header).
+const PROJECT_URL: &str = "https://github.com/rickymta/git-studio";
 
 pub const MAX_NAME: usize = 100;
 pub const MAX_SUBJECT: usize = 200;
@@ -125,6 +127,9 @@ impl SupportRequest {
         m.insert("_replyto".into(), json!(self.email.trim()));
         m.insert("_template".into(), json!("table"));
         m.insert("_captcha".into(), json!("false"));
+        // FormSubmit refuses requests that don't come from a web page ("open this page through a
+        // web server") unless `_url` names the form's page.
+        m.insert("_url".into(), json!(PROJECT_URL));
         Value::Object(m)
     }
 }
@@ -160,6 +165,7 @@ pub async fn send(req: &SupportRequest) -> Result<()> {
     let res = client
         .post(format!("{ENDPOINT}{SUPPORT_EMAIL}"))
         .header("Accept", "application/json")
+        .header("Referer", PROJECT_URL)
         .json(&req.payload(&system_info()))
         .send()
         .await
@@ -251,6 +257,7 @@ mod tests {
         assert_eq!(p["_replyto"], "an@example.com");
         assert_eq!(p["App version"], "0.1.2");
         assert_eq!(p["OS"], "windows (x86_64)");
+        assert_eq!(p["_url"], PROJECT_URL);
 
         let p = SupportRequest {
             include_system: false,
