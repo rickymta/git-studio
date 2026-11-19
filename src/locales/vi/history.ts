@@ -118,22 +118,45 @@ export const history: Record<string, string> = {
     'Các host của remote HTTPS trong repository đang mở, cùng GitHub và GitLab. Mật khẩu không bao giờ được hiển thị.',
   'No HTTPS hosts found.': 'Không tìm thấy host HTTPS nào.',
   'Used by {remotes}': 'Dùng bởi {remotes}',
-  'Stored for {username}': 'Đã lưu cho {username}',
   Stored: 'Đã lưu',
   'Not stored': 'Chưa lưu',
-  'Save credentials…': 'Lưu thông tin đăng nhập…',
-  'Save credentials for {host}': 'Lưu thông tin đăng nhập cho {host}',
-  'Saved through the credential helper selected above, so git uses them for every repository on {host}. For GitHub and GitLab use a personal access token as the password.':
-    'Được lưu qua credential helper đã chọn ở trên, nên git dùng chúng cho mọi repository trên {host}. Với GitHub và GitLab, hãy dùng personal access token làm mật khẩu.',
   Username: 'Tên người dùng',
   'Password or token': 'Mật khẩu hoặc token',
-  'Saved credentials for {host}': 'Đã lưu thông tin đăng nhập cho {host}',
   'Could not save credentials': 'Không thể lưu thông tin đăng nhập',
   'Remove credentials': 'Gỡ thông tin đăng nhập',
-  'Remove the stored credentials for {host}? Git asks for them again the next time it needs them.':
-    'Gỡ thông tin đăng nhập đã lưu cho {host}? Git sẽ hỏi lại vào lần tới cần dùng.',
-  'Removed credentials for {host}': 'Đã gỡ thông tin đăng nhập cho {host}',
   'Could not remove credentials': 'Không thể gỡ thông tin đăng nhập',
+  // Several accounts per host
+  '{n} stored accounts': '{n} tài khoản đã lưu',
+  'Add account…': 'Thêm tài khoản…',
+  'Add an account for {host}': 'Thêm tài khoản cho {host}',
+  'Update the token of {username} on {host}': 'Cập nhật token của {username} trên {host}',
+  'Saved through the credential helper selected above. Several accounts can be stored for one host; choose below which one each repository uses. For GitHub and GitLab use a personal access token as the password.':
+    'Được lưu qua credential helper đã chọn ở trên. Một host có thể lưu nhiều tài khoản; chọn bên dưới tài khoản mà từng repository sẽ dùng. Với GitHub và GitLab, hãy dùng personal access token làm mật khẩu.',
+  'Saved {username} for {host}': 'Đã lưu {username} cho {host}',
+  'Remove the stored password or token of {username} on {host}? Git asks for it again the next time it needs it.':
+    'Gỡ mật khẩu/token đã lưu của {username} trên {host}? Git sẽ hỏi lại vào lần tới cần dùng.',
+  'Removed {username} from {host}': 'Đã gỡ {username} khỏi {host}',
+  'This repository': 'Repository này',
+  '{repo} now uses {username} on {host}': '{repo} giờ dùng {username} trên {host}',
+  '{username} is now the default account on {host}':
+    '{username} giờ là tài khoản mặc định trên {host}',
+  'Could not change the account': 'Không thể đổi tài khoản',
+  'used by {repo}': '{repo} đang dùng',
+  default: 'mặc định',
+  'default for all repositories': 'mặc định cho mọi repository',
+  'Use for {repo}': 'Dùng cho {repo}',
+  'Make default': 'Đặt làm mặc định',
+  'Replace the stored password or token': 'Thay mật khẩu/token đã lưu',
+  'Update token…': 'Cập nhật token…',
+  '{repo} is set to {username}.': '{repo} được đặt dùng {username}.',
+  'Use the default account instead': 'Dùng tài khoản mặc định',
+  'Every repository without its own choice uses {username}.':
+    'Mọi repository chưa chọn riêng sẽ dùng {username}.',
+  'Clear the default': 'Bỏ mặc định',
+  'Fetch, pull and push here go through the chosen account, not your GitHub sign-in (@{login}).':
+    'Fetch, pull và push ở đây dùng tài khoản đã chọn, không dùng tài khoản GitHub đã đăng nhập (@{login}).',
+  'Without a chosen account, fetch, pull and push use your GitHub sign-in (@{login}).':
+    'Khi chưa chọn tài khoản, fetch, pull và push dùng tài khoản GitHub đã đăng nhập (@{login}).',
   'Could not read stored credentials': 'Không thể đọc thông tin đăng nhập đã lưu',
 
   // Repository-specific preferences

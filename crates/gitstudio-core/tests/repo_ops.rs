@@ -478,3 +478,45 @@ async fn fast_forward_branches_without_checking_them_out() {
     assert!(r.fast_forward("old", "main").await.is_err());
     assert_eq!(target_of(&r.refs().await.unwrap(), "old"), before);
 }
+
+#[tokio::test]
+async fn choose_a_credential_account_for_one_repository() {
+    use gitstudio_core::credentials;
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("repo");
+    let r = new_repo(&dir).await;
+    let key = "credential.https://example.test.username";
+    let local = || {
+        let out = std::process::Command::new("git")
+            .current_dir(&dir)
+            .args(["config", "--local", "--get", key])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+
+    credentials::choose(Some(&r), "example.test", Some("bob"))
+        .await
+        .unwrap();
+    assert_eq!(local(), "bob");
+    assert!(credentials::account_chosen(&dir, "example.test").await);
+
+    // Clearing twice is fine; bad input is refused.
+    credentials::choose(Some(&r), "example.test", None)
+        .await
+        .unwrap();
+    credentials::choose(Some(&r), "example.test", None)
+        .await
+        .unwrap();
+    assert_eq!(local(), "");
+    assert!(
+        credentials::choose(Some(&r), "example.test", Some("-c"))
+            .await
+            .is_err()
+    );
+    assert!(
+        credentials::choose(Some(&r), "bad host", Some("bob"))
+            .await
+            .is_err()
+    );
+}

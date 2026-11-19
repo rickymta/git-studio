@@ -106,7 +106,11 @@ export const api = {
   credentials: (repo?: string) => call<T.HostCredential[]>('credentials.list', { repo }),
   saveCredential: (host: string, username: string, password: string) =>
     call<null>('credentials.save', { host, username, password }),
-  eraseCredential: (host: string) => call<null>('credentials.erase', { host }),
+  eraseCredential: (host: string, username?: string) =>
+    call<null>('credentials.erase', { host, username }),
+  /** Account git uses for `host` in `repo` (or every repository without `repo`); null clears. */
+  chooseCredential: (host: string, username: string | null, repo?: string) =>
+    call<null>('credentials.choose', { host, username, repo }),
   gitkrakenDetect: () =>
     call<{ repos: number; tabs: number; ssh: boolean } | null>('gitkraken.detect'),
   gitkrakenImport: (ssh: boolean) => call<T.GitKrakenImport>('gitkraken.import', { ssh }),

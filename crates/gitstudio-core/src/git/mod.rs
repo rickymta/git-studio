@@ -56,7 +56,11 @@ pub fn auth_env(github: Option<&str>, gitlab: Option<&str>) -> Vec<(String, Stri
 /// Options for commands that talk to a remote: stored tokens for HTTPS, chosen key for SSH.
 fn net(token: Option<&str>) -> Opts<'static> {
     let gitlab = crate::gitlab::load_token().ok().flatten();
-    let mut env = auth_env(token, gitlab.as_deref());
+    net_with(token, gitlab.as_deref())
+}
+
+fn net_with(github: Option<&str>, gitlab: Option<&str>) -> Opts<'static> {
+    let mut env = auth_env(github, gitlab);
     env.extend(crate::ssh::git_env());
     Opts { stdin: None, env }
 }
@@ -108,6 +112,25 @@ impl Repo {
 
     async fn git_opts(&self, args: &[&str], opts: Opts<'_>) -> Result<String> {
         Ok(run::ok(&self.root, args, opts).await?.text())
+    }
+
+    /// Like [`net`], but a host with an account chosen for this repository (or globally) in
+    /// Preferences → Credentials authenticates through the credential helper with that account
+    /// instead of GitStudio's own sign-in token.
+    async fn net(&self, github: Option<&str>) -> Opts<'static> {
+        let github = match github {
+            Some(t) if !crate::credentials::account_chosen(&self.root, "github.com").await => {
+                Some(t)
+            }
+            _ => None,
+        };
+        let gitlab = match crate::gitlab::load_token().ok().flatten() {
+            Some(t) if !crate::credentials::account_chosen(&self.root, "gitlab.com").await => {
+                Some(t)
+            }
+            _ => None,
+        };
+        net_with(github, gitlab.as_deref())
     }
 
     pub fn state(&self) -> RepoState {
@@ -869,7 +892,7 @@ impl Repo {
             }
             None => a.push("--all"),
         }
-        self.git_opts(&a, net(token)).await.map(drop)
+        self.git_opts(&a, self.net(token).await).await.map(drop)
     }
 
     /// `remote`: pull from that remote instead of the upstream. The branch pulled is the
@@ -899,7 +922,7 @@ impl Repo {
             a.push(merge);
         }
         let args: Vec<&str> = a.iter().map(String::as_str).collect();
-        self.git_opts(&args, net(token)).await.map(drop)
+        self.git_opts(&args, self.net(token).await).await.map(drop)
     }
 
     pub async fn push(&self, req: &PushRequest, token: Option<&str>) -> Result<()> {
@@ -938,7 +961,7 @@ impl Repo {
             }
         }
         let args: Vec<&str> = a.iter().map(String::as_str).collect();
-        self.git_opts(&args, net(token)).await.map(drop)
+        self.git_opts(&args, self.net(token).await).await.map(drop)
     }
 
     pub async fn delete_remote_ref(
@@ -949,7 +972,7 @@ impl Repo {
     ) -> Result<()> {
         check_rev(remote)?;
         check_rev(name)?;
-        self.git_opts(&["push", remote, "--delete", name], net(token))
+        self.git_opts(&["push", remote, "--delete", name], self.net(token).await)
             .await
             .map(drop)
     }

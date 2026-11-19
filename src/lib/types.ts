@@ -373,9 +373,25 @@ export interface TerminalOutput {
   exited: boolean;
 }
 
+export interface CredentialAccount {
+  username: string;
+  /** The open repository is set to use this account. */
+  forRepo: boolean;
+  /** Chosen for every repository (global git config). */
+  globalDefault: boolean;
+  /** What git uses in a repository without its own choice. */
+  helperDefault: boolean;
+}
+
 export interface HostCredential {
   host: string;
   remotes: string[];
+  /** Something is stored for the account git uses here. */
   stored: boolean;
+  /** The account git uses for this host in the open repository. */
   username: string | null;
+  /** Every account with a stored password or token for this host. */
+  accounts: CredentialAccount[];
+  repoChoice: string | null;
+  globalChoice: string | null;
 }

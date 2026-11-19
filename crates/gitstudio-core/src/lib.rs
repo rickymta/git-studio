@@ -172,7 +172,18 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
             return done();
         }
         "credentials.erase" => {
-            credentials::erase(&arg::<String>(a, "host")?).await?;
+            let username: Option<String> = opt(a, "username")?;
+            credentials::erase(&arg::<String>(a, "host")?, username.as_deref()).await?;
+            return done();
+        }
+        "credentials.choose" => {
+            let r = match opt::<String>(a, "repo")? {
+                Some(p) => Some(Repo::open(&PathBuf::from(p)).await?),
+                None => None,
+            };
+            let username: Option<String> = opt(a, "username")?;
+            credentials::choose(r.as_ref(), &arg::<String>(a, "host")?, username.as_deref())
+                .await?;
             return done();
         }
         "gitkraken.detect" => match gitkraken::read() {
