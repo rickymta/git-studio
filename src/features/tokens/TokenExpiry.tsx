@@ -9,11 +9,12 @@ import { byUrgency, isShown, leftLabel, tokenState, type TokenRecord } from './e
 /** Ask the hosts again this often while the app stays open. */
 const REFRESH_MS = 6 * 60 * 60 * 1000;
 
+// Amber / red stay on hover (underline instead), so the warning never disappears under the pointer.
 const STATE_CLASS = {
-  ok: '',
-  never: 'opacity-70',
-  warning: 'text-warning',
-  expired: 'font-medium text-danger',
+  ok: 'hover:text-foreground',
+  never: 'opacity-70 hover:text-foreground hover:opacity-100',
+  warning: 'text-warning hover:underline',
+  expired: 'font-medium text-danger hover:underline',
 } as const;
 
 /**
@@ -66,10 +67,7 @@ function TokenItem({ rec, now }: { rec: TokenRecord; now: number }) {
       title={tip}
       aria-label={tip}
       onClick={() => useTokens.getState().openAccount(rec.provider)}
-      className={cn(
-        'flex h-full shrink-0 items-center gap-[6.3px] px-[4.5px] hover:text-foreground',
-        STATE_CLASS[state],
-      )}
+      className={cn('flex h-full shrink-0 items-center gap-[6.3px] px-[4.5px]', STATE_CLASS[state])}
     >
       <KeyRound className="size-[15.3px]" />
       {state === 'never'
