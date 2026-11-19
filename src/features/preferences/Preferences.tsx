@@ -35,6 +35,14 @@ import { copyText, openUrl, pickFile, pickFolder } from '@/lib/native';
 import type { GitHubSshKey, LocalKey, Settings, SshInfo, SshTestResult } from '@/lib/types';
 import { useActivity } from '@/stores/activity';
 import { useGitHub } from '@/stores/github';
+import { formatExpiry, useTokens } from '@/stores/tokens';
+import {
+  isShown,
+  leftLabel,
+  tokenSettingsUrl,
+  tokenState,
+  type TokenRecord,
+} from '@/features/tokens/expiry';
 import { ensureGitLabChecked, useGitLab } from '@/stores/gitlab';
 import { CredentialsPrefs } from './Credentials';
 import { RepoPrefs } from './RepoPrefs';
@@ -1011,7 +1019,18 @@ function useFillPane() {
 }
 
 function Integrations({ onSignIn }: { onSignIn: () => void }) {
-  const [provider, setProvider] = useState<Provider>('github');
+  // Opened from the token indicator: start at that provider.
+  const [provider, setProvider] = useState<Provider>(
+    () => useTokens.getState().openRequest?.provider ?? 'github',
+  );
+  useEffect(
+    () =>
+      useTokens.subscribe((s, prev) => {
+        if (s.openRequest && s.openRequest !== prev.openRequest)
+          setProvider(s.openRequest.provider);
+      }),
+    [],
+  );
   const [fillRef, fillStyle] = useFillPane();
   const items: { id: Provider; label: string; icon: ReactNode }[] = [
     { id: 'github', label: 'GitHub', icon: <Github className="size-[18px]" /> },
@@ -1052,41 +1071,81 @@ const ProviderTitle = ({ children }: { children: ReactNode }) => (
 
 /** Connected account card: avatar + login · “Connected” · Disconnect. */
 function AccountCard({
+  provider,
   login,
   name,
   avatarUrl,
   htmlUrl,
   onDisconnect,
 }: {
+  provider: Provider;
   login: string;
   name: string | null;
   avatarUrl: string;
   htmlUrl: string;
   onDisconnect: () => void;
 }) {
+  const rec = useTokens((s) => s.records[provider]);
   return (
-    <div className="mb-8 flex w-[500px] max-w-full items-center gap-4 rounded-lg border border-border bg-surface px-4 py-3">
-      <div className="flex min-w-0 flex-1 items-center gap-3">
-        <Avatar name={login} url={avatarUrl} size={36} />
-        <div className="min-w-0">
-          <div className="truncate font-medium">{name ?? login}</div>
-          <button
-            type="button"
-            className="text-xs text-accent hover:underline"
-            onClick={() => openUrl(htmlUrl)}
-          >
-            @{login}
+    <div className="mb-8 w-[500px] max-w-full rounded-lg border border-border bg-surface px-4 py-3">
+      <div className="flex items-center gap-4">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <Avatar name={login} url={avatarUrl} size={36} />
+          <div className="min-w-0">
+            <div className="truncate font-medium">{name ?? login}</div>
+            <button
+              type="button"
+              className="text-xs text-accent hover:underline"
+              onClick={() => openUrl(htmlUrl)}
+            >
+              @{login}
+            </button>
+          </div>
+        </div>
+        <span className="flex shrink-0 items-center gap-1 font-medium text-success">
+          <Check className="size-4" /> {t('Connected')}
+        </span>
+        <div className="flex flex-1 justify-end">
+          <button type="button" className={DANGER_OUTLINE} onClick={onDisconnect}>
+            {t('Disconnect')}
           </button>
         </div>
       </div>
-      <span className="flex shrink-0 items-center gap-1 font-medium text-success">
-        <Check className="size-4" /> {t('Connected')}
+      {rec && rec.login === login && isShown(rec) && <TokenLine rec={rec} />}
+    </div>
+  );
+}
+
+/** "Token expires on … · 12 days left · Renew token" under a connected account. */
+function TokenLine({ rec }: { rec: TokenRecord }) {
+  const [now] = useState(() => Date.now());
+  const state = tokenState(rec.expiresAt, now);
+  return (
+    <div
+      className={cn(
+        'mt-3 flex items-center gap-2 border-t border-border pt-3 text-xs',
+        state === 'warning'
+          ? 'text-warning'
+          : state === 'expired'
+            ? 'text-danger'
+            : 'text-muted-foreground',
+      )}
+    >
+      <KeyRound className="size-3.5 shrink-0" />
+      <span className="min-w-0 flex-1">
+        {rec.expiresAt
+          ? `${t(state === 'expired' ? 'Token expired on {date}' : 'Token expires on {date}', {
+              date: formatExpiry(rec.expiresAt),
+            })}${state === 'expired' ? '' : ` · ${leftLabel(rec.expiresAt, now)}`}`
+          : t('This token has no expiry date')}
       </span>
-      <div className="flex flex-1 justify-end">
-        <button type="button" className={DANGER_OUTLINE} onClick={onDisconnect}>
-          {t('Disconnect')}
-        </button>
-      </div>
+      <button
+        type="button"
+        className="shrink-0 text-accent hover:underline"
+        onClick={() => openUrl(tokenSettingsUrl(rec))}
+      >
+        {t('Renew token')}
+      </button>
     </div>
   );
 }
@@ -1149,6 +1208,7 @@ function GitHubIntegration({ onSignIn }: { onSignIn: () => void }) {
       {user ? (
         <>
           <AccountCard
+            provider="github"
             login={user.login}
             name={user.name}
             avatarUrl={user.avatarUrl}
@@ -1334,6 +1394,7 @@ function GitLabIntegration() {
         <Spinner />
       ) : user ? (
         <AccountCard
+          provider="gitlab"
           login={user.login}
           name={user.name}
           avatarUrl={user.avatarUrl}

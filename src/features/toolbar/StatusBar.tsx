@@ -13,6 +13,7 @@ import { create } from 'zustand';
 import { HelpDialog } from '@/features/help/HelpDialog';
 import { GlobalShortcuts } from '@/features/shortcuts/GlobalShortcuts';
 import { ActivityWindow, ShortcutsWindow } from '@/features/shortcuts/Windows';
+import { TokenExpiry } from '@/features/tokens/TokenExpiry';
 import { t } from '@/lib/i18n';
 import { useGitHub } from '@/stores/github';
 import { useRepo } from '@/stores/repo';
@@ -76,6 +77,7 @@ export function StatusBar({ zoom, setZoom }: { zoom: number; setZoom: (z: number
         </span>
       )}
       <span className="min-w-0 flex-1 truncate">{path ?? ''}</span>
+      <TokenExpiry />
       <button
         type="button"
         title={`${t('Activity Logs')} (Ctrl+Shift+L)`}

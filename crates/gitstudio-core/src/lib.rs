@@ -13,6 +13,7 @@ pub mod ssh;
 pub mod support;
 pub mod terminal;
 pub mod text;
+pub mod token;
 pub mod workspace;
 
 use std::path::PathBuf;
@@ -715,6 +716,11 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
                 Err(e) => return Err(e),
             },
         },
+        // Whether a token is stored at all (no network): tells "signed out" from "token rejected".
+        "auth.storedTokens" => json!({
+            "github": github::load_token()?.is_some(),
+            "gitlab": gitlab::load_token()?.is_some(),
+        }),
         "gitlab.signInToken" => {
             serde_json::to_value(gitlab::sign_in_with_token(&arg::<String>(a, "token")?).await?)?
         }

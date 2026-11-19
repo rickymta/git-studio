@@ -46,6 +46,9 @@ pub struct User {
     pub avatar_url: String,
     #[serde(alias = "web_url", default)]
     pub html_url: String,
+    /// Kind and expiry of the token used (never the token itself).
+    #[serde(default, skip_deserializing)]
+    pub token: crate::token::TokenInfo,
 }
 
 /// Same shape as a GitHub repository summary so the UI can list both alike.
@@ -126,7 +129,30 @@ async fn get(token: &str, path: &str) -> Result<Value> {
 }
 
 pub async fn user(token: &str) -> Result<User> {
-    Ok(serde_json::from_value(get(token, "/user").await?)?)
+    let (u, info) = tokio::join!(get(token, "/user"), token_info(token));
+    let mut u: User = serde_json::from_value(u?)?;
+    u.token = info;
+    Ok(u)
+}
+
+/// Kind and expiry of `token`. Only access tokens can describe themselves
+/// (`/personal_access_tokens/self`); an OAuth token (e.g. from Git Credential Manager) gets an
+/// error there, and has no fixed expiry date of its own.
+async fn token_info(token: &str) -> crate::token::TokenInfo {
+    use crate::token::{TokenInfo, TokenKind, gitlab_kind, parse_gitlab_expires_at};
+    match get(token, "/personal_access_tokens/self").await {
+        Ok(v) => TokenInfo {
+            kind: TokenKind::Pat,
+            expires_at: parse_gitlab_expires_at(&v),
+        },
+        Err(_) => TokenInfo {
+            kind: match gitlab_kind(token) {
+                TokenKind::Unknown => TokenKind::Oauth,
+                k => k,
+            },
+            expires_at: None,
+        },
+    }
 }
 
 /// Validate and store `token`.

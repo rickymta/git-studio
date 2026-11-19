@@ -102,6 +102,8 @@ export const api = {
   supportSystemInfo: () => call<T.SystemInfo>('support.systemInfo'),
   sendSupport: (request: T.SupportRequest) => call<null>('support.send', { request }),
   // GitLab
+  /** Whether a GitHub / GitLab token is stored (no network call). */
+  storedTokens: () => call<{ github: boolean; gitlab: boolean }>('auth.storedTokens'),
   glAccount: () => call<T.GitLabUser | null>('gitlab.account'),
   glSignInToken: (token: string) => call<T.GitLabUser>('gitlab.signInToken', { token }),
   glImportToken: () => call<T.GitLabUser>('gitlab.importToken'),

@@ -23,7 +23,9 @@ import { NewWorkspaceDialog } from '@/features/workspace/WorkspaceDialogs';
 import { WorkspaceView } from '@/features/workspace/WorkspaceView';
 import { logActivity } from '@/stores/activity';
 import { useGitHub } from '@/stores/github';
+import { ensureGitLabChecked } from '@/stores/gitlab';
 import { useRepo } from '@/stores/repo';
+import { useTokens } from '@/stores/tokens';
 import { useUi } from '@/stores/ui';
 import { useWorkspaces } from '@/stores/workspace';
 import { t, useLang, useLangStore } from '@/lib/i18n';
@@ -68,6 +70,15 @@ export function App() {
 
   useEffect(() => applyZoom(zoom), [zoom]);
 
+  // Token indicator / warning → Preferences → Integrations (the provider is picked there).
+  useEffect(
+    () =>
+      useTokens.subscribe((s, prev) => {
+        if (s.openRequest && s.openRequest !== prev.openRequest) setPrefs('integrations');
+      }),
+    [],
+  );
+
   const brightness = useBrightnessStore((s) => s[theme]);
   useEffect(() => applyBrightness(brightness), [brightness]);
 
@@ -76,6 +87,8 @@ export function App() {
       const repo = useRepo.getState();
       await Promise.all([repo.loadSettings(), useWorkspaces.getState().load()]);
       void useGitHub.getState().check();
+      // Also reads both tokens' expiry for the status bar (and warns when it is close).
+      ensureGitLabChecked();
       // Long paths on by default (Windows), unless the user already chose either way.
       void api
         .ensureGitDefaults()

@@ -2,6 +2,7 @@ import { create } from 'zustand';
 
 import { api } from '@/lib/ipc';
 import type { GitHubRepo, GitLabUser } from '@/lib/types';
+import { useTokens } from './tokens';
 
 interface GitLabStore {
   user: GitLabUser | null;
@@ -23,14 +24,20 @@ export const useGitLab = create<GitLabStore>((set, get) => ({
 
   check: async () => {
     try {
-      set({ user: await api.glAccount(), checked: true });
+      const user = await api.glAccount();
+      set({ user, checked: true });
+      void useTokens.getState().account('gitlab', user);
     } catch {
       set({ user: null, checked: true });
     }
   },
-  setUser: (user) => set({ user, repos: null }),
+  setUser: (user) => {
+    set({ user, repos: null });
+    if (user) void useTokens.getState().account('gitlab', user);
+  },
   signOut: async () => {
     await api.glSignOut();
+    useTokens.getState().clear('gitlab');
     set({ user: null, repos: null });
   },
   loadRepos: async () => {
