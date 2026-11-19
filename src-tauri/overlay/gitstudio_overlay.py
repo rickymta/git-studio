@@ -4,8 +4,7 @@ Installed by GitStudio (Preferences -> File manager icons) into
 ~/.local/share/{nautilus,nemo,caja}-python/extensions/. It never runs git: it reads
 overlay-status.json, which GitStudio keeps fresh, and
 - puts the gitstudio-clean / gitstudio-changed / gitstudio-danger emblem on repository folders;
-- adds "Open with GitStudio" and "Git Clone... (GitStudio)" (clone the git link on the clipboard)
-  to the menu of a folder and of the empty space inside a folder.
+- adds "Open with GitStudio" to the menu of a folder and of the empty space inside a folder.
 """
 
 import json
@@ -137,13 +136,7 @@ if FM is not None:
                 "GitStudio::open", "Open with GitStudio", "Open this folder in GitStudio"
             )
             open_item.connect("activate", lambda *_: self._launch(["--open", path]))
-            clone_item = _menu_item(
-                "GitStudio::clone",
-                "Git Clone… (GitStudio)",
-                "Clone the git link on the clipboard into this folder",
-            )
-            clone_item.connect("activate", lambda *_: self._launch(["--clone", path]))
-            return [open_item, clone_item]
+            return [open_item]
 
         # Nautilus 4: (files); Nautilus 3 / Nemo / Caja: (window, files).
         def get_file_items(self, *args):

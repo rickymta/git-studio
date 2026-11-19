@@ -60,7 +60,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            // Context menu entries follow the preference and point at this program.
+            // The context menu entry follows the preference and points at this program.
             std::thread::spawn(gitstudio_core::shell_menu::sync_with_settings);
             // Keep overlay-status.json fresh while the app is open (when the icons are on).
             std::thread::spawn(|| {

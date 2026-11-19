@@ -1,53 +1,30 @@
-//! File-manager context menu entries, like GitKraken's and TortoiseGit's:
-//! "Open with GitStudio" and "Git Clone…" (from the git URL on the clipboard), both with the
+//! "Open with GitStudio" in the file manager's context menu (like GitKraken's), with the
 //! GitStudio icon, on a folder and on the empty space inside a folder.
 //!
-//! - Windows: verbs under HKCU\Software\Classes (no administrator rights), written at startup
-//!   when the preference is on, so they always point at the running GitStudio.
-//! - Linux / macOS: the file-manager extensions add the same items (see gitstudio_overlay.py and
-//!   FinderSync.swift); they start the program recorded in overlay-status.json.
+//! - Windows: a verb under HKCU\Software\Classes (no administrator rights), written at startup
+//!   when the preference is on, so it always points at the running GitStudio.
+//! - Linux / macOS: the file-manager extensions add the same item (see gitstudio_overlay.py and
+//!   FinderSync.swift).
 
 use crate::error::Result;
 
 pub const OPEN_LABEL: &str = "Open with GitStudio";
-pub const CLONE_LABEL: &str = "Git Clone… (GitStudio)";
 
 #[cfg(windows)]
 mod platform {
     use super::*;
     use std::process::Command;
 
-    /// (registry parent, verb key, label, argument, placeholder)
-    fn entries() -> Vec<(
-        String,
-        &'static str,
-        &'static str,
-        &'static str,
-        &'static str,
-    )> {
-        let mut v = Vec::new();
-        for (parent, placeholder) in [
-            (r"Directory\shell", "%1"),
-            (r"Directory\Background\shell", "%V"),
-            (r"Drive\shell", "%1"),
-        ] {
-            v.push((
-                parent.to_string(),
-                "GitStudio.Open",
-                OPEN_LABEL,
-                "--open",
-                placeholder,
-            ));
-            v.push((
-                parent.to_string(),
-                "GitStudio.Clone",
-                CLONE_LABEL,
-                "--clone",
-                placeholder,
-            ));
-        }
-        v
-    }
+    const VERB: &str = "GitStudio.Open";
+    /// Entries of earlier versions, removed whenever the menu is (re)written.
+    const LEGACY_VERBS: [&str; 1] = ["GitStudio.Clone"];
+
+    /// (registry parent, placeholder for the folder)
+    const PARENTS: [(&str, &str); 3] = [
+        (r"Directory\shell", "%1"),
+        (r"Directory\Background\shell", "%V"),
+        (r"Drive\shell", "%1"),
+    ];
 
     fn reg(args: &[&str]) -> Option<String> {
         use std::os::windows::process::CommandExt;
@@ -65,31 +42,41 @@ mod platform {
         format!(r"HKCU\Software\Classes\{parent}\{verb}")
     }
 
-    fn command(exe: &str, arg: &str, placeholder: &str) -> String {
-        format!("\"{exe}\" {arg} \"{placeholder}\"")
+    fn command(exe: &str, placeholder: &str) -> String {
+        format!("\"{exe}\" --open \"{placeholder}\"")
     }
 
-    /// The command currently registered for one entry.
-    fn current(parent: &str, verb: &str) -> Option<String> {
-        let out = reg(&["query", &format!(r"{}\command", key(parent, verb)), "/ve"])?;
+    fn current(parent: &str) -> Option<String> {
+        let out = reg(&["query", &format!(r"{}\command", key(parent, VERB)), "/ve"])?;
         out.lines()
             .find_map(|l| l.split_once("REG_SZ").map(|(_, v)| v.trim().to_string()))
     }
 
+    fn remove_legacy() {
+        for (parent, _) in PARENTS {
+            for verb in LEGACY_VERBS {
+                if reg(&["query", &key(parent, verb)]).is_some() {
+                    reg(&["delete", &key(parent, verb), "/f"]);
+                }
+            }
+        }
+    }
+
     pub fn installed(exe: &str) -> bool {
-        entries().iter().all(|(p, verb, _, arg, ph)| {
-            current(p, verb).as_deref() == Some(&command(exe, arg, ph))
-        })
+        PARENTS
+            .iter()
+            .all(|(p, ph)| current(p).as_deref() == Some(&command(exe, ph)))
     }
 
     pub fn install(exe: &str) -> Result<()> {
+        remove_legacy();
         if installed(exe) {
             return Ok(());
         }
-        for (parent, verb, label, arg, placeholder) in entries() {
-            let k = key(&parent, verb);
+        for (parent, placeholder) in PARENTS {
+            let k = key(parent, VERB);
             reg(&[
-                "add", &k, "/v", "MUIVerb", "/t", "REG_SZ", "/d", label, "/f",
+                "add", &k, "/v", "MUIVerb", "/t", "REG_SZ", "/d", OPEN_LABEL, "/f",
             ]);
             // The app's own icon (first icon resource of the exe).
             reg(&[
@@ -110,7 +97,7 @@ mod platform {
                 "/t",
                 "REG_SZ",
                 "/d",
-                &command(exe, arg, placeholder),
+                &command(exe, placeholder),
                 "/f",
             ]);
         }
@@ -118,8 +105,9 @@ mod platform {
     }
 
     pub fn remove() -> Result<()> {
-        for (parent, verb, ..) in entries() {
-            reg(&["delete", &key(&parent, verb), "/f"]);
+        remove_legacy();
+        for (parent, _) in PARENTS {
+            reg(&["delete", &key(parent, VERB), "/f"]);
         }
         Ok(())
     }
@@ -129,7 +117,7 @@ mod platform {
 mod platform {
     use super::*;
 
-    // The Finder / Nautilus extensions draw these items themselves.
+    // The Finder / Nautilus extensions draw this item themselves.
     pub fn installed(_exe: &str) -> bool {
         true
     }
@@ -141,7 +129,7 @@ mod platform {
     }
 }
 
-/// The program the menu entries start (an AppImage's own path, not its mount).
+/// The program the menu entry starts (an AppImage's own path, not its mount).
 pub fn exe() -> Option<String> {
     if let Some(a) = std::env::var_os("APPIMAGE") {
         return Some(a.to_string_lossy().into_owned());
@@ -155,7 +143,7 @@ pub fn installed() -> bool {
     exe().is_some_and(|e| platform::installed(&e))
 }
 
-/// Add or refresh the entries for the running GitStudio (no-op when already in place).
+/// Add or refresh the entry for the running GitStudio (no-op when already in place).
 pub fn install() -> Result<()> {
     match exe() {
         Some(e) => platform::install(&e),
@@ -169,7 +157,9 @@ pub fn remove() -> Result<()> {
 
 /// At startup: follow the preference.
 pub fn sync_with_settings() {
-    if crate::settings::load().context_menu {
-        let _ = install();
-    }
+    let _ = if crate::settings::load().context_menu {
+        install()
+    } else {
+        remove()
+    };
 }

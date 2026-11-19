@@ -212,17 +212,14 @@ export function OverlayPrefs() {
   );
 }
 
-/** "Open with GitStudio" / "Git Clone…" in the file manager's context menu. */
+/** "Open with GitStudio" in the file manager's context menu. */
 function ContextMenuRow({ fm }: { fm: string }) {
   const enabled = useRepo((s) => s.settings?.contextMenu ?? true);
   const [busy, setBusy] = useState(false);
   return (
     <Row
       label={t('Context menu')}
-      help={t(
-        'Adds "Open with GitStudio" and "Git Clone…" (from the git link on the clipboard) when you right-click a folder in {fm}.',
-        { fm },
-      )}
+      help={t('Adds "Open with GitStudio" when you right-click a folder in {fm}.', { fm })}
     >
       <div className="flex items-center gap-3">
         <Toggle

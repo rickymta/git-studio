@@ -7,7 +7,7 @@ fn main() {
         gitstudio_core::overlay::serve();
         return;
     }
-    // "Open with GitStudio" / "Git Clone…" from the file manager's context menu.
+    // "Open with GitStudio" from the file manager's context menu.
     let args: Vec<String> = std::env::args().collect();
     if let Some(action) = gitstudio_core::launch::parse(&args) {
         gitstudio_core::launch::push(action);

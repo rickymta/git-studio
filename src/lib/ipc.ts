@@ -68,7 +68,6 @@ export const api = {
   stateLoad: () => call<Record<string, unknown>>('state.load'),
   // file-manager context menu
   takeLaunchActions: () => call<T.LaunchAction[]>('app.takeLaunchActions'),
-  clipboardGitUrl: () => call<string | null>('app.clipboardGitUrl'),
   shellMenuInfo: () => call<{ installed: boolean }>('shellMenu.info'),
   shellMenuSet: (enabled: boolean) => call<{ installed: boolean }>('shellMenu.set', { enabled }),
   // file-manager status icons
@@ -166,8 +165,6 @@ export const api = {
   init: (path: string, branch = 'main') => call<T.RepoInfo>('repo.init', { path, branch }),
   clone: (url: string, dest: string, options: T.CloneOptions = {}) =>
     call<T.RepoInfo>('repo.clone', { url, dest, options }),
-  cloneAdvanced: (url: string, dest: string, options: T.CloneOptions) =>
-    call<{ info: T.RepoInfo | null; path: string }>('repo.cloneAdvanced', { url, dest, options }),
   info: (repo: string) => call<T.RepoInfo>('repo.info', { repo }),
   log: (repo: string, limit: number, skip = 0, view?: { solo: string[]; hidden: string[] }) =>
     call<T.Commit[]>('repo.log', { repo, limit, skip, view }),

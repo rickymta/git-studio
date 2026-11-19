@@ -596,7 +596,7 @@ mod platform {
                 emblems.join(format!("gitstudio-{level}.png")),
             )?;
         }
-        // GitStudio's icon for the "Open with GitStudio" / "Git Clone…" menu items.
+        // GitStudio's icon for the "Open with GitStudio" menu item.
         let apps = data_home().join("icons/hicolor/128x128/apps");
         std::fs::create_dir_all(&apps)?;
         if src.join("gitstudio.png").exists() {

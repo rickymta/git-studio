@@ -85,7 +85,7 @@ final class FinderSync: FIFinderSync {
             dirs.insert(url.deletingLastPathComponent())
             dirs.insert(url)
         }
-        // Everything: the context menu ("Open with GitStudio", "Git Clone…") works in any folder.
+        // Everything: the context menu ("Open with GitStudio") works in any folder.
         dirs.insert(URL(fileURLWithPath: "/"))
         controller.directoryURLs = dirs
         for path in Set(old.keys).union(next.keys) where old[path] != next[path] {
@@ -110,14 +110,10 @@ final class FinderSync: FIFinderSync {
             return nil
         }
         let menu = NSMenu(title: "")
-        for (title, action) in [
-            ("Open with GitStudio", #selector(openWithGitStudio(_:))),
-            ("Git Clone… (GitStudio)", #selector(cloneWithGitStudio(_:))),
-        ] {
-            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-            item.image = appIcon
-            menu.addItem(item)
-        }
+        let item = NSMenuItem(
+            title: "Open with GitStudio", action: #selector(openWithGitStudio(_:)), keyEquivalent: "")
+        item.image = appIcon
+        menu.addItem(item)
         return menu
     }
 
@@ -142,8 +138,6 @@ final class FinderSync: FIFinderSync {
     }
 
     @objc func openWithGitStudio(_ sender: AnyObject?) { launch("--open") }
-
-    @objc func cloneWithGitStudio(_ sender: AnyObject?) { launch("--clone") }
 
     override func requestBadgeIdentifier(for url: URL) {
         if let level = currentLevel(key(url)) {

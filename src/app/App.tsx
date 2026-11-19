@@ -8,8 +8,6 @@ import { DiffView } from '@/features/diff/DiffView';
 import { GitHubSignIn } from '@/features/github/GitHubSignIn';
 import { ensureOverlaySetup } from '@/features/preferences/overlaySetup';
 import { listenLaunchActions, processLaunchActions } from '@/features/launchActions';
-import { useLaunch } from '@/stores/launch';
-import { QuickCloneDialog } from '@/features/welcome/QuickCloneDialog';
 import { RemotePanel } from '@/features/remotes/RemotePanel';
 import { CommitGraph } from '@/features/graph/CommitGraph';
 import { CommitPanel } from '@/features/panel/CommitPanel';
@@ -58,10 +56,8 @@ export function App() {
   const theme = useUi((s) => s.theme);
   const [signIn, setSignIn] = useState(false);
   const [clone, setClone] = useState(false);
-  const launchClone = useLaunch((s) => s.clone);
-  const clearLaunchClone = useLaunch((s) => s.clearClone);
   const [prefs, setPrefs] = useState<PrefSection | null>(null);
-  // Later context-menu launches ("Open with GitStudio" / "Git Clone…").
+  // Later context-menu launches ("Open with GitStudio").
   useEffect(() => listenLaunchActions(() => setPrefs(null)), []);
   const [booted, setBooted] = useState(false);
   const [zoom, setZoom] = useZoom();
@@ -96,7 +92,7 @@ export function App() {
       await Promise.all([repo.loadSettings(), useWorkspaces.getState().load()]);
       // Folder status icons are on by default: finish their setup on first launch.
       void ensureOverlaySetup();
-      // Launched from the file manager's context menu ("Open with GitStudio" / "Git Clone…").
+      // Launched from the file manager's context menu ("Open with GitStudio").
       void processLaunchActions(() => setPrefs(null));
       void useGitHub.getState().check();
       // Also reads both tokens' expiry for the status bar (and warns when it is close).
@@ -325,7 +321,6 @@ export function App() {
           setSignIn(true);
         }}
       />
-      <QuickCloneDialog request={launchClone} onClose={clearLaunchClone} />
       <NewWorkspaceDialog open={newWs} onClose={() => setNewWs(false)} />
       <PromptDialog />
       <Toasts />

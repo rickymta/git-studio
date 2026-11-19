@@ -145,8 +145,7 @@ export interface HistoryStats {
 }
 
 /** What a context-menu launch asked for (see launch.rs). */
-export type LaunchAction =
-  { kind: 'open'; path: string } | { kind: 'clone'; dir: string; url: string | null };
+export type LaunchAction = { kind: 'open'; path: string };
 
 export interface QuickCommand {
   label: string;
@@ -409,13 +408,6 @@ export interface Worktree {
 export interface CloneOptions {
   shallow?: boolean;
   sparse?: boolean;
-  depth?: number;
-  recursive?: boolean;
-  bare?: boolean;
-  noCheckout?: boolean;
-  branch?: string;
-  origin?: string;
-  lfs?: boolean;
 }
 
 export interface GitLabUser {
