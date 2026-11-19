@@ -26,6 +26,8 @@ export const history: Record<string, string> = {
   'Commit message updated': 'Đã cập nhật nội dung commit',
 
   // Edit the message of HEAD in the commit panel
+  Summary: 'Tiêu đề',
+  'No description': 'Không có mô tả',
   'Click to edit the message of this commit': 'Bấm để sửa nội dung commit này',
   'Update Message': 'Cập nhật nội dung',
   'Cancel Amend': 'Huỷ sửa',

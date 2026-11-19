@@ -1,5 +1,5 @@
 import { ArrowLeftRight, Copy, Pencil, TriangleAlert, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 
 import { Avatar, IconButton, Spinner, cn } from '@/components/ui';
 import { short } from '@/lib/format';
@@ -65,6 +65,19 @@ const SUMMARY: { status: FileStatus[]; mark: string; cls: string; label: string 
   { status: ['D'], mark: '−', cls: 'text-danger', label: '{n} deleted' },
   { status: ['R', 'C'], mark: '→', cls: 'text-accent', label: '{n} renamed' },
 ];
+
+/** Heading of the summary / description parts, styled like the panel's other section titles. */
+function MessageLabel({ children, right }: { children: ReactNode; right?: ReactNode }) {
+  return (
+    <div className="flex h-6 items-center gap-2 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">
+      <span className="flex-1">{children}</span>
+      {right}
+    </div>
+  );
+}
+
+const EDIT_FIELD =
+  'w-full min-w-0 rounded-md border border-border bg-surface-muted/40 px-2.5 outline-none placeholder:text-muted-foreground focus:border-accent disabled:opacity-60';
 
 const EDIT_BUTTON =
   'inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md border font-medium whitespace-nowrap hover:brightness-125 disabled:cursor-not-allowed disabled:opacity-50';
@@ -205,43 +218,53 @@ export function CommitPanel({ hash }: { hash: string }) {
             className="flex flex-col rounded-md border border-accent bg-background"
             style={{ height: msgH }}
           >
-            <div className="flex shrink-0 items-center">
+            <div className="shrink-0 px-3 pt-1.5 pb-2.5">
+              <MessageLabel
+                right={
+                  <span
+                    className={cn(
+                      'tabular-nums normal-case',
+                      SUMMARY_MAX - editing.summary.length < 0 && 'text-danger',
+                    )}
+                    title={t('Characters left before the 72-character guideline')}
+                  >
+                    {SUMMARY_MAX - editing.summary.length}
+                  </span>
+                }
+              >
+                {t('Summary')}
+              </MessageLabel>
               <input
                 autoFocus
                 aria-label={t('Commit summary')}
                 placeholder={t('Commit summary')}
-                className="h-10 min-w-0 flex-1 bg-transparent px-3 text-[17px] outline-none placeholder:text-muted-foreground"
+                className={cn(EDIT_FIELD, 'h-9 text-[16px] font-semibold')}
                 value={editing.summary}
                 disabled={saving}
                 onChange={(e) => setEdit({ ...editing, summary: e.target.value })}
                 onKeyDown={onEditKey}
               />
-              <span
-                className={cn(
-                  'pr-3 text-xs tabular-nums',
-                  SUMMARY_MAX - editing.summary.length < 0
-                    ? 'text-danger'
-                    : 'text-muted-foreground',
-                )}
-                title={t('Characters left before the 72-character guideline')}
-              >
-                {SUMMARY_MAX - editing.summary.length}
-              </span>
             </div>
-            <textarea
-              aria-label={t('Description')}
-              placeholder={t('Description')}
-              className="min-h-0 w-full flex-1 resize-none bg-transparent px-3 py-1 text-[13.5px] leading-relaxed outline-none placeholder:text-muted-foreground"
-              value={editing.description}
-              disabled={saving}
-              onChange={(e) => setEdit({ ...editing, description: e.target.value })}
-              onKeyDown={onEditKey}
-            />
+            <div className="flex min-h-0 flex-1 flex-col border-t border-border px-3 pt-1.5 pb-2.5">
+              <MessageLabel>{t('Description')}</MessageLabel>
+              <textarea
+                aria-label={t('Description')}
+                placeholder={t('Description')}
+                className={cn(
+                  EDIT_FIELD,
+                  'min-h-0 flex-1 resize-none py-1.5 text-[13.5px] leading-relaxed',
+                )}
+                value={editing.description}
+                disabled={saving}
+                onChange={(e) => setEdit({ ...editing, description: e.target.value })}
+                onKeyDown={onEditKey}
+              />
+            </div>
           </div>
         ) : (
           <div
             className={cn(
-              'selectable group relative overflow-auto rounded-md border border-border bg-background px-3 py-2.5',
+              'selectable group relative flex flex-col overflow-hidden rounded-md border border-border bg-background',
               editable && 'cursor-text hover:border-accent/60',
             )}
             style={{ height: msgH }}
@@ -249,14 +272,24 @@ export function CommitPanel({ hash }: { hash: string }) {
             onClick={startEdit}
           >
             {editable && (
-              <Pencil className="absolute top-2.5 right-2.5 size-3.5 text-muted-foreground opacity-0 group-hover:opacity-100" />
+              <Pencil className="absolute top-2 right-2.5 size-3.5 text-muted-foreground opacity-0 group-hover:opacity-100" />
             )}
-            <div className="text-[17px] leading-snug">{d.subject}</div>
-            {body && (
-              <pre className="mt-2.5 font-sans text-[13.5px] leading-relaxed whitespace-pre-wrap text-foreground/85">
-                {body}
-              </pre>
-            )}
+            <div className="max-h-[60%] shrink-0 overflow-auto px-3 pt-1.5 pb-2.5">
+              <MessageLabel>{t('Summary')}</MessageLabel>
+              <div className="text-[16px] leading-snug font-semibold">{d.subject}</div>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto border-t border-border px-3 pt-1.5 pb-2.5">
+              <MessageLabel>{t('Description')}</MessageLabel>
+              {body ? (
+                <pre className="font-sans text-[13.5px] leading-relaxed whitespace-pre-wrap text-foreground/85">
+                  {body}
+                </pre>
+              ) : (
+                <div className="text-[13px] text-muted-foreground italic">
+                  {t('No description')}
+                </div>
+              )}
+            </div>
           </div>
         )}
         <div
@@ -269,7 +302,7 @@ export function CommitPanel({ hash }: { hash: string }) {
             const y0 = e.clientY;
             dragStart.current = msgH;
             const move = (ev: PointerEvent) =>
-              setMsgH(Math.min(600, Math.max(70, dragStart.current + ev.clientY - y0)));
+              setMsgH(Math.min(600, Math.max(110, dragStart.current + ev.clientY - y0)));
             const up = () => {
               window.removeEventListener('pointermove', move);
               window.removeEventListener('pointerup', up);
