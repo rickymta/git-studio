@@ -13,7 +13,7 @@ export function LanguagePicker() {
     <div className="flex h-full items-center justify-center p-6">
       <div className="w-full max-w-md rounded-xl border border-border bg-surface p-8 shadow-2xl">
         <div className="mb-6 flex items-center gap-3">
-          <img src="/icon.svg" alt="" className="size-11" />
+          <img src="/icon.png" alt="" className="size-11" />
           <div>
             <h1 className="text-xl font-semibold">Welcome to GitStudio</h1>
             <p className="text-muted-foreground">Chào mừng bạn đến với GitStudio</p>
