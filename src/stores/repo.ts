@@ -3,7 +3,15 @@ import { create } from 'zustand';
 import { layoutGraph, withStashes, type GraphRow } from '@/lib/graph';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
-import type { Commit, CommitDetail, DiffRequest, Refs, RepoInfo, Settings } from '@/lib/types';
+import type {
+  Commit,
+  CommitDetail,
+  DiffRequest,
+  Refs,
+  RepoInfo,
+  Settings,
+  Worktree,
+} from '@/lib/types';
 import { logActivity, useActivity } from './activity';
 import { toast } from './ui';
 
@@ -54,6 +62,8 @@ interface RepoStore {
   graph: GraphRow[];
   hasMore: boolean;
   refs: Refs | null;
+  /** Linked worktrees, reloaded with the refs (sidebar list, branch markers). */
+  worktrees: Worktree[];
   view: GraphView;
   /** Change the graph filters and reload the history. */
   setView: (v: GraphView) => Promise<void>;
@@ -182,6 +192,7 @@ const emptyRepo = {
   commits: [],
   graph: [],
   refs: null,
+  worktrees: [] as Worktree[],
   selection: null,
   detail: null,
   diff: null,
@@ -206,6 +217,7 @@ export const useRepo = create<RepoStore>((set, get) => ({
   graph: [],
   hasMore: false,
   refs: null,
+  worktrees: [],
   view: EMPTY_VIEW,
   selection: null,
   detail: null,
@@ -310,10 +322,11 @@ export const useRepo = create<RepoStore>((set, get) => ({
     try {
       const limit = Math.max(page(), get().commits.filter((c) => !c.stash).length);
       const view = loadView(path);
-      const [info, commits, refs] = await Promise.all([
+      const [info, commits, refs, worktrees] = await Promise.all([
         api.info(path),
         api.log(path, limit, 0, logView(view)),
         api.refs(path),
+        api.worktrees(path).catch((): Worktree[] => []),
       ]);
       if (get().path !== path) return;
       const rows = withStashes(commits, shownStashes(view, refs));
@@ -323,6 +336,7 @@ export const useRepo = create<RepoStore>((set, get) => ({
         view,
         graph: layoutGraph(rows, pinnedTips(view, refs)),
         refs,
+        worktrees,
         hasMore: commits.length >= limit,
       });
       const sel = get().selection;

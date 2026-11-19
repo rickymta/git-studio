@@ -202,17 +202,7 @@ export function layoutGraph(commits: Commit[], pinned: string[] = []): GraphRow[
   return rows;
 }
 
-export const LANE_COLORS = [
-  '#3fb6e8',
-  '#e86fb6',
-  '#f2b33d',
-  '#7bd88f',
-  '#a78bfa',
-  '#f2795f',
-  '#38d1c4',
-  '#e3d26f',
-  '#6f9ef2',
-  '#d98cf2',
-];
+/** Lane palette size; the colours are `--lane-0…9` in index.css so each theme tunes them. */
+const LANE_COUNT = 10;
 
-export const laneColor = (i: number) => LANE_COLORS[i % LANE_COLORS.length]!;
+export const laneColor = (i: number) => `var(--lane-${i % LANE_COUNT})`;

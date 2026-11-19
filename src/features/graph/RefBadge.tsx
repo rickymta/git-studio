@@ -1,9 +1,9 @@
-import { Check, Cloud, Laptop, Tag } from 'lucide-react';
+import { Check, Cloud, FolderGit2, Laptop, Tag } from 'lucide-react';
 
 import { ContextMenuWrap, cn, type MenuItem } from '@/components/ui';
 import { t } from '@/lib/i18n';
 import { copyText } from '@/lib/native';
-import type { GitRef } from '@/lib/types';
+import type { GitRef, Worktree } from '@/lib/types';
 import { useGitHub } from '@/stores/github';
 import { useRepo } from '@/stores/repo';
 import * as A from '../actions';
@@ -147,6 +147,12 @@ export function groupRefs(refs: GitRef[]): BadgeGroup[] {
   return groups.sort((a, b) => Number(b.head) - Number(a.head));
 }
 
+/** The other worktree (not the one open here) that has this local branch checked out. */
+export function worktreeOf(ref: GitRef, worktrees: Worktree[]): Worktree | undefined {
+  if (ref.kind !== 'local') return undefined;
+  return worktrees.find((w) => !w.isCurrent && w.branch === ref.name);
+}
+
 export function RefBadge({
   group,
   color,
@@ -159,6 +165,9 @@ export function RefBadge({
   const primary = group.refs[0]!;
   const hasLocal = group.refs.some((r) => r.kind === 'local');
   const hasRemote = group.refs.some((r) => r.kind === 'remote');
+  const worktrees = useRepo((s) => s.worktrees);
+  const worktree = group.refs.map((r) => worktreeOf(r, worktrees)).find(Boolean);
+  const names = group.refs.map((r) => r.name).join(', ');
   return (
     <ContextMenuWrap items={() => refMenu(primary)} onOpenChange={onMenuOpenChange}>
       <span
@@ -166,7 +175,11 @@ export function RefBadge({
           e.stopPropagation();
           void A.checkoutRef(primary);
         }}
-        title={group.refs.map((r) => r.name).join(', ')}
+        title={
+          worktree
+            ? `${names}\n${t('Checked out in worktree {name}', { name: A.baseName(worktree.path) })}`
+            : names
+        }
         className={cn(
           'inline-flex h-[22px] max-w-[176px] min-w-0 items-center gap-1 rounded border px-1.5 text-xs font-medium text-foreground',
           group.head && 'font-semibold',
@@ -182,6 +195,7 @@ export function RefBadge({
         <span className="truncate">{group.label}</span>
         {hasLocal && <Laptop className="size-[15.4px] shrink-0" strokeWidth={2.4} />}
         {hasRemote && <Cloud className="size-[15.4px] shrink-0" strokeWidth={2.4} />}
+        {worktree && <FolderGit2 className="size-[15.4px] shrink-0" strokeWidth={2.4} />}
       </span>
     </ContextMenuWrap>
   );
