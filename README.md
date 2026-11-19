@@ -73,6 +73,22 @@ git push origin vX.Y.Z    # starts the Release workflow
 carry the same version. For the very first release (already at 0.1.0) just tag it:
 `git tag -a v0.1.0 -m "GitStudio v0.1.0"`.
 
+## File manager status icons
+
+Like TortoiseGit, GitStudio can badge repository folders in the file manager: green (clean),
+orange (changes or commits to push / pull), red (conflicts, unfinished merge / rebase, upstream
+deleted). Turn it on in Preferences → File manager icons.
+
+- GitStudio (or `GitStudio --overlay-serve`, started at sign-in) writes `overlay-status.json` in
+  the config folder every 5 s; the file-manager extensions only read it, they never run git.
+- **Windows**: Explorer overlay DLL (`crates/gitstudio-overlay-win`), registered with an
+  administrator prompt. Explorer shows only 15 overlay handlers in total; GitStudio's sort first.
+- **macOS**: Finder Sync extension (`macos/finder-sync`), bundled in `GitStudio.app/Contents/PlugIns`.
+- **Linux**: extension for Nautilus / Nemo / Caja (`src-tauri/overlay/gitstudio_overlay.py`); the
+  python bindings come from the distribution (Preferences offers the command, run with sudo).
+- `node scripts/build-overlay.mjs` builds the native piece for the current platform (it also runs
+  before `tauri build`); `python scripts/overlay-icons.py` redraws the badges.
+
 ## GitHub sign-in
 
 - **Personal access token** works out of the box (classic: `repo`, `read:org`, `user:email`,

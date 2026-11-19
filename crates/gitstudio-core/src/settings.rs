@@ -44,6 +44,8 @@ pub struct Settings {
     pub history_max_mb: u32,
     /// Most recent activity entries loaded into the app at startup.
     pub history_load_limit: u32,
+    /// Git status icons on folders in Explorer / Finder / Nautilus (see overlay.rs).
+    pub overlay_icons: bool,
 }
 
 impl Default for Settings {
@@ -66,6 +68,7 @@ impl Default for Settings {
             history_warn_mb: 5,
             history_max_mb: 20,
             history_load_limit: 2000,
+            overlay_icons: false,
         }
     }
 }

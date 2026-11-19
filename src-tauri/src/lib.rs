@@ -53,6 +53,13 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            // Keep overlay-status.json fresh while the app is open (when the icons are on).
+            std::thread::spawn(|| {
+                loop {
+                    gitstudio_core::overlay::tick();
+                    std::thread::sleep(gitstudio_core::overlay::INTERVAL);
+                }
+            });
             if let Some(window) = app.get_webview_window("main") {
                 if fit_to_screen(&window).is_err() {
                     let _ = window.show();

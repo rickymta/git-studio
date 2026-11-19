@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm build",
+    "beforeBuildCommand": "pnpm build && node scripts/build-overlay.mjs",
     "frontendDist": "../dist"
   },
   "app": {
@@ -31,11 +31,25 @@
     "targets": "all",
     "category": "DeveloperTool",
     "shortDescription": "Graphical Git client with GitHub integration",
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
     "windows": {
       "nsis": {
         "installerIcon": "icons/icon.ico",
         "installerHooks": "windows/hooks.nsh"
+      }
+    },
+    "resources": {
+      "overlay/*": "overlay/"
+    },
+    "macOS": {
+      "files": {
+        "PlugIns/GitStudioFinder.appex": "../macos/build/GitStudioFinder.appex"
       }
     }
   }

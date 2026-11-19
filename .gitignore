@@ -7,3 +7,7 @@ coverage/
 .DS_Store
 src-tauri/gen/
 .env*.local
+
+# Built by scripts/build-overlay.mjs
+src-tauri/overlay/gitstudio_overlay.dll
+macos/build/

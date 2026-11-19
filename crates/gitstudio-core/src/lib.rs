@@ -8,6 +8,8 @@ pub mod github;
 pub mod gitkraken;
 pub mod gitlab;
 pub mod history;
+pub mod overlay;
+pub mod overlay_install;
 pub mod settings;
 pub mod ssh;
 pub mod support;
@@ -125,6 +127,44 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
         "history.clear" => {
             let repo: Option<String> = opt(a, "repo")?;
             serde_json::to_value(history::clear(repo.as_deref())?)?
+        }
+        // File-manager status icons (overlay.rs, overlay_install.rs).
+        "overlay.info" => {
+            let dir: Option<String> = opt(a, "resourceDir")?;
+            serde_json::to_value(overlay_install::info(
+                dir.as_deref().map(std::path::Path::new),
+            ))?
+        }
+        "overlay.enable" => {
+            let dir: Option<String> = opt(a, "resourceDir")?;
+            let d = dir.clone();
+            serde_json::to_value(
+                tokio::task::spawn_blocking(move || {
+                    overlay_install::enable(d.as_deref().map(std::path::Path::new))
+                })
+                .await
+                .map_err(|e| Error::Invalid(e.to_string()))??,
+            )?
+        }
+        "overlay.disable" => {
+            let dir: Option<String> = opt(a, "resourceDir")?;
+            serde_json::to_value(
+                tokio::task::spawn_blocking(move || {
+                    overlay_install::disable(dir.as_deref().map(std::path::Path::new))
+                })
+                .await
+                .map_err(|e| Error::Invalid(e.to_string()))??,
+            )?
+        }
+        "overlay.refresh" => {
+            let n = tokio::task::spawn_blocking(overlay::refresh)
+                .await
+                .map_err(|e| Error::Invalid(e.to_string()))??;
+            json!({ "repos": n })
+        }
+        "overlay.restartFileManager" => {
+            overlay_install::restart_file_manager()?;
+            return done();
         }
         "state.load" => Value::Object(history::state_load()),
         "state.set" => {

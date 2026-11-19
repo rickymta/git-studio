@@ -49,6 +49,19 @@ async fn cors(req: axum::extract::Request, next: axum::middleware::Next) -> Resp
 
 #[tokio::main]
 async fn main() {
+    // Same as the app: the overlay refresher started by Preferences in dev runs this binary.
+    if std::env::args().any(|a| a == "--overlay-serve") {
+        tokio::task::spawn_blocking(gitstudio_core::overlay::serve)
+            .await
+            .ok();
+        return;
+    }
+    std::thread::spawn(|| {
+        loop {
+            gitstudio_core::overlay::tick();
+            std::thread::sleep(gitstudio_core::overlay::INTERVAL);
+        }
+    });
     let app = Router::new()
         .route(
             "/call",

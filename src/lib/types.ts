@@ -130,6 +130,7 @@ export interface Settings {
   historyWarnMb: number;
   historyMaxMb: number;
   historyLoadLimit: number;
+  overlayIcons: boolean;
 }
 
 export interface HistoryStats {
@@ -140,6 +141,25 @@ export interface HistoryStats {
   warnBytes: number;
   maxBytes: number;
   retentionDays: number;
+}
+
+export interface QuickCommand {
+  label: string;
+  command: string;
+  sudo: boolean;
+}
+
+/** File-manager status icons (Explorer / Finder / Nautilus…). */
+export interface OverlayInfo {
+  platform: 'windows' | 'macos' | 'linux';
+  enabled: boolean;
+  installed: boolean;
+  repos: number;
+  updated: number;
+  statusFile: string;
+  notes: string[];
+  commands: QuickCommand[];
+  home: string;
 }
 
 export interface HistoryLoaded {

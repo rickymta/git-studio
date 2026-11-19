@@ -4,6 +4,7 @@ import {
   Check,
   Copy,
   Database,
+  FolderCheck,
   Download,
   ExternalLink,
   FolderGit2,
@@ -45,6 +46,7 @@ import {
 } from '@/features/tokens/expiry';
 import { ensureGitLabChecked, useGitLab } from '@/stores/gitlab';
 import { CredentialsPrefs } from './Credentials';
+import { OverlayPrefs } from './OverlayPrefs';
 import { RepoPrefs } from './RepoPrefs';
 import { useRepo } from '@/stores/repo';
 import { confirm, toast, useUi } from '@/stores/ui';
@@ -59,6 +61,7 @@ export type PrefSection =
   | 'tools'
   | 'import'
   | 'data'
+  | 'overlay'
   | 'repo';
 
 const SECTIONS: { id: PrefSection; label: string; icon: ReactNode }[] = [
@@ -70,6 +73,7 @@ const SECTIONS: { id: PrefSection; label: string; icon: ReactNode }[] = [
   { id: 'ui', label: 'UI Customization', icon: <Brush className="size-[18px]" /> },
   { id: 'tools', label: 'External Tools', icon: <Wrench className="size-[18px]" /> },
   { id: 'import', label: 'Import', icon: <Download className="size-[18px]" /> },
+  { id: 'overlay', label: 'File manager icons', icon: <FolderCheck className="size-[18px]" /> },
   { id: 'data', label: 'Data & History', icon: <Database className="size-[18px]" /> },
 ];
 
@@ -165,6 +169,7 @@ export function Preferences({
         <div className="max-w-4xl px-14 py-8">
           {section === 'general' && <General />}
           {section === 'data' && <DataPrefs />}
+          {section === 'overlay' && <OverlayPrefs />}
           {section === 'profile' && <Profile />}
           {section === 'ssh' && <Ssh />}
           {section === 'credentials' && <CredentialsPrefs />}

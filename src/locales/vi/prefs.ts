@@ -241,4 +241,53 @@ export const prefs: Record<string, string> = {
   Darker: 'Tối hơn',
   Brighter: 'Sáng hơn',
   'Reset to 100%': 'Về lại 100%',
+  'File manager icons': 'Icon trên trình quản lý file',
+  'Status icons on folders': 'Icon trạng thái trên thư mục',
+  'Shows a badge on every repository folder in {fm}, like TortoiseGit. GitStudio keeps the status fresh in the background, also when it is closed.':
+    'Hiện badge trên mọi thư mục repository trong {fm}, giống TortoiseGit. GitStudio cập nhật trạng thái ở chế độ nền, kể cả khi đã đóng app.',
+  'Active in {fm}': 'Đang hoạt động trong {fm}',
+  'Turned on, but {fm} has not loaded it yet': 'Đã bật, nhưng {fm} chưa nạp',
+  'Windows asks for administrator permission: overlay handlers are installed for the whole computer.':
+    'Windows sẽ hỏi quyền quản trị viên: overlay được cài cho toàn bộ máy.',
+  Legend: 'Chú thích',
+  'Clean: tracked, nothing to commit, in sync':
+    'Sạch: đang tracking, không có gì để commit, đã đồng bộ',
+  'Changes: uncommitted work, or commits to push / pull':
+    'Có thay đổi: chưa commit, hoặc có commit cần push / pull',
+  'Attention: conflicts, unfinished merge / rebase, or upstream deleted':
+    'Cần chú ý: conflict, merge / rebase dở dang, hoặc upstream đã bị xoá',
+  'Recent repositories, workspace members and the other repositories in the same folders.':
+    'Các repository gần đây, repository trong workspace và các repository khác cùng thư mục.',
+  '{n} repositories · updated {when}': '{n} repository · cập nhật {when}',
+  'Not refreshed yet': 'Chưa cập nhật',
+  'Refresh now': 'Cập nhật ngay',
+  Notes: 'Lưu ý',
+  'Quick actions': 'Thao tác nhanh',
+  'Commands open in a terminal here; those marked sudo ask for your password in that terminal.':
+    'Lệnh sẽ mở trong terminal ngay tại đây; lệnh có nhãn sudo sẽ hỏi mật khẩu trong terminal đó.',
+  'Restart {fm}': 'Khởi động lại {fm}',
+  '{fm} restarted': 'Đã khởi động lại {fm}',
+  'Could not restart {fm}': 'Không thể khởi động lại {fm}',
+  'File manager icons turned on': 'Đã bật icon trên trình quản lý file',
+  'File manager icons turned off': 'Đã tắt icon trên trình quản lý file',
+  'Restart Explorer if the icons do not change right away.':
+    'Khởi động lại Explorer nếu icon chưa thay đổi ngay.',
+  'Could not change the file manager icons': 'Không thể thay đổi icon trên trình quản lý file',
+  'Could not read the file manager icon status':
+    'Không đọc được trạng thái icon trên trình quản lý file',
+  'Type your password in the terminal when sudo asks for it.':
+    'Nhập mật khẩu trong terminal khi sudo yêu cầu.',
+  // From the backend (overlay_install.rs).
+  'Enable the Finder extension': 'Bật extension cho Finder',
+  'Restart Finder': 'Khởi động lại Finder',
+  'Open Login Items & Extensions settings': 'Mở cài đặt Login Items & Extensions',
+  'Allow the unsigned app and its extension (remove quarantine)':
+    'Cho phép app chưa ký và extension (gỡ quarantine)',
+  'Register the extension with the system': 'Đăng ký extension với hệ thống',
+  'TortoiseGit / TortoiseSVN overlays are also installed: both may badge the same folders.':
+    'Máy đã cài overlay của TortoiseGit / TortoiseSVN: cả hai có thể cùng gắn badge lên một thư mục.',
+  'An older GitStudio version is registered; turn the icons off and on again to update them.':
+    'Đang đăng ký bản GitStudio cũ; hãy tắt rồi bật lại icon để cập nhật.',
+  'The Finder extension is not registered yet: open GitStudio from /Applications once, then turn the icons on.':
+    'Extension của Finder chưa được đăng ký: hãy mở GitStudio từ /Applications một lần rồi bật icon.',
 };

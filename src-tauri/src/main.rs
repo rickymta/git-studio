@@ -2,5 +2,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
+    // Started at sign-in to keep the file-manager status icons fresh: no window, no UI.
+    if std::env::args().any(|a| a == "--overlay-serve") {
+        gitstudio_core::overlay::serve();
+        return;
+    }
     gitstudio_lib::run();
 }

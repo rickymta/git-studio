@@ -38,3 +38,14 @@ export async function pickFile(title: string, defaultPath?: string): Promise<str
   }
   return window.prompt(`${title} (absolute path)`, defaultPath ?? '');
 }
+
+/** The app's bundled resources folder (null in a plain browser / dev bridge). */
+export async function appResourceDir(): Promise<string | null> {
+  if (!isTauri) return null;
+  try {
+    const { resourceDir } = await import('@tauri-apps/api/path');
+    return await resourceDir();
+  } catch {
+    return null;
+  }
+}

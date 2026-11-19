@@ -85,6 +85,14 @@ jobs:
       - run: pnpm test
       # The Tauri crate embeds ../dist at compile time, so build the frontend first.
       - run: pnpm build
+      # File-manager status icons: the native piece for each platform must build.
+      - name: Build overlay extension (Windows DLL / Finder Sync / Nautilus check)
+        run: |
+          case "${{ runner.os }}" in
+            Windows) node scripts/build-overlay.mjs ;;
+            macOS) bash macos/finder-sync/build.sh ;;
+            Linux) python3 -m py_compile src-tauri/overlay/gitstudio_overlay.py ;;
+          esac
 
       - run: cargo fmt --all -- --check
       # Every feature on (dev-bridge included) so the debug bridge keeps compiling.
