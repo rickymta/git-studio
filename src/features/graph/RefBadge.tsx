@@ -1,4 +1,5 @@
 import { Check, Cloud, FolderGit2, Laptop, Tag } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 
 import { ContextMenuWrap, cn, type MenuItem } from '@/components/ui';
 import { t } from '@/lib/i18n';
@@ -284,10 +285,13 @@ export function RefBadge({
   group,
   color,
   onMenuOpenChange,
+  onHoverChange,
 }: {
   group: BadgeGroup;
   color: string;
   onMenuOpenChange?: (open: boolean) => void;
+  /** Pointer entered / left the badge (the graph highlights the branch's commits meanwhile). */
+  onHoverChange?: (hovered: boolean) => void;
 }) {
   const primary = group.refs[0]!;
   const hasLocal = group.refs.some((r) => r.kind === 'local');
@@ -295,6 +299,40 @@ export function RefBadge({
   const worktrees = useRepo((s) => s.worktrees);
   const worktree = group.refs.map((r) => worktreeOf(r, worktrees)).find(Boolean);
   const names = group.refs.map((r) => r.name).join(', ');
+  const [hovered, setHovered] = useState(false);
+  // While hovered: whom to tell when the hover ends, also by unmount (row scrolled away, refs
+  // reloaded), so the highlight never outlives the badge.
+  const leave = useRef<((hovered: boolean) => void) | null>(null);
+  const hover = (on: boolean) => {
+    setHovered(on);
+    onHoverChange?.(on);
+    leave.current = on ? (onHoverChange ?? null) : null;
+  };
+  useEffect(() => () => leave.current?.(false), []);
+
+  const body = (full: boolean) => (
+    <span
+      className={cn(
+        'inline-flex h-[22px] min-w-0 items-center gap-1 rounded border px-1.5 text-xs font-medium text-foreground',
+        group.head && 'font-semibold',
+        // The hovered copy grows to the whole name over the graph, like GitKraken's.
+        full ? 'absolute top-0 left-0 z-20 w-max max-w-[640px] shadow-md' : 'max-w-full',
+      )}
+      style={{
+        borderColor: color,
+        // Opaque so the connector line to the graph runs behind the badge.
+        background: `color-mix(in oklch, ${color} var(${group.head ? '--lane-badge-head' : '--lane-badge'}), var(--background))`,
+      }}
+    >
+      {group.head && <Check className="size-[15.4px] shrink-0" strokeWidth={2.4} />}
+      {group.kind === 'tag' && <Tag className="size-[15.4px] shrink-0" strokeWidth={2.4} />}
+      <span className="truncate">{group.label}</span>
+      {hasLocal && <Laptop className="size-[15.4px] shrink-0" strokeWidth={2.4} />}
+      {hasRemote && <Cloud className="size-[15.4px] shrink-0" strokeWidth={2.4} />}
+      {worktree && <FolderGit2 className="size-[15.4px] shrink-0" strokeWidth={2.4} />}
+    </span>
+  );
+
   return (
     <ContextMenuWrap items={() => refMenu(primary)} onOpenChange={onMenuOpenChange}>
       <span
@@ -302,27 +340,18 @@ export function RefBadge({
           e.stopPropagation();
           void A.checkoutRef(primary);
         }}
+        onMouseEnter={() => hover(true)}
+        onMouseLeave={() => hover(false)}
         title={
           worktree
             ? `${names}\n${t('Checked out in worktree {name}', { name: A.baseName(worktree.path) })}`
             : names
         }
-        className={cn(
-          'inline-flex h-[22px] max-w-[176px] min-w-0 items-center gap-1 rounded border px-1.5 text-xs font-medium text-foreground',
-          group.head && 'font-semibold',
-        )}
-        style={{
-          borderColor: color,
-          // Opaque so the connector line to the graph runs behind the badge.
-          background: `color-mix(in oklch, ${color} var(${group.head ? '--lane-badge-head' : '--lane-badge'}), var(--background))`,
-        }}
+        className="relative inline-flex max-w-[176px] min-w-0"
       >
-        {group.head && <Check className="size-[15.4px] shrink-0" strokeWidth={2.4} />}
-        {group.kind === 'tag' && <Tag className="size-[15.4px] shrink-0" strokeWidth={2.4} />}
-        <span className="truncate">{group.label}</span>
-        {hasLocal && <Laptop className="size-[15.4px] shrink-0" strokeWidth={2.4} />}
-        {hasRemote && <Cloud className="size-[15.4px] shrink-0" strokeWidth={2.4} />}
-        {worktree && <FolderGit2 className="size-[15.4px] shrink-0" strokeWidth={2.4} />}
+        {/* The in-column badge keeps its place (nothing shifts); the full one overlays it. */}
+        {body(false)}
+        {hovered && body(true)}
       </span>
     </ContextMenuWrap>
   );
