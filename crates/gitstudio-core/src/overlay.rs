@@ -39,6 +39,9 @@ pub struct StatusFile {
     pub pid: u32,
     /// Normalised repository path (see `key`) → level.
     pub repos: BTreeMap<String, Level>,
+    /// GitStudio's program, for the Linux file-manager menu ("Open with GitStudio" …).
+    #[serde(default)]
+    pub exe: Option<String>,
 }
 
 pub fn status_file() -> PathBuf {
@@ -232,6 +235,7 @@ fn write_to(file: &Path, repos: BTreeMap<String, Level>) -> Result<()> {
         updated: now_ms(),
         pid: std::process::id(),
         repos,
+        exe: crate::shell_menu::exe(),
     };
     // One temp file per process: the app and the sign-in agent may write at the same moment.
     let tmp = file.with_extension(format!("{}.tmp", std::process::id()));

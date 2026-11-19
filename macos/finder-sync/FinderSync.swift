@@ -85,6 +85,8 @@ final class FinderSync: FIFinderSync {
             dirs.insert(url.deletingLastPathComponent())
             dirs.insert(url)
         }
+        // Everything: the context menu ("Open with GitStudio", "Git Clone…") works in any folder.
+        dirs.insert(URL(fileURLWithPath: "/"))
         controller.directoryURLs = dirs
         for path in Set(old.keys).union(next.keys) where old[path] != next[path] {
             controller.setBadgeIdentifier(currentLevel(path) ?? "", for: URL(fileURLWithPath: path))
@@ -96,6 +98,52 @@ final class FinderSync: FIFinderSync {
         if now - updated > staleMs { return nil }
         return levels[key]
     }
+
+    // ---- context menu -------------------------------------------------------------------
+
+    private var appIcon: NSImage? {
+        Bundle.main.url(forResource: "gitstudio", withExtension: "png").flatMap(NSImage.init(contentsOf:))
+    }
+
+    override func menu(for menuKind: FIMenuKind) -> NSMenu? {
+        guard menuKind == .contextualMenuForItems || menuKind == .contextualMenuForContainer else {
+            return nil
+        }
+        let menu = NSMenu(title: "")
+        for (title, action) in [
+            ("Open with GitStudio", #selector(openWithGitStudio(_:))),
+            ("Git Clone… (GitStudio)", #selector(cloneWithGitStudio(_:))),
+        ] {
+            let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+            item.image = appIcon
+            menu.addItem(item)
+        }
+        return menu
+    }
+
+    /// The folder right-clicked, or the folder whose empty space was right-clicked.
+    private func targetFolder() -> URL? {
+        let controller = FIFinderSyncController.default()
+        if let selected = controller.selectedItemURLs(), selected.count == 1,
+            (try? selected[0].resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+        {
+            return selected[0]
+        }
+        return controller.targetedURL()
+    }
+
+    private func launch(_ flag: String) {
+        guard let folder = targetFolder(),
+            let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "dev.gitstudio.desktop")
+        else { return }
+        let config = NSWorkspace.OpenConfiguration()
+        config.arguments = [flag, folder.path]
+        NSWorkspace.shared.openApplication(at: app, configuration: config, completionHandler: nil)
+    }
+
+    @objc func openWithGitStudio(_ sender: AnyObject?) { launch("--open") }
+
+    @objc func cloneWithGitStudio(_ sender: AnyObject?) { launch("--clone") }
 
     override func requestBadgeIdentifier(for url: URL) {
         if let level = currentLevel(key(url)) {

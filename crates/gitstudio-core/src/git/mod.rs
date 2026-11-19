@@ -1115,13 +1115,27 @@ pub async fn clone(url: &str, dest: &Path, token: Option<&str>) -> Result<Repo> 
     clone_with(url, dest, token, CloneOptions::default()).await
 }
 
-#[derive(Debug, Clone, Copy, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct CloneOptions {
     /// Only the latest commit of each branch (`--depth 1 --no-single-branch`).
     pub shallow: bool,
     /// Check out only the top-level files; add folders later with `git sparse-checkout`.
     pub sparse: bool,
+    /// `--depth N` (history depth); overrides `shallow`.
+    pub depth: Option<u32>,
+    /// `--recurse-submodules`.
+    pub recursive: bool,
+    /// `--bare`: a repository without a working tree.
+    pub bare: bool,
+    /// `--no-checkout`.
+    pub no_checkout: bool,
+    /// `--branch <name>`: check out this branch instead of the remote's default.
+    pub branch: Option<String>,
+    /// `--origin <name>`: name of the remote (default `origin`).
+    pub origin: Option<String>,
+    /// Download Git LFS files after cloning (`git lfs install --local` + `git lfs pull`).
+    pub lfs: bool,
 }
 
 pub async fn clone_with(
@@ -1130,6 +1144,17 @@ pub async fn clone_with(
     token: Option<&str>,
     opts: CloneOptions,
 ) -> Result<Repo> {
+    clone_run(url, dest, token, &opts).await?;
+    Repo::open(dest).await
+}
+
+/// Run `git clone` with `opts` (also bare clones, which have no working tree to open).
+pub async fn clone_run(
+    url: &str,
+    dest: &Path,
+    token: Option<&str>,
+    opts: &CloneOptions,
+) -> Result<()> {
     check_url(url)?;
     if dest.exists() && std::fs::read_dir(dest)?.next().is_some() {
         return Err(Error::Invalid(format!(
@@ -1142,16 +1167,53 @@ pub async fn clone_with(
         .ok_or_else(|| Error::Invalid("Invalid destination".into()))?;
     std::fs::create_dir_all(parent)?;
     let dest_s = dest.to_string_lossy().into_owned();
-    let mut args = vec!["clone"];
-    if opts.shallow {
-        args.extend(["--depth", "1", "--no-single-branch"]);
+    let mut args: Vec<String> = vec!["clone".into()];
+    match opts.depth.filter(|d| *d > 0) {
+        Some(d) => args.extend(["--depth".into(), d.to_string(), "--no-single-branch".into()]),
+        None if opts.shallow => {
+            args.extend(["--depth".into(), "1".into(), "--no-single-branch".into()])
+        }
+        None => {}
     }
     if opts.sparse {
-        args.push("--sparse");
+        args.push("--sparse".into());
     }
-    args.extend(["--", url, &dest_s]);
-    run::ok(parent, &args, net(token)).await?;
-    Repo::open(dest).await
+    if opts.recursive {
+        args.push("--recurse-submodules".into());
+    }
+    if opts.bare {
+        args.push("--bare".into());
+    } else if opts.no_checkout {
+        args.push("--no-checkout".into());
+    }
+    if let Some(b) = opts
+        .branch
+        .as_deref()
+        .map(str::trim)
+        .filter(|b| !b.is_empty())
+    {
+        check_rev(b)?;
+        args.extend(["--branch".into(), b.to_string()]);
+    }
+    if let Some(o) = opts
+        .origin
+        .as_deref()
+        .map(str::trim)
+        .filter(|o| !o.is_empty())
+    {
+        check_rev(o)?;
+        args.extend(["--origin".into(), o.to_string()]);
+    }
+    args.extend(["--".into(), url.to_string(), dest_s]);
+    let a: Vec<&str> = args.iter().map(String::as_str).collect();
+    run::ok(parent, &a, net(token)).await?;
+    if opts.lfs && !opts.bare {
+        run::ok(dest, &["lfs", "install", "--local"], Opts::default()).await?;
+        if !opts.no_checkout {
+            run::ok(dest, &["lfs", "pull"], net(token)).await?;
+        }
+    }
+    Ok(())
 }
 
 /// Open a terminal window in `path`. `kind`: `auto` (Windows Terminal, else cmd), `wt`,

@@ -8,9 +8,11 @@ pub mod github;
 pub mod gitkraken;
 pub mod gitlab;
 pub mod history;
+pub mod launch;
 pub mod overlay;
 pub mod overlay_install;
 pub mod settings;
+pub mod shell_menu;
 pub mod ssh;
 pub mod support;
 pub mod terminal;
@@ -166,6 +168,30 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
             overlay_install::restart_file_manager()?;
             return done();
         }
+        // Context menu actions ("Open with GitStudio", "Git Clone…").
+        "app.takeLaunchActions" => serde_json::to_value(launch::take())?,
+        "app.clipboardGitUrl" => serde_json::to_value(
+            tokio::task::spawn_blocking(launch::clipboard_git_url)
+                .await
+                .map_err(|e| Error::Invalid(e.to_string()))?,
+        )?,
+        "shellMenu.info" => json!({ "installed": shell_menu::installed() }),
+        "shellMenu.set" => {
+            let on: bool = arg(a, "enabled")?;
+            let mut s = settings::load();
+            s.context_menu = on;
+            settings::save(&s)?;
+            tokio::task::spawn_blocking(move || {
+                if on {
+                    shell_menu::install()
+                } else {
+                    shell_menu::remove()
+                }
+            })
+            .await
+            .map_err(|e| Error::Invalid(e.to_string()))??;
+            json!({ "installed": shell_menu::installed() })
+        }
         "state.load" => Value::Object(history::state_load()),
         "state.set" => {
             history::state_set(arg(a, "changes")?)?;
@@ -289,6 +315,20 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
             let info = r.info().await?;
             settings::touch_recent(&info.path, &info.name)?;
             serde_json::to_value(info)?
+        }
+        // Clone dialog from the file manager ("Git Clone…"): every `git clone` option.
+        "repo.cloneAdvanced" => {
+            let url: String = arg(a, "url")?;
+            let dest = PathBuf::from(arg::<String>(a, "dest")?);
+            let opts: git::CloneOptions = opt(a, "options")?.unwrap_or_default();
+            git::clone_run(&url, &dest, token().as_deref(), &opts).await?;
+            if opts.bare {
+                json!({ "info": null, "path": dest.display().to_string() })
+            } else {
+                let info = git::Repo::open(&dest).await?.info().await?;
+                settings::touch_recent(&info.path, &info.name)?;
+                json!({ "info": info, "path": info.path.clone() })
+            }
         }
         "repo.info" => serde_json::to_value(repo(a).await?.info().await?)?,
         "repo.log" => {

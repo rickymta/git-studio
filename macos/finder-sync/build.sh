@@ -39,7 +39,7 @@ else
 fi
 
 sed "s/__VERSION__/$version/g" "$here/Info.plist" > "$out/Contents/Info.plist"
-cp "$root/src-tauri/overlay/overlay-"*.png "$out/Contents/Resources/"
+cp "$root/src-tauri/overlay/overlay-"*.png "$root/src-tauri/overlay/gitstudio.png" "$out/Contents/Resources/"
 
 # Signed with the release identity when one is configured, ad hoc otherwise (enough for a local
 # build; Finder only loads signed extensions).

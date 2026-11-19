@@ -109,6 +109,8 @@ export function OverlayPrefs() {
         )}
       </Row>
 
+      <ContextMenuRow fm={fm} />
+
       <Row label={t('Legend')}>
         <div className="flex flex-col gap-1.5 pt-1 text-[13px]">
           <span className="flex items-center gap-2">
@@ -207,6 +209,40 @@ export function OverlayPrefs() {
 
       {cmd && <CommandTerminal cwd={info.home} command={cmd} onClose={() => setCmd(null)} />}
     </>
+  );
+}
+
+/** "Open with GitStudio" / "Git Clone…" in the file manager's context menu. */
+function ContextMenuRow({ fm }: { fm: string }) {
+  const enabled = useRepo((s) => s.settings?.contextMenu ?? true);
+  const [busy, setBusy] = useState(false);
+  return (
+    <Row
+      label={t('Context menu')}
+      help={t(
+        'Adds "Open with GitStudio" and "Git Clone…" (from the git link on the clipboard) when you right-click a folder in {fm}.',
+        { fm },
+      )}
+    >
+      <div className="flex items-center gap-3">
+        <Toggle
+          checked={enabled}
+          disabled={busy}
+          onChange={async (v) => {
+            setBusy(true);
+            try {
+              await api.shellMenuSet(v);
+              useRepo.getState().setSettings(await api.settings());
+            } catch (e) {
+              toast('error', t('Could not change the context menu'), (e as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        />
+        {busy && <Spinner className="text-muted-foreground" />}
+      </div>
+    </Row>
   );
 }
 

@@ -1,13 +1,16 @@
-"""GitStudio status emblems for Nautilus, Nemo and Caja (python extensions).
+"""GitStudio for Nautilus, Nemo and Caja (python extensions).
 
-Installed by GitStudio (Preferences -> Integrations -> File manager icons) into
+Installed by GitStudio (Preferences -> File manager icons) into
 ~/.local/share/{nautilus,nemo,caja}-python/extensions/. It never runs git: it reads
-overlay-status.json, which GitStudio keeps fresh, and puts the gitstudio-clean /
-gitstudio-changed / gitstudio-danger emblem on repository folders.
+overlay-status.json, which GitStudio keeps fresh, and
+- puts the gitstudio-clean / gitstudio-changed / gitstudio-danger emblem on repository folders;
+- adds "Open with GitStudio" and "Git Clone... (GitStudio)" (clone the git link on the clipboard)
+  to the menu of a folder and of the empty space inside a folder.
 """
 
 import json
 import os
+import subprocess
 from urllib.parse import unquote
 
 import gi
@@ -37,11 +40,19 @@ def _now_ms():
     return int(GLib.get_real_time() / 1000)
 
 
+def _path(item):
+    """Local path of a file-manager item, or None."""
+    if item is None or item.get_uri_scheme() != "file":
+        return None
+    return unquote(item.get_uri()[len("file://") :]).rstrip("/") or "/"
+
+
 class _Status:
     def __init__(self):
         self.mtime = None
         self.updated = 0
         self.repos = {}
+        self.exe = None
 
     def reload(self):
         """Re-read the file if it changed; return the paths whose level changed."""
@@ -58,8 +69,10 @@ class _Status:
                 data = json.load(f)
             self.updated = int(data.get("updated", 0))
             self.repos = {k: v for k, v in data.get("repos", {}).items() if isinstance(v, str)}
+            self.exe = data.get("exe") or self.exe
         except (OSError, ValueError):
-            self.updated, self.repos = 0, {}
+            # Keep what was known; GitStudio rewrites the file every few seconds.
+            return set()
         return {p for p in set(old) | set(self.repos) if old.get(p) != self.repos.get(p)}
 
     def level(self, path):
@@ -68,9 +81,17 @@ class _Status:
         return self.repos.get(path)
 
 
+def _menu_item(name, label, tip):
+    """A menu item with GitStudio's icon (Nautilus 43+ dropped icons on menu items)."""
+    try:
+        return FM.MenuItem(name=name, label=label, tip=tip, icon="gitstudio")
+    except TypeError:
+        return FM.MenuItem(name=name, label=label, tip=tip)
+
+
 if FM is not None:
 
-    class GitStudioOverlay(GObject.GObject, FM.InfoProvider):
+    class GitStudioOverlay(GObject.GObject, FM.InfoProvider, FM.MenuProvider):
         def __init__(self):
             super().__init__()
             self.status = _Status()
@@ -86,11 +107,52 @@ if FM is not None:
                     item.invalidate_extension_info()
             return True
 
+        # ---- emblems ---------------------------------------------------------------------
+
         def update_file_info(self, item):
-            if item.get_uri_scheme() != "file" or not item.is_directory():
+            path = _path(item)
+            if path is None or not item.is_directory():
                 return
-            path = unquote(item.get_uri()[len("file://") :]).rstrip("/") or "/"
             self.seen[path] = item
             level = self.status.level(path)
             if level in ("clean", "changed", "danger"):
                 item.add_emblem("gitstudio-" + level)
+
+        # ---- context menu ----------------------------------------------------------------
+
+        def _launch(self, args):
+            self.status.reload()
+            exe = self.status.exe
+            if not exe:
+                return
+            try:
+                subprocess.Popen([exe, *args], start_new_session=True)
+            except OSError:
+                pass
+
+        def _items(self, path):
+            if not self.status.exe:
+                return []
+            open_item = _menu_item(
+                "GitStudio::open", "Open with GitStudio", "Open this folder in GitStudio"
+            )
+            open_item.connect("activate", lambda *_: self._launch(["--open", path]))
+            clone_item = _menu_item(
+                "GitStudio::clone",
+                "Git Clone… (GitStudio)",
+                "Clone the git link on the clipboard into this folder",
+            )
+            clone_item.connect("activate", lambda *_: self._launch(["--clone", path]))
+            return [open_item, clone_item]
+
+        # Nautilus 4: (files); Nautilus 3 / Nemo / Caja: (window, files).
+        def get_file_items(self, *args):
+            files = args[-1]
+            if len(files) != 1 or not files[0].is_directory():
+                return []
+            path = _path(files[0])
+            return self._items(path) if path else []
+
+        def get_background_items(self, *args):
+            path = _path(args[-1])
+            return self._items(path) if path else []

@@ -48,13 +48,20 @@ pub fn run() {
     // Must be the first plugin: a second launch hands its arguments to the running
     // instance and exits before anything else starts.
     #[cfg(all(desktop, not(debug_assertions)))]
-    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+        // A context-menu launch while GitStudio is open: hand the action to this window.
+        if let Some(action) = gitstudio_core::launch::parse(&args) {
+            gitstudio_core::launch::push(action);
+            let _ = tauri::Emitter::emit(app, "launch-action", ());
+        }
         focus_main(app)
     }));
     builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            // Context menu entries follow the preference and point at this program.
+            std::thread::spawn(gitstudio_core::shell_menu::sync_with_settings);
             // Keep overlay-status.json fresh while the app is open (when the icons are on).
             std::thread::spawn(|| {
                 loop {

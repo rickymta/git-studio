@@ -294,4 +294,22 @@ export const prefs: Record<string, string> = {
   'GitStudio can show a badge on every repository folder in Explorer: green when clean, orange with changes, red when it needs attention. Windows asks for administrator permission once to install it. You can change this later in Preferences → File manager icons.':
     'GitStudio có thể hiện badge trên mọi thư mục repository trong Explorer: xanh khi sạch, cam khi có thay đổi, đỏ khi cần chú ý. Windows sẽ hỏi quyền quản trị viên một lần để cài. Bạn có thể đổi lại trong Tuỳ chọn → Icon trên trình quản lý file.',
   'Turn on': 'Bật',
+  'Adds "Open with GitStudio" and "Git Clone…" (from the git link on the clipboard) when you right-click a folder in {fm}.':
+    'Thêm "Open with GitStudio" và "Git Clone…" (từ link git đang copy) khi chuột phải vào thư mục trong {fm}.',
+  'Context menu': 'Menu chuột phải',
+  'Could not change the context menu': 'Không thể thay đổi menu chuột phải',
+  'Clone existing repository': 'Clone repository có sẵn',
+  'Clone into bare repository': 'Clone thành bare repository',
+  'Cloned into {path}': 'Đã clone vào {path}',
+  Depth: 'Độ sâu',
+  Directory: 'Thư mục',
+  'Download Git LFS files': 'Tải file Git LFS',
+  'Git Clone': 'Git Clone',
+  'No checkout': 'Không checkout',
+  'Open in GitStudio after cloning': 'Mở trong GitStudio sau khi clone',
+  'Origin name': 'Tên remote',
+  Paste: 'Dán',
+  'Paste the git link from the clipboard': 'Dán link git từ clipboard',
+  'Recursive (submodules)': 'Đệ quy (submodule)',
+  'The clipboard does not hold a git link': 'Clipboard không chứa link git',
 };

@@ -46,6 +46,8 @@ pub struct Settings {
     pub history_load_limit: u32,
     /// Git status icons on folders in Explorer / Finder / Nautilus (see overlay.rs).
     pub overlay_icons: bool,
+    /// "Open with GitStudio" / "Git Clone…" in the file manager's context menu.
+    pub context_menu: bool,
 }
 
 impl Default for Settings {
@@ -70,6 +72,7 @@ impl Default for Settings {
             history_load_limit: 2000,
             // On by default; the app finishes the setup on first launch (see overlaySetup.ts).
             overlay_icons: true,
+            context_menu: true,
         }
     }
 }
