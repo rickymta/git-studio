@@ -1,7 +1,16 @@
-import { GitPullRequest, Keyboard, ListChecks, Minus, Plus, ZoomIn } from 'lucide-react';
+import {
+  CircleHelp,
+  GitPullRequest,
+  Keyboard,
+  ListChecks,
+  Minus,
+  Plus,
+  ZoomIn,
+} from 'lucide-react';
 import { useState } from 'react';
 import { create } from 'zustand';
 
+import { HelpDialog } from '@/features/help/HelpDialog';
 import { GlobalShortcuts } from '@/features/shortcuts/GlobalShortcuts';
 import { ActivityWindow, ShortcutsWindow } from '@/features/shortcuts/Windows';
 import { t } from '@/lib/i18n';
@@ -44,7 +53,7 @@ export function applyZoom(z: number) {
 }
 
 export function StatusBar({ zoom, setZoom }: { zoom: number; setZoom: (z: number) => void }) {
-  const [win, setWindow] = useState<'activity' | 'shortcuts' | null>(null);
+  const [win, setWindow] = useState<'activity' | 'shortcuts' | 'help' | null>(null);
   const path = useRepo((s) => s.path);
   const refs = useRepo((s) => s.refs);
   const pulls = useGitHub((s) => s.pulls);
@@ -118,20 +127,16 @@ export function StatusBar({ zoom, setZoom }: { zoom: number; setZoom: (z: number
           <Plus className="size-[13px]" />
         </button>
       </span>
-      <span className="flex items-center gap-[6.3px] font-mono">
-        {/* The mark is a white PNG used as a mask, so it takes the text colour in either theme. */}
-        <span
-          aria-hidden
-          className="size-[15.3px] shrink-0 bg-current"
-          style={{
-            maskImage: 'url(/app-mark.png)',
-            maskSize: 'contain',
-            maskRepeat: 'no-repeat',
-            maskPosition: 'center',
-          }}
-        />
-        GitStudio {__APP_VERSION__}
-      </span>
+      <button
+        type="button"
+        title={t('Help & Support')}
+        onClick={() => setWindow('help')}
+        className="flex h-full items-center gap-[4.5px] px-[4.5px] hover:text-foreground"
+      >
+        <CircleHelp className="size-[15.3px]" />
+        {t('Help')}
+      </button>
+      <HelpDialog open={win === 'help'} onClose={() => setWindow(null)} />
     </div>
   );
 }

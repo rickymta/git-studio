@@ -10,6 +10,7 @@ pub mod gitlab;
 pub mod history;
 pub mod settings;
 pub mod ssh;
+pub mod support;
 pub mod terminal;
 pub mod text;
 pub mod workspace;
@@ -783,6 +784,13 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
                     .create_repo(&r.name, &r.description, r.private)
                     .await?,
             )?
+        }
+
+        // ---- Help / support form ----
+        "support.systemInfo" => serde_json::to_value(support::system_info())?,
+        "support.send" => {
+            support::send(&arg::<support::SupportRequest>(a, "request")?).await?;
+            return done();
         }
 
         _ => return Err(Error::Invalid(format!("Unknown command {cmd}"))),

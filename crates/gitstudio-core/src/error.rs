@@ -18,6 +18,9 @@ pub enum Error {
     /// The OS credential store failed.
     #[error("The OS credential store is unavailable: {0}")]
     Keyring(String),
+    /// A non-GitHub web service (e.g. the support form relay) failed or could not be reached.
+    #[error("{0}")]
+    Network(String),
     #[error("{0}")]
     Io(#[from] std::io::Error),
 }
@@ -30,6 +33,7 @@ impl Error {
             Error::GitHub(_) => "github",
             Error::Invalid(_) => "invalid",
             Error::Keyring(_) => "keyring",
+            Error::Network(_) => "network",
             Error::Io(_) => "io",
         }
     }

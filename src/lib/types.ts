@@ -276,6 +276,25 @@ export type DevicePoll =
   | { status: 'slowDown'; interval: number }
   | { status: 'done'; user: GitHubUser };
 
+export type SupportTopic = 'bug' | 'feature' | 'question' | 'other';
+
+/** The Help form, sent as an email by the backend (`support.send`). */
+export interface SupportRequest {
+  name: string;
+  email: string;
+  topic: SupportTopic;
+  subject: string;
+  message: string;
+  /** Attach the app version and OS. */
+  includeSystem: boolean;
+  appVersion?: string;
+}
+
+export interface SystemInfo {
+  os: string;
+  arch: string;
+}
+
 export interface AppError {
   kind: string;
   message: string;

@@ -1,6 +1,7 @@
 // Vietnamese dictionary, split by area so files stay readable.
 import { core } from './vi/core';
 import { diff } from './vi/diff';
+import { help } from './vi/help';
 import { history } from './vi/history';
 import { integrations } from './vi/integrations';
 import { home } from './vi/home';
@@ -15,4 +16,5 @@ export const vi: Record<string, string> = {
   ...diff,
   ...history,
   ...integrations,
+  ...help,
 };
