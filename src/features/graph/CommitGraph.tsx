@@ -326,7 +326,9 @@ function ViewBar() {
 }
 
 const laneX = (lane: number) => PAD + lane * LANE + LANE / 2;
-const tint = (color: string, pct: number) => `color-mix(in oklch, ${color} ${pct}%, transparent)`;
+/** `amount` is a `--lane-row*` token so each theme sets how strong the band is. */
+const tint = (color: string, amount: string) =>
+  `color-mix(in oklch, ${color} var(${amount}), transparent)`;
 const band = (left: string, background: string): React.CSSProperties => ({
   left,
   background,
@@ -725,7 +727,7 @@ function WipRow({
       <div
         className="absolute inset-y-0.5 right-0"
         style={{
-          ...band(bandLeft(cx), tint(color, selected ? 42 : 6)),
+          ...band(bandLeft(cx), tint(color, selected ? '--lane-row-selected' : '--lane-row')),
           boxShadow: selected ? `inset 0 0 0 1px ${color}` : undefined,
         }}
       />
@@ -834,14 +836,14 @@ const CommitRow = memo(function CommitRow({
         <div
           className="absolute inset-y-0.5 right-0"
           style={{
-            ...band(bandLeft(cx), tint(color, selected ? 42 : 6)),
+            ...band(bandLeft(cx), tint(color, selected ? '--lane-row-selected' : '--lane-row')),
             boxShadow: selected ? `inset 0 0 0 1px ${color}` : undefined,
           }}
         />
         {!selected && (
           <div
             className="absolute inset-y-0.5 right-0 opacity-0 group-hover:opacity-100"
-            style={band(bandLeft(cx), tint(color, 12))}
+            style={band(bandLeft(cx), tint(color, '--lane-row-hover'))}
           />
         )}
 
