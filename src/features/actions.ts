@@ -301,12 +301,25 @@ export async function mergeInto(target: string) {
     ],
     confirmLabel: t('Merge'),
   });
-  if (v)
-    await run(
-      'Merge',
-      (p) => api.merge(p, target, v.noFf as boolean),
-      t('Merged {name}', { name: target }),
-    );
+  if (!v) return;
+  const ok = await run(
+    'Merge',
+    (p) => api.merge(p, target, v.noFf as boolean),
+    t('Merged {name}', { name: target }),
+  );
+  if (ok) await showMergeResult(null);
+}
+
+/**
+ * Select what a merge produced: the commit `branch` (or HEAD, for `null`) points to now — the
+ * merge commit, or the tip it fast-forwarded to — instead of leaving the old row selected.
+ */
+export async function showMergeResult(branch: string | null) {
+  const r = repo();
+  const hash = branch
+    ? r.refs?.refs.find((x) => x.kind === 'local' && x.name === branch)?.target
+    : r.info?.status.head;
+  if (hash) await r.reveal(hash);
 }
 
 /** The worktree (other than this one) that has `branch` checked out, if any. */
@@ -379,22 +392,21 @@ export async function mergeIntoBranch(source: string, target: GitRef) {
   });
   if (!v) return;
   const noFf = v.noFf as boolean;
-  if (w) {
-    await run(
-      'Merge',
-      () => api.merge(w.path, source, noFf),
-      t('Merged {source} into {target}', { source, target: target.name }),
-    );
-    return;
-  }
-  await run(
-    'Merge',
-    async (p) => {
-      await api.checkout(p, target.name, 'branch');
-      await api.merge(p, source, noFf);
-    },
-    t('Merged {source} into {target}', { source, target: target.name }),
-  );
+  const ok = w
+    ? await run(
+        'Merge',
+        () => api.merge(w.path, source, noFf),
+        t('Merged {source} into {target}', { source, target: target.name }),
+      )
+    : await run(
+        'Merge',
+        async (p) => {
+          await api.checkout(p, target.name, 'branch');
+          await api.merge(p, source, noFf);
+        },
+        t('Merged {source} into {target}', { source, target: target.name }),
+      );
+  if (ok) await showMergeResult(target.name);
 }
 
 export async function rebaseOnto(target: string) {

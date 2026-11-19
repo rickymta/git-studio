@@ -118,7 +118,7 @@ export function StatusBar({ zoom, setZoom }: { zoom: number; setZoom: (z: number
           <Plus className="size-[13px]" />
         </button>
       </span>
-      <span className="font-mono">GitStudio 0.1.0</span>
+      <span className="font-mono">GitStudio {__APP_VERSION__}</span>
     </div>
   );
 }
