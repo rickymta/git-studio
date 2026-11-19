@@ -1,0 +1,31 @@
+// Vietnamese strings for the Help / support form (status bar → Help).
+export const help: Record<string, string> = {
+  Help: 'Trợ giúp',
+  'Help & Support': 'Trợ giúp & hỗ trợ',
+  'Report a problem, suggest a feature or ask a question. We reply by email.':
+    'Báo lỗi, đề xuất tính năng hoặc đặt câu hỏi. Chúng tôi sẽ trả lời qua email.',
+  Name: 'Tên',
+  Email: 'Email',
+  'What do you need help with?': 'Bạn cần hỗ trợ về vấn đề gì?',
+  'Choose a topic': 'Chọn chủ đề',
+  'Bug report': 'Báo lỗi',
+  'Feature request': 'Đề xuất tính năng',
+  Question: 'Câu hỏi',
+  Other: 'Khác',
+  Subject: 'Tiêu đề',
+  Message: 'Nội dung',
+  'Describe the problem or idea. For a bug, list the steps to reproduce it.':
+    'Mô tả vấn đề hoặc ý tưởng. Nếu là lỗi, hãy ghi các bước để tái hiện.',
+  'Attach app version and operating system': 'Đính kèm phiên bản ứng dụng và hệ điều hành',
+  'This field is required.': 'Trường này là bắt buộc.',
+  'Enter a valid email address.': 'Nhập địa chỉ email hợp lệ.',
+  'Choose a topic.': 'Hãy chọn chủ đề.',
+  'Too long.': 'Quá dài.',
+  Submit: 'Gửi',
+  'Sending…': 'Đang gửi…',
+  'Try again': 'Thử lại',
+  'Could not send your message.': 'Không gửi được tin nhắn.',
+  'Message sent': 'Đã gửi tin nhắn',
+  'Thanks! We will reply to {email}.': 'Cảm ơn bạn! Chúng tôi sẽ trả lời tới {email}.',
+  'Send another': 'Gửi tin khác',
+};

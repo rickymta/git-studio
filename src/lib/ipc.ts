@@ -95,6 +95,9 @@ export const api = {
   terminalResize: (id: number, cols: number, rows: number) =>
     call<null>('terminal.resize', { id, cols, rows }),
   terminalClose: (id: number) => call<null>('terminal.close', { id }),
+  // Help / support form
+  supportSystemInfo: () => call<T.SystemInfo>('support.systemInfo'),
+  sendSupport: (request: T.SupportRequest) => call<null>('support.send', { request }),
   // GitLab
   glAccount: () => call<T.GitLabUser | null>('gitlab.account'),
   glSignInToken: (token: string) => call<T.GitLabUser>('gitlab.signInToken', { token }),
