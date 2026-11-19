@@ -661,6 +661,61 @@ impl Repo {
         self.git(&a).await.map(drop)
     }
 
+    /// Move local `branch` forward to `target` without checking it out; anything but a
+    /// fast-forward is refused. A branch checked out here or in another worktree is moved with
+    /// `merge --ff-only` inside that worktree, so its files follow the branch.
+    pub async fn fast_forward(&self, branch: &str, target: &str) -> Result<()> {
+        check_rev(branch)?;
+        check_rev(target)?;
+        let full = format!("refs/heads/{branch}");
+        let new = self
+            .git(&["rev-parse", "--verify", &format!("{target}^{{commit}}")])
+            .await?
+            .trim()
+            .to_string();
+        let old = self
+            .git(&["rev-parse", "--verify", &full])
+            .await?
+            .trim()
+            .to_string();
+        if old == new {
+            return Ok(());
+        }
+        let ancestor = run::raw(
+            Some(&self.root),
+            &["merge-base", "--is-ancestor", &old, &new],
+            Opts::default(),
+        )
+        .await?
+        .code
+            == 0;
+        if !ancestor {
+            return Err(Error::Invalid(format!(
+                "{branch} cannot be fast-forwarded to {target}: the branches have diverged"
+            )));
+        }
+        let checked_out = self
+            .worktrees()
+            .await?
+            .into_iter()
+            .find(|w| w.branch.as_deref() == Some(branch));
+        match checked_out {
+            Some(w) => run::ok(
+                Path::new(&w.path),
+                &["merge", "--ff-only", &new],
+                Opts::default(),
+            )
+            .await
+            .map(drop),
+            None => {
+                let msg = format!("fast-forward: {target}");
+                self.git(&["update-ref", "-m", &msg, &full, &new, &old])
+                    .await
+                    .map(drop)
+            }
+        }
+    }
+
     pub async fn rebase(&self, onto: &str) -> Result<()> {
         check_rev(onto)?;
         self.git(&["rebase", onto]).await.map(drop)

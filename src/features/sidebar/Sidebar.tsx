@@ -561,24 +561,11 @@ ${t('push:')} ${pushUrl}`
   );
 }
 
+/** Loaded with the refs on every refresh (the branch menus need them too). */
 function useWorktrees(): Worktree[] | null {
-  const path = useRepo((s) => s.path);
-  const head = useRepo((s) => s.info?.status.head);
-  const branch = useRepo((s) => s.info?.status.branch);
   const refs = useRepo((s) => s.refs);
-  const [list, setList] = useState<{ path: string; items: Worktree[] } | null>(null);
-  useEffect(() => {
-    if (!path) return;
-    let live = true;
-    api
-      .worktrees(path)
-      .then((items) => live && setList({ path, items }))
-      .catch(() => live && setList({ path, items: [] }));
-    return () => {
-      live = false;
-    };
-  }, [path, head, branch, refs]);
-  return list && list.path === path ? list.items : null;
+  const worktrees = useRepo((s) => s.worktrees);
+  return refs ? worktrees : null;
 }
 
 function worktreeMenu(w: Worktree): MenuItem[] {

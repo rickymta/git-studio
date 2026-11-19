@@ -427,3 +427,54 @@ async fn staged_stash_and_rename_keep_order() {
     );
     assert!(after[1].message.starts_with("On main: "));
 }
+
+async fn commit_file(r: &Repo, dir: &Path, name: &str) {
+    std::fs::write(dir.join(name), name).unwrap();
+    r.stage(&[]).await.unwrap();
+    r.commit(name, false).await.unwrap();
+}
+
+fn target_of(refs: &git::model::Refs, name: &str) -> String {
+    refs.refs
+        .iter()
+        .find(|x| x.name == name)
+        .map(|x| x.target.clone())
+        .unwrap()
+}
+
+#[tokio::test]
+async fn fast_forward_branches_without_checking_them_out() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("repo");
+    let r = new_repo(&dir).await;
+    commit_file(&r, &dir, "a").await;
+    r.create_branch("old", None, false).await.unwrap();
+    r.create_branch("wt-branch", None, false).await.unwrap();
+    let wt = tmp.path().join("wt");
+    r.add_worktree(&gitstudio_core::git::files::NewWorktree {
+        path: wt.display().to_string(),
+        branch: Some("wt-branch".into()),
+        new_branch: None,
+    })
+    .await
+    .unwrap();
+    commit_file(&r, &dir, "b").await;
+    let tip = r.log(1, 0).await.unwrap()[0].hash.clone();
+
+    // A plain branch moves by ref; the one checked out elsewhere moves inside its worktree.
+    r.fast_forward("old", "main").await.unwrap();
+    r.fast_forward("wt-branch", "main").await.unwrap();
+    let refs = r.refs().await.unwrap();
+    assert_eq!(target_of(&refs, "old"), tip);
+    assert_eq!(target_of(&refs, "wt-branch"), tip);
+    assert!(wt.join("b").exists(), "worktree files follow the branch");
+
+    // Diverged branches are refused and left alone.
+    r.checkout("old", CheckoutKind::Branch).await.unwrap();
+    commit_file(&r, &dir, "c").await;
+    r.checkout("main", CheckoutKind::Branch).await.unwrap();
+    commit_file(&r, &dir, "d").await;
+    let before = target_of(&r.refs().await.unwrap(), "old");
+    assert!(r.fast_forward("old", "main").await.is_err());
+    assert_eq!(target_of(&r.refs().await.unwrap(), "old"), before);
+}

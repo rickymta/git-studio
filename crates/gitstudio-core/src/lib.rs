@@ -503,6 +503,13 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
                 .await?;
             return done();
         }
+        "branch.fastForward" => {
+            repo(a)
+                .await?
+                .fast_forward(&arg::<String>(a, "branch")?, &arg::<String>(a, "target")?)
+                .await?;
+            return done();
+        }
         "history.merge" => {
             let no_ff: Option<bool> = opt(a, "noFf")?;
             repo(a)

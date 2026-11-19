@@ -191,7 +191,7 @@ export async function checkoutCommit(hash: string, label?: string) {
     );
 }
 
-export async function deleteBranch(ref: GitRef) {
+export async function deleteBranch(ref: GitRef, confirmFirst = true) {
   if (ref.kind === 'remote') {
     const remote = ref.remote!;
     const name = ref.name.slice(remote.length + 1);
@@ -209,12 +209,14 @@ export async function deleteBranch(ref: GitRef) {
       );
     return;
   }
-  const ok = await confirm(
-    t('Delete branch'),
-    t('Delete local branch {name}?', { name: ref.name }),
-    t('Delete'),
-    true,
-  );
+  const ok =
+    !confirmFirst ||
+    (await confirm(
+      t('Delete branch'),
+      t('Delete local branch {name}?', { name: ref.name }),
+      t('Delete'),
+      true,
+    ));
   if (!ok) return;
   const path = repo().path!;
   const recordDelete = () =>
@@ -305,6 +307,94 @@ export async function mergeInto(target: string) {
       (p) => api.merge(p, target, v.noFf as boolean),
       t('Merged {name}', { name: target }),
     );
+}
+
+/** The worktree (other than this one) that has `branch` checked out, if any. */
+export function worktreeOf(branch: string): Worktree | null {
+  return repo().worktrees.find((w) => w.branch === branch && !w.isCurrent) ?? null;
+}
+
+/**
+ * Pull into a local branch: the checked-out one as usual, one checked out in another worktree
+ * inside that worktree, any other by fetching its upstream and fast-forwarding to it.
+ */
+export async function pullBranch(ref: GitRef) {
+  if (ref.isHead) return pull();
+  const w = worktreeOf(ref.name);
+  if (w) {
+    const mode = repo().settings?.pullMode ?? 'merge';
+    await run('Pull', () => api.pull(w.path, mode), t('Pulled {name}', { name: ref.name }));
+    return;
+  }
+  const up = ref.upstream
+    ? repo().refs?.refs.find((r) => r.kind === 'remote' && r.name === ref.upstream)
+    : undefined;
+  if (!up) {
+    toast('info', t('{name} has no upstream. Set one first.', { name: ref.name }));
+    return;
+  }
+  await run(
+    'Pull',
+    async (p) => {
+      if (up.remote) await api.fetch(p, up.remote);
+      await api.fastForward(p, ref.name, up.name);
+    },
+    t('Pulled {name}', { name: ref.name }),
+  );
+}
+
+/** Move local `branch` forward to `target` (refused unless it is a fast-forward). */
+export async function fastForwardBranch(branch: string, target: string) {
+  await run(
+    'Fast-forward',
+    (p) => api.fastForward(p, branch, target),
+    t('Fast-forwarded {branch} to {target}', { branch, target }),
+  );
+}
+
+/**
+ * Merge `source` into a local branch that is not checked out here: inside the worktree that
+ * has it checked out, otherwise by checking it out first.
+ */
+export async function mergeIntoBranch(source: string, target: GitRef) {
+  const w = worktreeOf(target.name);
+  const v = await ask({
+    title: t('Merge'),
+    description: w
+      ? t('Merge {source} into {target} (in the worktree {path}).', {
+          source,
+          target: target.name,
+          path: w.path,
+        })
+      : t('Check out {target}, then merge {source} into it.', { source, target: target.name }),
+    fields: [
+      {
+        name: 'noFf',
+        label: t('Always create a merge commit (--no-ff)'),
+        type: 'checkbox',
+        initial: false,
+      },
+    ],
+    confirmLabel: t('Merge'),
+  });
+  if (!v) return;
+  const noFf = v.noFf as boolean;
+  if (w) {
+    await run(
+      'Merge',
+      () => api.merge(w.path, source, noFf),
+      t('Merged {source} into {target}', { source, target: target.name }),
+    );
+    return;
+  }
+  await run(
+    'Merge',
+    async (p) => {
+      await api.checkout(p, target.name, 'branch');
+      await api.merge(p, source, noFf);
+    },
+    t('Merged {source} into {target}', { source, target: target.name }),
+  );
 }
 
 export async function rebaseOnto(target: string) {
@@ -1151,20 +1241,25 @@ export async function openWorktree(w: Worktree) {
   await useRepo.getState().open(w.path);
 }
 
-export async function removeWorktree(w: Worktree) {
-  const ok = await confirm(
-    t('Remove worktree'),
-    t('Remove the worktree at {path}? Its folder is deleted; the branch is kept.', {
-      path: w.path,
-    }),
-    t('Remove'),
-    true,
-  );
+/** Remove a worktree (asking first); true when it is gone. */
+export async function removeWorktree(w: Worktree, confirmFirst = true): Promise<boolean> {
+  const ok =
+    !confirmFirst ||
+    (await confirm(
+      t('Remove worktree'),
+      t('Remove the worktree at {path}? Its folder is deleted; the branch is kept.', {
+        path: w.path,
+      }),
+      t('Remove'),
+      true,
+    ));
   const path = repo().path;
-  if (!ok || !path) return;
+  if (!ok || !path) return false;
+  let removed = false;
   useRepo.setState({ busy: 'Remove worktree' });
   try {
     await api.removeWorktree(path, w.path, false);
+    removed = true;
     toast('success', t('Removed worktree {path}', { path: w.path }));
   } catch (e) {
     useRepo.setState({ busy: null });
@@ -1180,7 +1275,7 @@ export async function removeWorktree(w: Worktree) {
         true,
       );
       if (force)
-        await run(
+        removed = await run(
           'Remove worktree',
           (p) => api.removeWorktree(p, w.path, true),
           t('Removed worktree {path}', { path: w.path }),
@@ -1190,6 +1285,22 @@ export async function removeWorktree(w: Worktree) {
     useRepo.setState({ busy: null });
     await repo().refresh();
   }
+  return removed;
+}
+
+/** Remove the worktree that has `ref` checked out, then delete the branch. */
+export async function removeWorktreeAndBranch(w: Worktree, ref: GitRef) {
+  const ok = await confirm(
+    t('Remove worktree and delete branch'),
+    t('Remove the worktree at {path} (its folder is deleted) and delete the branch {name}?', {
+      path: w.path,
+      name: ref.name,
+    }),
+    t('Remove'),
+    true,
+  );
+  if (!ok || !(await removeWorktree(w, false))) return;
+  await deleteBranch(ref, false);
 }
 
 export async function lockWorktree(w: Worktree, lock: boolean) {

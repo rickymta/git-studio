@@ -20,6 +20,7 @@ import type { Commit, GitRef, Stash } from '@/lib/types';
 import { useGitHub } from '@/stores/github';
 import { useRepo } from '@/stores/repo';
 import * as A from '../actions';
+import { onCurrentBranch, tidy } from './menuUtils';
 import { RefBadge, groupRefs } from './RefBadge';
 
 // Proportions measured from GitKraken: 28px rows, 22px lanes, ~20px avatar nodes.
@@ -56,35 +57,6 @@ function useColumns(): [Set<Column>, (c: Column) => void] {
     }
   };
   return [cols, toggle];
-}
-
-/** Drop leading, trailing and doubled separators left by entries that do not apply. */
-function tidy(items: MenuItem[]): MenuItem[] {
-  const out: MenuItem[] = [];
-  for (const it of items) {
-    if (it === 'sep' && (out.length === 0 || out[out.length - 1] === 'sep')) continue;
-    out.push(it);
-  }
-  while (out[out.length - 1] === 'sep') out.pop();
-  return out;
-}
-
-/** Whether `hash` is reachable from HEAD within the loaded commits (i.e. on the current branch). */
-function onCurrentBranch(hash: string): boolean {
-  const { commits, info } = useRepo.getState();
-  const head = info?.status.head;
-  if (!head) return false;
-  const byHash = new Map(commits.map((c) => [c.hash, c]));
-  const seen = new Set<string>();
-  const stack = [head];
-  while (stack.length) {
-    const h = stack.pop()!;
-    if (h === hash) return true;
-    if (seen.has(h)) continue;
-    seen.add(h);
-    for (const p of byHash.get(h)?.parents ?? []) stack.push(p);
-  }
-  return false;
 }
 
 /** One entry for a single branch, a submenu of branch names for several. */

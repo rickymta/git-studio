@@ -198,4 +198,23 @@ export const history: Record<string, string> = {
   'Stash {n} Staged Files': 'Stash {n} file đã stage',
   'Stash title': 'Tiêu đề stash',
   '{n} hidden stashes': '{n} stash đang ẩn',
+
+  // Branch context menu (GitKraken layout)
+  'Fast-forward {branch} to {target}': 'Fast-forward {branch} tới {target}',
+  'Fast-forward': 'Fast-forward',
+  'Fast-forwarded {branch} to {target}': 'Đã fast-forward {branch} tới {target}',
+  'Open worktree from {name}': 'Mở worktree của {name}',
+  'Create worktree from {name}': 'Tạo worktree từ {name}',
+  'Create worktree from this commit': 'Tạo worktree từ commit này',
+  'Remove this worktree': 'Gỡ worktree này',
+  'Remove worktree and delete branch': 'Gỡ worktree và xoá nhánh',
+  'Remove the worktree at {path} (its folder is deleted) and delete the branch {name}?':
+    'Gỡ worktree tại {path} (thư mục bị xoá) và xoá nhánh {name}?',
+  'Pulled {name}': 'Đã pull {name}',
+  '{name} has no upstream. Set one first.': '{name} chưa có upstream. Hãy đặt upstream trước.',
+  'Merge {source} into {target} (in the worktree {path}).':
+    'Merge {source} vào {target} (trong worktree {path}).',
+  'Check out {target}, then merge {source} into it.':
+    'Checkout {target}, rồi merge {source} vào nhánh đó.',
+  'Merged {source} into {target}': 'Đã merge {source} vào {target}',
 };

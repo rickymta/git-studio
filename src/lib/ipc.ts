@@ -173,6 +173,9 @@ export const api = {
   deleteRemoteBranch: (repo: string, remote: string, name: string) =>
     call<null>('branch.deleteRemote', { repo, remote, name }),
 
+  /** Move `branch` forward to `target` without checking it out (fast-forward only). */
+  fastForward: (repo: string, branch: string, target: string) =>
+    call<null>('branch.fastForward', { repo, branch, target }),
   merge: (repo: string, target: string, noFf = false) =>
     call<null>('history.merge', { repo, target, noFf }),
   rebase: (repo: string, onto: string) => call<null>('history.rebase', { repo, onto }),
