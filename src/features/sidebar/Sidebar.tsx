@@ -34,12 +34,20 @@ import { useRepo } from '@/stores/repo';
 import * as A from '../actions';
 import { refMenu, worktreeOf } from '../graph/RefBadge';
 
+/**
+ * Sections the user opened or closed since the app started. Every launch starts from
+ * each section's default (only Local open); toggles survive switching repositories.
+ */
+const sectionOpen = new Map<string, boolean>();
+
 function Section({
   id,
   title,
   icon,
   count,
   actions,
+  defaultOpen = false,
+  forceOpen = false,
   children,
 }: {
   id: string;
@@ -47,22 +55,17 @@ function Section({
   icon: ReactNode;
   count?: number;
   actions?: ReactNode;
+  defaultOpen?: boolean;
+  /** Show the contents regardless of the toggle (e.g. while the filter is in use). */
+  forceOpen?: boolean;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState(() => {
-    try {
-      return localStorage.getItem(`gitstudio.section.${id}`) !== '0';
-    } catch {
-      return true;
-    }
-  });
+  const [toggled, setToggled] = useState(() => sectionOpen.get(id) ?? defaultOpen);
+  const open = forceOpen || toggled;
   const toggle = () => {
-    setOpen(!open);
-    try {
-      localStorage.setItem(`gitstudio.section.${id}`, open ? '0' : '1');
-    } catch {
-      /* ignore */
-    }
+    const next = !open;
+    sectionOpen.set(id, next);
+    setToggled(next);
   };
   return (
     <div className="border-b border-border/60">
@@ -304,6 +307,8 @@ export function Sidebar() {
           title={t('Local')}
           icon={<Laptop className="size-3.5" />}
           count={locals.length}
+          defaultOpen
+          forceOpen={!!q}
           actions={
             <IconButton label={t('New branch')} onClick={() => A.newBranch()}>
               <Plus className="size-3.5" />
@@ -323,6 +328,7 @@ export function Sidebar() {
           title={t('Remote')}
           icon={<Cloud className="size-3.5" />}
           count={remotes.length}
+          forceOpen={!!q}
           actions={
             <>
               <IconButton label={t('Fetch all')} onClick={() => A.fetchAll()}>
@@ -455,6 +461,7 @@ export function Sidebar() {
           title={t('Tags')}
           icon={<Tag className="size-3.5" />}
           count={tags.length}
+          forceOpen={!!q}
         >
           {tags.map((tag) => (
             <RefRow key={tag.fullName} refItem={tag} label={tag.name} />
