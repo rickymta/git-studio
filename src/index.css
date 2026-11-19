@@ -3,52 +3,61 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* Design tokens. Components use the Tailwind colour utilities mapped below, never raw colours. */
+/* Light theme: no pure white. The graph sits on a soft grey, the side panels a step lighter, so
+   the three areas separate without glare. Body text ≥ 14:1 and muted text ≥ 5:1 (WCAG AA). */
 :root {
-  --background: oklch(0.985 0.002 250);
-  --foreground: oklch(0.21 0.02 255);
-  --surface: oklch(0.995 0.002 85);
-  --surface-muted: oklch(0.955 0.005 250);
-  --surface-hover: oklch(0.93 0.008 250);
-  --border: oklch(0.89 0.006 250);
-  --muted-foreground: oklch(0.5 0.02 255);
-  --accent: oklch(0.58 0.13 190);
+  --background: oklch(0.952 0.006 250);
+  --foreground: oklch(0.23 0.02 255);
+  --surface: oklch(0.968 0.004 250);
+  --surface-muted: oklch(0.935 0.007 250);
+  --surface-hover: oklch(0.91 0.01 250);
+  --border: oklch(0.87 0.008 250);
+  --muted-foreground: oklch(0.48 0.02 255);
+  --accent: oklch(0.49 0.09 195);
   --accent-foreground: oklch(0.99 0 0);
-  --accent-soft: oklch(0.93 0.04 190);
-  --success: oklch(0.55 0.15 150);
-  --success-soft: oklch(0.94 0.05 150);
-  --warning: oklch(0.58 0.13 70);
-  --warning-soft: oklch(0.95 0.06 85);
-  --danger: oklch(0.55 0.2 25);
-  --wip-mod: oklch(0.62 0.15 70);
-  --badge: oklch(0.56 0.17 258);
+  --accent-soft: oklch(0.92 0.035 195);
+  --success: oklch(0.5 0.13 150);
+  --success-soft: oklch(0.92 0.045 150);
+  --warning: oklch(0.52 0.11 65);
+  --warning-soft: oklch(0.93 0.05 85);
+  --danger: oklch(0.52 0.19 25);
+  --wip-mod: oklch(0.6 0.14 65);
+  --badge: oklch(0.52 0.17 258);
   --badge-foreground: oklch(0.99 0 0);
-  --wip-add: oklch(0.58 0.17 150);
-  --wip-del: oklch(0.58 0.21 25);
-  --danger-soft: oklch(0.95 0.04 25);
-  --selection: oklch(0.9 0.05 200);
-  --ring: oklch(0.58 0.13 190 / 0.5);
-  --diff-add: oklch(0.95 0.05 150);
-  --diff-add-strong: oklch(0.88 0.09 150);
-  --diff-del: oklch(0.95 0.04 25);
-  --diff-del-strong: oklch(0.88 0.08 25);
-  --syntax-keyword: oklch(0.48 0.16 265);
-  --syntax-string: oklch(0.45 0.12 150);
-  --syntax-number: oklch(0.5 0.13 60);
-  --syntax-type: oklch(0.5 0.14 310);
-  --syntax-comment: oklch(0.58 0.02 250);
-  --syntax-function: oklch(0.5 0.13 230);
-  --diff-hatch: oklch(0.9 0.006 250);
-  /* Branch lanes in the graph (lines, ref badges, row bands). */
-  --lane-0: #3fb6e8;
-  --lane-1: #e86fb6;
-  --lane-2: #f2b33d;
-  --lane-3: #7bd88f;
-  --lane-4: #a78bfa;
-  --lane-5: #f2795f;
-  --lane-6: #38d1c4;
-  --lane-7: #e3d26f;
-  --lane-8: #6f9ef2;
-  --lane-9: #d98cf2;
+  --wip-add: oklch(0.55 0.16 150);
+  --wip-del: oklch(0.55 0.2 25);
+  --danger-soft: oklch(0.93 0.035 25);
+  --selection: oklch(0.885 0.05 235);
+  --ring: oklch(0.49 0.09 195 / 0.5);
+  --diff-add: oklch(0.93 0.05 150);
+  --diff-add-strong: oklch(0.86 0.09 150);
+  --diff-del: oklch(0.93 0.04 25);
+  --diff-del-strong: oklch(0.86 0.08 25);
+  --syntax-keyword: oklch(0.46 0.16 265);
+  --syntax-string: oklch(0.43 0.12 150);
+  --syntax-number: oklch(0.48 0.13 60);
+  --syntax-type: oklch(0.48 0.14 310);
+  --syntax-comment: oklch(0.52 0.02 250);
+  --syntax-function: oklch(0.48 0.13 230);
+  --diff-hatch: oklch(0.88 0.008 250);
+  /* Branch lanes in the graph (lines, ref badges, row bands): the dark theme's hues, deepened so
+     lines and nodes reach ~3:1 against the grey graph background. */
+  --lane-0: oklch(0.6 0.12 235);
+  --lane-1: oklch(0.6 0.18 350);
+  --lane-2: oklch(0.645 0.14 65);
+  --lane-3: oklch(0.6 0.15 148);
+  --lane-4: oklch(0.56 0.17 295);
+  --lane-5: oklch(0.6 0.16 35);
+  --lane-6: oklch(0.6 0.1 185);
+  --lane-7: oklch(0.62 0.125 100);
+  --lane-8: oklch(0.56 0.15 262);
+  --lane-9: oklch(0.58 0.17 320);
+  /* How much lane colour goes into row bands and ref badges (see CommitGraph / RefBadge). */
+  --lane-row: 8%;
+  --lane-row-hover: 16%;
+  --lane-row-selected: 30%;
+  --lane-badge: 38%;
+  --lane-badge-head: 56%;
 }
 
 .dark {
@@ -97,6 +106,11 @@
   --lane-7: color-mix(in oklch, #e3d26f 72%, var(--background));
   --lane-8: color-mix(in oklch, #6f9ef2 72%, var(--background));
   --lane-9: color-mix(in oklch, #d98cf2 72%, var(--background));
+  --lane-row: 6%;
+  --lane-row-hover: 12%;
+  --lane-row-selected: 42%;
+  --lane-badge: 42%;
+  --lane-badge-head: 60%;
 }
 
 @theme inline {

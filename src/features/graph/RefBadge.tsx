@@ -314,7 +314,7 @@ export function RefBadge({
         style={{
           borderColor: color,
           // Opaque so the connector line to the graph runs behind the badge.
-          background: `color-mix(in oklch, ${color} ${group.head ? 60 : 42}%, var(--background))`,
+          background: `color-mix(in oklch, ${color} var(${group.head ? '--lane-badge-head' : '--lane-badge'}), var(--background))`,
         }}
       >
         {group.head && <Check className="size-[15.4px] shrink-0" strokeWidth={2.4} />}
