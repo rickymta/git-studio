@@ -276,11 +276,15 @@ fn windows_terminal_settings() -> Vec<std::path::PathBuf> {
     out
 }
 
+// The parsing below is only called on Windows; tests exercise it on every platform.
+
 /// GUID Windows Terminal gives its built-in "Windows PowerShell" profile.
+#[cfg(any(windows, test))]
 const WT_WINDOWS_POWERSHELL: &str = "{61c54bbd-c2c6-5271-96e7-009a87ff44bf}";
 
 /// Font for the shell `kind` opens: `profiles.defaults`, overridden by the profile that runs the
 /// same shell (falling back to the default profile).
+#[cfg(any(windows, test))]
 fn font_from_windows_terminal(text: &str, kind: &str) -> Option<TerminalFont> {
     use serde_json::Value;
     let v: Value = serde_json::from_str(&strip_jsonc(text)).ok()?;
@@ -331,6 +335,7 @@ fn font_from_windows_terminal(text: &str, kind: &str) -> Option<TerminalFont> {
 }
 
 /// Reads `font.{face,size,weight}` (or the older `fontFace`/`fontSize`/`fontWeight`) of one layer.
+#[cfg(any(windows, test))]
 fn apply_font(layer: &serde_json::Value, f: &mut TerminalFont) {
     use serde_json::Value;
     let get = |new: &str, old: &str| {
@@ -377,6 +382,7 @@ fn apply_font(layer: &serde_json::Value, f: &mut TerminalFont) {
 }
 
 /// Turns JSON with comments and trailing commas (what Windows Terminal accepts) into plain JSON.
+#[cfg(any(windows, test))]
 fn strip_jsonc(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut chars = text.char_indices().map(|(i, c)| (c, i)).peekable();
@@ -432,6 +438,7 @@ fn strip_jsonc(text: &str) -> String {
 }
 
 /// First significant character of `s`, skipping whitespace and comments.
+#[cfg(any(windows, test))]
 fn strip_jsonc_lead(s: &str) -> Option<char> {
     let mut rest = s;
     loop {
