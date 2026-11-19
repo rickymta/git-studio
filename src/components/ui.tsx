@@ -1,5 +1,5 @@
 import { ContextMenu, Dialog, DropdownMenu } from 'radix-ui';
-import { Loader2, X } from 'lucide-react';
+import { ChevronRight, Loader2, X } from 'lucide-react';
 import { useCallback, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
 
 import { hue, initials } from '@/lib/format';
@@ -125,10 +125,19 @@ function renderItems(items: MenuItem[], M: typeof ContextMenu | typeof DropdownM
     if (it.items) {
       return (
         <M.Sub key={i}>
-          <M.SubTrigger className={itemCls}>
+          <M.SubTrigger
+            className={cn(
+              itemCls,
+              'group data-[state=open]:bg-accent data-[state=open]:text-accent-foreground',
+            )}
+          >
             <span className="w-4">{it.icon}</span>
             {it.label}
-            <span className="ml-auto pl-4 text-muted-foreground">›</span>
+            <ChevronRight
+              aria-hidden
+              strokeWidth={2.5}
+              className="ml-auto size-4 shrink-0 text-foreground/80 group-data-[highlighted]:text-current group-data-[state=open]:text-current"
+            />
           </M.SubTrigger>
           <M.Portal>
             <M.SubContent className={contentCls}>{renderItems(it.items, M)}</M.SubContent>
