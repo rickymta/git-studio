@@ -62,7 +62,7 @@ interface RepoStore {
   graph: GraphRow[];
   hasMore: boolean;
   refs: Refs | null;
-  /** Worktrees of the repository (refreshed with the refs); empty when listing fails. */
+  /** Linked worktrees, reloaded with the refs (sidebar list, branch markers, branch menus). */
   worktrees: Worktree[];
   view: GraphView;
   /** Change the graph filters and reload the history. */
@@ -192,7 +192,7 @@ const emptyRepo = {
   commits: [],
   graph: [],
   refs: null,
-  worktrees: [],
+  worktrees: [] as Worktree[],
   selection: null,
   detail: null,
   diff: null,

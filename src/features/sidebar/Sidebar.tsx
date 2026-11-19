@@ -1,12 +1,17 @@
 import {
   Archive,
+  Check,
   ChevronDown,
   ChevronRight,
   Cloud,
+  CloudOff,
   ExternalLink,
-  FolderTree,
+  FolderGit2,
   GitBranch,
+  GitCommitHorizontal,
   GitPullRequest,
+  GitPullRequestDraft,
+  House,
   Laptop,
   Lock,
   Pencil,
@@ -14,6 +19,7 @@ import {
   RefreshCw,
   Search,
   Tag,
+  type LucideIcon,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
@@ -26,7 +32,7 @@ import type { GitRef, PullRequest, Worktree } from '@/lib/types';
 import { useGitHub } from '@/stores/github';
 import { useRepo } from '@/stores/repo';
 import * as A from '../actions';
-import { refMenu } from '../graph/RefBadge';
+import { refMenu, worktreeOf } from '../graph/RefBadge';
 
 function Section({
   id,
@@ -96,7 +102,30 @@ async function revealStash(hash: string) {
   }
 }
 
+/** Small state marker at the end of a row; the tooltip names the state. */
+function StateIcon({
+  icon: Icon,
+  label,
+  className,
+}: {
+  icon: LucideIcon;
+  label: string;
+  className?: string;
+}) {
+  return (
+    <span title={label} className="inline-flex shrink-0">
+      <Icon
+        aria-label={label}
+        className={cn('size-3.5 shrink-0 text-muted-foreground', className)}
+      />
+    </span>
+  );
+}
+
 function RefRow({ refItem, label, depth = 0 }: { refItem: GitRef; label: string; depth?: number }) {
+  const worktree = useRepo((s) => worktreeOf(refItem, s.worktrees));
+  // Leading icon says what the row is: the checked-out branch, a branch, or a tag.
+  const Kind = refItem.kind === 'tag' ? Tag : refItem.isHead ? Check : GitBranch;
   return (
     <ContextMenuWrap items={() => refMenu(refItem)}>
       <div
@@ -109,12 +138,25 @@ function RefRow({ refItem, label, depth = 0 }: { refItem: GitRef; label: string;
           refItem.isHead && 'font-semibold text-accent',
         )}
       >
+        <Kind
+          className={cn('size-3.5 shrink-0', !refItem.isHead && 'text-muted-foreground')}
+          strokeWidth={refItem.isHead ? 2.4 : 2}
+        />
         <span className="min-w-0 flex-1 truncate">{label}</span>
-        {refItem.upstreamGone && (
-          <span className="text-xs text-warning" title={t('Upstream deleted')}>
-            {t('gone')}
-          </span>
+        {worktree && (
+          <StateIcon
+            icon={FolderGit2}
+            label={t('Checked out in worktree {name}', { name: A.baseName(worktree.path) })}
+          />
         )}
+        {refItem.kind === 'local' &&
+          (refItem.upstreamGone ? (
+            <StateIcon icon={CloudOff} label={t('Upstream deleted')} className="text-warning" />
+          ) : refItem.upstream ? (
+            <StateIcon icon={Cloud} label={t('Tracks {name}', { name: refItem.upstream })} />
+          ) : (
+            <StateIcon icon={Laptop} label={t('Local only (not pushed)')} />
+          ))}
         {refItem.ahead > 0 && (
           <span className="text-xs text-muted-foreground" title={t('Commits to push')}>
             ↑{refItem.ahead}
@@ -270,7 +312,7 @@ export function Sidebar() {
         >
           {info?.status.branch === null && info.status.head && (
             <div className="flex h-7 items-center gap-1.5 pl-6 font-semibold text-accent">
-              <GitBranch className="size-3.5" /> {t('HEAD (detached)')}
+              <GitCommitHorizontal className="size-3.5" /> {t('HEAD (detached)')}
             </div>
           )}
           <RefTree refs={locals} />
@@ -387,6 +429,11 @@ export function Sidebar() {
                   title={`#${pr.number} ${pr.title}\n${pr.headRef} → ${pr.baseRef}`}
                   className="flex cursor-default items-start gap-2 py-1 pr-2 pl-6 hover:bg-surface-hover"
                 >
+                  {pr.draft ? (
+                    <GitPullRequestDraft className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
+                  ) : (
+                    <GitPullRequest className="mt-0.5 size-3.5 shrink-0 text-success" />
+                  )}
                   <Avatar name={pr.author} url={pr.authorAvatar} size={16} />
                   <div className="min-w-0 flex-1">
                     <div className="truncate">
@@ -439,8 +486,9 @@ export function Sidebar() {
                 title={`${s.name}: ${s.message}`}
                 onClick={() => void revealStash(s.hash)}
                 onDoubleClick={() => A.stashOp(s, 'apply')}
-                className="flex h-7 cursor-default items-center gap-2 pr-2 pl-6 hover:bg-surface-hover"
+                className="flex h-7 cursor-default items-center gap-1.5 pr-2 pl-6 hover:bg-surface-hover"
               >
+                <Archive className="size-3.5 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 flex-1 truncate">{s.message}</span>
                 <span className="text-xs text-muted-foreground">{relativeTime(s.time)}</span>
               </div>
@@ -561,13 +609,6 @@ ${t('push:')} ${pushUrl}`
   );
 }
 
-/** Loaded with the refs on every refresh (the branch menus need them too). */
-function useWorktrees(): Worktree[] | null {
-  const refs = useRepo((s) => s.refs);
-  const worktrees = useRepo((s) => s.worktrees);
-  return refs ? worktrees : null;
-}
-
 function worktreeMenu(w: Worktree): MenuItem[] {
   return [
     {
@@ -593,14 +634,14 @@ function worktreeMenu(w: Worktree): MenuItem[] {
 }
 
 function WorktreesSection() {
-  const worktrees = useWorktrees();
+  const worktrees = useRepo((s) => s.worktrees);
   const badge = 'rounded border border-border px-1 text-[10px] leading-4 text-muted-foreground';
   return (
     <Section
       id="worktrees"
       title={t('Worktrees')}
-      icon={<FolderTree className="size-3.5" />}
-      count={worktrees?.length}
+      icon={<FolderGit2 className="size-3.5" />}
+      count={worktrees.length}
       actions={
         <Dropdown
           items={[
@@ -619,7 +660,7 @@ function WorktreesSection() {
         </Dropdown>
       }
     >
-      {worktrees?.map((w) => (
+      {worktrees.map((w) => (
         <ContextMenuWrap key={w.path} items={() => worktreeMenu(w)}>
           <div
             onClick={() => scrollToCommit(w.head)}
@@ -631,6 +672,15 @@ function WorktreesSection() {
               w.prunable && 'opacity-60',
             )}
           >
+            {w.isMain ? (
+              <span title={t('Main working tree')} className="inline-flex shrink-0">
+                <House className={cn('size-3.5', !w.isCurrent && 'text-muted-foreground')} />
+              </span>
+            ) : (
+              <span title={t('Linked worktree')} className="inline-flex shrink-0">
+                <FolderGit2 className={cn('size-3.5', !w.isCurrent && 'text-muted-foreground')} />
+              </span>
+            )}
             <span className="min-w-0 shrink truncate">{A.baseName(w.path)}</span>
             <span className="min-w-0 flex-1 truncate text-xs font-normal text-muted-foreground">
               {w.branch ?? (w.bare ? t('bare') : t('detached'))}

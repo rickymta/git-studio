@@ -154,6 +154,11 @@ export const panels: Record<string, string> = {
   // ---- sidebar ----
   'Upstream deleted': 'Upstream đã bị xoá',
   gone: 'đã xoá',
+  'Checked out in worktree {name}': 'Đang checkout ở worktree {name}',
+  'Tracks {name}': 'Theo dõi {name}',
+  'Local only (not pushed)': 'Chỉ có ở máy (chưa push)',
+  'Main working tree': 'Thư mục làm việc chính',
+  'Linked worktree': 'Worktree liên kết',
   'Commits to push': 'Commit cần push',
   'Commits to pull': 'Commit cần pull',
   'Viewing {n}': 'Đang hiển thị {n}',
