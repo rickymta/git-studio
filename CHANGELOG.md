@@ -2,6 +2,13 @@
 
 Các thay đổi đáng chú ý của GitStudio. File này do `pnpm release` cập nhật.
 
+## v0.1.2 - 2026-11-19
+
+Thay đổi từ v0.1.1.
+
+- fix(ui): visible scrollbars, real app version, select the merge result (c128450)
+- fix(terminal): use the font configured in Windows Terminal (1741940)
+
 ## v0.1.1 - 2026-11-19
 
 Thay đổi từ v0.1.0.

@@ -1508,7 +1508,7 @@ dependencies = [
 
 [[package]]
 name = "gitstudio"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "axum",
  "gitstudio-core",
@@ -1522,7 +1522,7 @@ dependencies = [
 
 [[package]]
 name = "gitstudio-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "base64 0.22.1",
  "chardetng",
