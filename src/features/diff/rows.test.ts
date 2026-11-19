@@ -173,6 +173,14 @@ describe('first change', () => {
     expect(focusBlock(0, -1)).toBe(-1);
   });
 
+  it('starts at the hunk header when it sits just above the change (hunk layout)', () => {
+    const m = buildRows(parseDiff(NORMAL), 'hunk');
+    // Hunk 1: header, 3 context lines, then the change.
+    expect(scrollTargetRow(m.blockRows, 1, 3, m.rows)).toBe(m.blockRows[1]! - 4);
+    expect(m.rows[scrollTargetRow(m.blockRows, 1, 3, m.rows)]).toMatchObject({ type: 'header' });
+    expect(scrollTargetRow(m.blockRows, 0, 3, m.rows)).toBe(0);
+  });
+
   it('scrolls so the change sits a few rows below the top', () => {
     expect(scrollTargetRow([10, 40], 0)).toBe(7);
     expect(scrollTargetRow([10, 40], 1)).toBe(37);

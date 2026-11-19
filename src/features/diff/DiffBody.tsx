@@ -134,7 +134,7 @@ export function DiffBody({
   // A new file starts from its first change; a new layout keeps the current one.
   useEffect(() => setCurrent(-1), [fileKey]);
   const pendingScroll = useRef<string | null>(null);
-  const scrollKey = `${fileKey}|${layout}`;
+  const scrollKey = `${fileKey}|${layout}|${wrap}`;
   useLayoutEffect(() => {
     pendingScroll.current = scrollKey;
   }, [scrollKey]);
@@ -164,7 +164,9 @@ export function DiffBody({
     const block = focusBlock(model.blockRows.length, current);
     if (block >= 0) {
       if (block !== current) setCurrent(block);
-      virt.scrollToIndex(scrollTargetRow(model.blockRows, block), { align: 'start' });
+      virt.scrollToIndex(scrollTargetRow(model.blockRows, block, undefined, model.rows), {
+        align: 'start',
+      });
     } else virt.scrollToOffset(0);
   }, [model, scrollKey, current, virt]);
 

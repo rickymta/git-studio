@@ -138,8 +138,20 @@ export function focusBlock(blockCount: number, current: number): number {
   return current >= 0 && current < blockCount ? current : 0;
 }
 
-/** Row to put at the top of the viewport so `block` sits `lead` rows below it. */
-export function scrollTargetRow(blockRows: number[], block: number, lead = LEAD_ROWS): number {
+/**
+ * Row to put at the top of the viewport so `block` sits `lead` rows below it. When the block's
+ * hunk header is just above that (hunk layout), start at the header instead of hiding it.
+ */
+export function scrollTargetRow(
+  blockRows: number[],
+  block: number,
+  lead = LEAD_ROWS,
+  rows?: DiffRow[],
+): number {
   const row = blockRows[block];
-  return row === undefined ? 0 : Math.max(0, row - lead);
+  if (row === undefined) return 0;
+  const top = Math.max(0, row - lead);
+  if (rows)
+    for (let i = row; i >= Math.max(0, top - 1); i--) if (rows[i]?.type === 'header') return i;
+  return top;
 }
