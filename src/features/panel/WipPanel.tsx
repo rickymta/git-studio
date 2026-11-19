@@ -30,8 +30,8 @@ import {
   useFileSort,
   useViewMode,
 } from './FileList';
+import { SUMMARY_MAX } from './commitMessage';
 
-const SUMMARY_MAX = 72;
 type ListId = 'unstaged' | 'staged';
 
 function usePersisted<T>(key: string, initial: T): [T, (v: T) => void] {

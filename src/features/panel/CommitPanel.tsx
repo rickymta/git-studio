@@ -1,5 +1,5 @@
-import { ArrowLeftRight, Copy, X } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowLeftRight, Copy, Pencil, TriangleAlert, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 
 import { Avatar, IconButton, Spinner, cn } from '@/components/ui';
 import { short } from '@/lib/format';
@@ -9,6 +9,8 @@ import { copyText } from '@/lib/native';
 import type { FileChange, FileStatus } from '@/lib/types';
 import { useCompare } from '@/stores/compare';
 import { useRepo } from '@/stores/repo';
+import { amendHeadMessage, canAmendMessage, headIsPushed } from '../actions';
+import { SUMMARY_MAX, joinMessage, splitMessage } from './commitMessage';
 import {
   FileList,
   FilesSection,
@@ -64,6 +66,9 @@ const SUMMARY: { status: FileStatus[]; mark: string; cls: string; label: string 
   { status: ['R', 'C'], mark: '→', cls: 'text-accent', label: '{n} renamed' },
 ];
 
+const EDIT_BUTTON =
+  'inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md border font-medium whitespace-nowrap hover:brightness-125 disabled:cursor-not-allowed disabled:opacity-50';
+
 /** Details of a selected commit, laid out like GitKraken's commit panel. */
 export function CommitPanel({ hash }: { hash: string }) {
   const detail = useRepo((s) => s.detail);
@@ -78,6 +83,15 @@ export function CommitPanel({ hash }: { hash: string }) {
   const [tree, setTree] = useState<string[] | null>(null);
   const [msgH, setMsgH] = usePersistedNumber('gitstudio.commit.messageHeight', 170);
   const dragStart = useRef(0);
+  // Re-render when HEAD / upstream state changes (whether the message is editable).
+  useRepo((s) => s.info);
+  // In-place message edit of HEAD; tied to the commit it was started on.
+  const [edit, setEdit] = useState<{
+    hash: string;
+    summary: string;
+    description: string;
+  } | null>(null);
+  const [saving, setSaving] = useState(false);
 
   // "View all files": the whole tree of this commit.
   useEffect(() => {
@@ -127,6 +141,43 @@ export function CommitPanel({ hash }: { hash: string }) {
     diff.request.commit === d.hash &&
     diff.request.path === f.path;
 
+  const editable = canAmendMessage(d.hash);
+  const editing = editable && edit?.hash === d.hash ? edit : null;
+  const pushed = editing ? headIsPushed() : false;
+
+  const startEdit = () => {
+    if (!editable || editing) return;
+    // Selecting text to copy it should not switch to editing.
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed && sel.toString().trim()) return;
+    setEdit({ hash: d.hash, ...splitMessage(d.body) });
+  };
+  const cancelEdit = () => setEdit(null);
+  const saveEdit = async () => {
+    if (!editing || saving || !editing.summary.trim()) return;
+    const message = joinMessage(editing.summary, editing.description);
+    const { summary, description } = splitMessage(d.body);
+    if (message === joinMessage(summary, description)) {
+      setEdit(null);
+      return;
+    }
+    setSaving(true);
+    try {
+      if (await amendHeadMessage(d.hash, message)) setEdit(null);
+    } finally {
+      setSaving(false);
+    }
+  };
+  const onEditKey = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelEdit();
+    } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      void saveEdit();
+    }
+  };
+
   const open = (f: FileChange) =>
     openDiff({
       source: 'commit',
@@ -149,17 +200,65 @@ export function CommitPanel({ hash }: { hash: string }) {
 
       {/* Message */}
       <div className="shrink-0 px-3 pt-3">
-        <div
-          className="selectable overflow-auto rounded-md border border-border bg-background px-3 py-2.5"
-          style={{ height: msgH }}
-        >
-          <div className="text-[17px] leading-snug">{d.subject}</div>
-          {body && (
-            <pre className="mt-2.5 font-sans text-[13.5px] leading-relaxed whitespace-pre-wrap text-foreground/85">
-              {body}
-            </pre>
-          )}
-        </div>
+        {editing ? (
+          <div
+            className="flex flex-col rounded-md border border-accent bg-background"
+            style={{ height: msgH }}
+          >
+            <div className="flex shrink-0 items-center">
+              <input
+                autoFocus
+                aria-label={t('Commit summary')}
+                placeholder={t('Commit summary')}
+                className="h-10 min-w-0 flex-1 bg-transparent px-3 text-[17px] outline-none placeholder:text-muted-foreground"
+                value={editing.summary}
+                disabled={saving}
+                onChange={(e) => setEdit({ ...editing, summary: e.target.value })}
+                onKeyDown={onEditKey}
+              />
+              <span
+                className={cn(
+                  'pr-3 text-xs tabular-nums',
+                  SUMMARY_MAX - editing.summary.length < 0
+                    ? 'text-danger'
+                    : 'text-muted-foreground',
+                )}
+                title={t('Characters left before the 72-character guideline')}
+              >
+                {SUMMARY_MAX - editing.summary.length}
+              </span>
+            </div>
+            <textarea
+              aria-label={t('Description')}
+              placeholder={t('Description')}
+              className="min-h-0 w-full flex-1 resize-none bg-transparent px-3 py-1 text-[13.5px] leading-relaxed outline-none placeholder:text-muted-foreground"
+              value={editing.description}
+              disabled={saving}
+              onChange={(e) => setEdit({ ...editing, description: e.target.value })}
+              onKeyDown={onEditKey}
+            />
+          </div>
+        ) : (
+          <div
+            className={cn(
+              'selectable group relative overflow-auto rounded-md border border-border bg-background px-3 py-2.5',
+              editable && 'cursor-text hover:border-accent/60',
+            )}
+            style={{ height: msgH }}
+            title={editable ? t('Click to edit the message of this commit') : undefined}
+            onClick={startEdit}
+          >
+            {editable && (
+              <Pencil className="absolute top-2.5 right-2.5 size-3.5 text-muted-foreground opacity-0 group-hover:opacity-100" />
+            )}
+            <div className="text-[17px] leading-snug">{d.subject}</div>
+            {body && (
+              <pre className="mt-2.5 font-sans text-[13.5px] leading-relaxed whitespace-pre-wrap text-foreground/85">
+                {body}
+              </pre>
+            )}
+          </div>
+        )}
         <div
           role="separator"
           aria-orientation="horizontal"
@@ -184,6 +283,39 @@ export function CommitPanel({ hash }: { hash: string }) {
         >
           <span className="h-[3px] w-14 rounded-full bg-border group-hover:bg-accent" />
         </div>
+        {editing && (
+          <div className="pb-3">
+            {pushed && (
+              <div className="mb-2 flex items-start gap-1.5 rounded-md bg-warning-soft p-2 text-xs">
+                <TriangleAlert className="mt-px size-3.5 shrink-0 text-warning" />
+                {t(
+                  'This commit is already pushed. Updating its message rewrites it; the branch will then need a force push.',
+                )}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className={cn(EDIT_BUTTON, 'border-success/60 bg-success-soft text-success')}
+                disabled={!editing.summary.trim() || saving}
+                onClick={() => void saveEdit()}
+                title="Ctrl+Enter"
+              >
+                {saving && <Spinner />}
+                {t('Update Message')}
+              </button>
+              <button
+                type="button"
+                className={cn(EDIT_BUTTON, 'border-danger/60 bg-danger-soft text-danger')}
+                disabled={saving}
+                onClick={cancelEdit}
+                title="Esc"
+              >
+                {t('Cancel Amend')}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Author, parent, co-authors */}
