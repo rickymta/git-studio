@@ -233,6 +233,16 @@ export interface GitHubUser {
   htmlUrl: string;
   /** OAuth scopes; null for fine-grained tokens. */
   scopes?: string[] | null;
+  token?: TokenInfo;
+}
+
+export type TokenKind = 'pat' | 'fineGrained' | 'oauth' | 'unknown';
+
+/** Kind and expiry of the stored token (never the token itself). */
+export interface TokenInfo {
+  kind: TokenKind;
+  /** RFC 3339; null when the token has no expiry date. */
+  expiresAt: string | null;
 }
 
 export interface GitHubRepo {
@@ -360,6 +370,7 @@ export interface GitLabUser {
   name: string | null;
   avatarUrl: string;
   htmlUrl: string;
+  token?: TokenInfo;
 }
 
 export interface TerminalOpened {

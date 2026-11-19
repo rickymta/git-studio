@@ -96,6 +96,8 @@ export const api = {
     call<null>('terminal.resize', { id, cols, rows }),
   terminalClose: (id: number) => call<null>('terminal.close', { id }),
   // GitLab
+  /** Whether a GitHub / GitLab token is stored (no network call). */
+  storedTokens: () => call<{ github: boolean; gitlab: boolean }>('auth.storedTokens'),
   glAccount: () => call<T.GitLabUser | null>('gitlab.account'),
   glSignInToken: (token: string) => call<T.GitLabUser>('gitlab.signInToken', { token }),
   glImportToken: () => call<T.GitLabUser>('gitlab.importToken'),

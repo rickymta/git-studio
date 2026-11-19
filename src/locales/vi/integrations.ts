@@ -54,4 +54,28 @@ export const integrations: Record<string, string> = {
     'Chỉ checkout các tệp ở thư mục gốc; bạn có thể thêm thư mục sau.',
   'Clone the repo!': 'Clone repository!',
   'Search Remotes': 'Tìm repository',
+
+  // Token expiry (status bar, warning toast, Preferences → Integrations)
+  'Token: {left}': 'Token: {left}',
+  'Token expired': 'Token đã hết hạn',
+  'No expiry': 'Không hết hạn',
+  Expired: 'Đã hết hạn',
+  '1 day left': 'còn 1 ngày',
+  '{n} days left': 'còn {n} ngày',
+  '1 hour left': 'còn 1 giờ',
+  '{n} hours left': 'còn {n} giờ',
+  '1 minute left': 'còn 1 phút',
+  '{n} minutes left': 'còn {n} phút',
+  'Token expires on {date}': 'Token hết hạn vào {date}',
+  'Token expired on {date}': 'Token đã hết hạn vào {date}',
+  'This token has no expiry date': 'Token này không có ngày hết hạn',
+  'Click to open account settings': 'Bấm để mở cài đặt tài khoản',
+  'Your {host} token expires soon': 'Token {host} của bạn sắp hết hạn',
+  'Your {host} token has expired': 'Token {host} của bạn đã hết hạn',
+  'The token for @{login} expires on {date}. Renew it to keep pulling and pushing.':
+    'Token của @{login} hết hạn vào {date}. Hãy gia hạn để tiếp tục pull và push.',
+  'The token for @{login} expired on {date}. Create a new token and sign in again.':
+    'Token của @{login} đã hết hạn vào {date}. Hãy tạo token mới và đăng nhập lại.',
+  'Renew token': 'Gia hạn token',
+  'Account settings': 'Cài đặt tài khoản',
 };

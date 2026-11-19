@@ -1,4 +1,4 @@
-import { CheckCircle2, Info, X, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Info, X, XCircle } from 'lucide-react';
 import { useLayoutEffect, useRef, useState } from 'react';
 
 import { t } from '@/lib/i18n';
@@ -8,6 +8,7 @@ import { Button, Input, Modal, Textarea } from './ui';
 const TOAST_STYLE = {
   error: { color: 'var(--danger)', Icon: XCircle },
   success: { color: 'var(--success)', Icon: CheckCircle2 },
+  warning: { color: 'var(--warning)', Icon: AlertTriangle },
   info: { color: 'var(--accent)', Icon: Info },
 } as const;
 
@@ -146,6 +147,23 @@ function ToastCard({
                 {toast.detail}
               </pre>
             )}
+            {toast.actions?.length ? (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {toast.actions.map((a, i) => (
+                  <Button
+                    key={a.label}
+                    size="sm"
+                    variant={i === 0 ? 'primary' : 'default'}
+                    onClick={() => {
+                      a.run();
+                      onDone();
+                    }}
+                  >
+                    {a.label}
+                  </Button>
+                ))}
+              </div>
+            ) : null}
           </div>
           <button
             type="button"

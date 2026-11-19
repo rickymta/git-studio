@@ -2,6 +2,10 @@ import { create } from 'zustand';
 
 import { api } from '@/lib/ipc';
 import type { GitHubRepo, GitHubSlug, GitHubUser, PullRequest } from '@/lib/types';
+import { useTokens } from './tokens';
+
+/** Re-read the token's expiry at most this often when pull requests load. */
+const TOKEN_REFRESH_MS = 60 * 60 * 1000;
 
 interface GitHubStore {
   user: GitHubUser | null;
@@ -29,14 +33,20 @@ export const useGitHub = create<GitHubStore>((set, get) => ({
 
   check: async () => {
     try {
-      set({ user: await api.ghAccount(), checked: true });
+      const user = await api.ghAccount();
+      set({ user, checked: true });
+      void useTokens.getState().account('github', user);
     } catch {
       set({ user: null, checked: true });
     }
   },
-  setUser: (user) => set({ user, repos: null, pulls: null, pullsFor: null }),
+  setUser: (user) => {
+    set({ user, repos: null, pulls: null, pullsFor: null });
+    if (user) void useTokens.getState().account('github', user);
+  },
   signOut: async () => {
     await api.ghSignOut();
+    useTokens.getState().clear('github');
     set({ user: null, repos: null, pulls: null, pullsFor: null });
   },
   loadRepos: async () => {
@@ -61,6 +71,7 @@ export const useGitHub = create<GitHubStore>((set, get) => ({
       return;
     }
     set({ pullsFor: key });
+    void useTokens.getState().refresh(TOKEN_REFRESH_MS);
     try {
       const pulls = await api.ghPulls(slug.owner, slug.repo);
       if (get().pullsFor === key) set({ pulls, pullsError: null });
