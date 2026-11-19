@@ -881,6 +881,68 @@ export async function editCommitMessage(hash: string) {
   await run('Edit commit message', (p) => api.reword(p, hash, next), t('Commit message updated'));
 }
 
+/**
+ * Whether the commit panel lets `hash` be edited in place: it is the tip of the checked-out
+ * branch and no merge/rebase is in progress.
+ */
+export function canAmendMessage(hash: string): boolean {
+  const info = repo().info;
+  return (
+    !!info &&
+    info.state === 'clean' &&
+    !!info.status.branch &&
+    !!info.status.head &&
+    info.status.head === hash
+  );
+}
+
+/** HEAD is already on its upstream (nothing ahead), so amending it rewrites pushed history. */
+export function headIsPushed(): boolean {
+  const st = repo().info?.status;
+  return !!st?.upstream && !!st.head && st.ahead === 0;
+}
+
+/**
+ * Replace the message of HEAD (`hash`) only — staged and working-tree changes stay out — then
+ * select the rewritten commit. Asks first when HEAD was already pushed. Returns whether the
+ * message was changed.
+ */
+export async function amendHeadMessage(hash: string, message: string): Promise<boolean> {
+  const next = message.trim();
+  if (!next) return false;
+  if (headIsPushed()) {
+    const upstream = repo().info?.status.upstream ?? '';
+    const ok = await confirm(
+      t('Amend a pushed commit?'),
+      t(
+        '{hash} is already on {upstream}. Amending rewrites it, so the branch will need a force push afterwards.',
+        { hash: short(hash), upstream },
+      ),
+      t('Update Message'),
+      true,
+    );
+    if (!ok) return false;
+  }
+  let created: string | null = null;
+  const ok = await journaled(
+    'Edit commit message',
+    async (p) => {
+      created = await api.amendMessage(p, hash, next);
+    },
+    // Moving the branch with a soft reset leaves staged and working-tree changes untouched.
+    (b, a) =>
+      b.head && a.head
+        ? {
+            undo: (p) => api.reset(p, b.head!, 'soft'),
+            redo: (p) => api.reset(p, a.head!, 'soft'),
+          }
+        : null,
+    t('Commit message updated'),
+  );
+  if (ok && created) await repo().reveal(created);
+  return ok;
+}
+
 export async function dropCommit(c: Commit) {
   const ok = await confirm(
     t('Drop commit'),

@@ -71,6 +71,9 @@ export const api = {
     call<T.FileChange[]>('repo.compare', { repo, hash }),
   reword: (repo: string, hash: string, message: string) =>
     call<null>('history.reword', { repo, hash, message }),
+  /** Replace the message of HEAD (which must still be `hash`); returns the new HEAD. */
+  amendMessage: (repo: string, hash: string, message: string) =>
+    call<string>('history.amendMessage', { repo, hash, message }),
   dropCommit: (repo: string, hash: string) => call<null>('history.drop', { repo, hash }),
   moveCommit: (repo: string, hash: string, down: boolean) =>
     call<null>('history.move', { repo, hash, down }),

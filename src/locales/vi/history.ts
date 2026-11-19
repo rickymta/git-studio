@@ -24,6 +24,18 @@ export const history: Record<string, string> = {
   'Rewrites {hash} and the commits after it. Avoid this on commits you already pushed.':
     'Viết lại {hash} và các commit sau nó. Tránh làm vậy với commit bạn đã push.',
   'Commit message updated': 'Đã cập nhật nội dung commit',
+
+  // Edit the message of HEAD in the commit panel
+  Summary: 'Tiêu đề',
+  'No description': 'Không có mô tả',
+  'Click to edit the message of this commit': 'Bấm để sửa nội dung commit này',
+  'Update Message': 'Cập nhật nội dung',
+  'Cancel Amend': 'Huỷ sửa',
+  'This commit is already pushed. Updating its message rewrites it; the branch will then need a force push.':
+    'Commit này đã được push. Cập nhật nội dung sẽ viết lại commit; sau đó nhánh cần force push.',
+  'Amend a pushed commit?': 'Sửa commit đã push?',
+  '{hash} is already on {upstream}. Amending rewrites it, so the branch will need a force push afterwards.':
+    '{hash} đã có trên {upstream}. Sửa sẽ viết lại commit, nên sau đó nhánh cần force push.',
   'Drop commit': 'Bỏ commit',
   'Remove {hash} "{subject}" from the branch? This rewrites history: the commits after it are recreated and the changes it made are discarded from the branch.':
     'Gỡ {hash} "{subject}" khỏi nhánh? Thao tác này viết lại lịch sử: các commit sau nó được tạo lại và những thay đổi của nó bị loại khỏi nhánh.',
