@@ -685,6 +685,7 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
             )?)?
         }
         "terminal.read" => serde_json::to_value(terminal::read(arg(a, "id")?)?)?,
+        "terminal.font" => serde_json::to_value(terminal::font())?,
         "terminal.write" => {
             terminal::write(arg(a, "id")?, &arg::<String>(a, "data")?)?;
             return done();

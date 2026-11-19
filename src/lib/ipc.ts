@@ -89,6 +89,7 @@ export const api = {
   // in-app terminal
   terminalOpen: (cwd: string, cols: number, rows: number) =>
     call<T.TerminalOpened>('terminal.open', { cwd, cols, rows }),
+  terminalFont: () => call<T.TerminalFont>('terminal.font'),
   terminalRead: (id: number) => call<T.TerminalOutput>('terminal.read', { id }),
   terminalWrite: (id: number, data: string) => call<null>('terminal.write', { id, data }),
   terminalResize: (id: number, cols: number, rows: number) =>

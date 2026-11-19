@@ -12,6 +12,8 @@ import { useRepo } from '@/stores/repo';
 import { useTerminal } from '@/stores/terminal';
 import { toast } from '@/stores/ui';
 
+import { systemFont } from './font';
+
 interface Live {
   term: Terminal;
   fit: FitAddon;
@@ -141,6 +143,7 @@ const shellName = (shell: string) =>
 const isToggleKey = (e: KeyboardEvent) => (e.ctrlKey || e.metaKey) && e.code === 'Backquote';
 
 export async function openSession(repo: string): Promise<void> {
+  const font = systemFont();
   let opened;
   try {
     opened = await api.terminalOpen(repo, 80, 24);
@@ -151,8 +154,7 @@ export async function openSession(repo: string): Promise<void> {
   const { id } = opened;
   watchTheme();
   const term = new Terminal({
-    fontFamily: "ui-monospace, 'Cascadia Code', Consolas, monospace",
-    fontSize: 13,
+    ...(await font),
     cursorBlink: true,
     scrollback: 5000,
     theme: theme(),

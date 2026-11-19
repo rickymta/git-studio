@@ -367,6 +367,16 @@ export interface TerminalOpened {
   shell: string;
 }
 
+/** Font of the user's own terminal (Windows Terminal); only values they set are present. */
+export interface TerminalFont {
+  face?: string | null;
+  /** Points. */
+  size?: number | null;
+  /** CSS weight. */
+  weight?: number | null;
+  source?: string | null;
+}
+
 export interface TerminalOutput {
   /** base64 bytes */
   data: string;
