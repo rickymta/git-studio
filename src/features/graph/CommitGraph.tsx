@@ -481,43 +481,92 @@ export function CommitGraph() {
     <div className="flex h-full min-h-0 flex-col" style={vars}>
       <ViewBar />
       <div className="flex h-[22px] shrink-0 items-center border-b border-border bg-surface">
-        {show.has('refs') && (
-          <div
-            className={cn(headerCls, 'relative h-full truncate leading-7')}
-            style={{ width: REFS_W }}
-          >
-            {t('Branch / Tag')}
-            <ResizeHandle width={refsW} onResize={setRefsW} onReset={() => setRefsW(W.refs)} />
-          </div>
-        )}
-        {show.has('graph') && (
-          <div
-            className={cn(headerCls, 'relative h-full truncate leading-7')}
-            style={{ width: GRAPH_W }}
-          >
-            {t('Graph')}
-            <ResizeHandle
-              width={graphWidth}
-              onResize={setGraphW}
-              onReset={() => setGraphW(W.graph)}
-            />
-          </div>
-        )}
-        {show.has('message') && (
-          <div
-            ref={msgRef}
-            className={cn(headerCls, 'relative h-full min-w-0 leading-7')}
-            style={{ flex: 'var(--msg-flex)' }}
-          >
-            {t('Commit message')}
-            <ResizeHandle
-              width={msgW >= 120 ? msgW : (msgRef.current?.offsetWidth ?? 400)}
-              onResize={(w) => setMsgW(Math.max(120, w))}
-              onReset={() => setMsgW(W.message)}
-            />
-          </div>
-        )}
-        {msgFixed && <div className="flex-1" />}
+        {/* The column titles clip when the pane is narrow; search and the gear stay put. */}
+        <div className="flex h-full min-w-0 flex-1 items-center overflow-hidden">
+          {show.has('refs') && (
+            <div
+              className={cn(headerCls, 'relative h-full truncate leading-7')}
+              style={{ width: REFS_W }}
+            >
+              {t('Branch / Tag')}
+              <ResizeHandle width={refsW} onResize={setRefsW} onReset={() => setRefsW(W.refs)} />
+            </div>
+          )}
+          {show.has('graph') && (
+            <div
+              className={cn(headerCls, 'relative h-full truncate leading-7')}
+              style={{ width: GRAPH_W }}
+            >
+              {t('Graph')}
+              <ResizeHandle
+                width={graphWidth}
+                onResize={setGraphW}
+                onReset={() => setGraphW(W.graph)}
+              />
+            </div>
+          )}
+          {show.has('message') && (
+            <div
+              ref={msgRef}
+              className={cn(headerCls, 'relative h-full min-w-0 truncate leading-7')}
+              style={{ flex: 'var(--msg-flex)' }}
+            >
+              {t('Commit message')}
+              <ResizeHandle
+                width={msgW >= 120 ? msgW : (msgRef.current?.offsetWidth ?? 400)}
+                onResize={(w) => setMsgW(Math.max(120, w))}
+                onReset={() => setMsgW(W.message)}
+              />
+            </div>
+          )}
+          {msgFixed && <div className="flex-1" />}
+          {!searchOpen && (
+            <>
+              {show.has('author') && (
+                <div
+                  className={cn(headerCls, 'relative h-full leading-7')}
+                  style={{ width: 'var(--author-w)' }}
+                >
+                  <ResizeHandle
+                    side="left"
+                    width={authorW}
+                    onResize={setAuthorW}
+                    onReset={() => setAuthorW(W.author)}
+                  />
+                  {t('Author')}
+                </div>
+              )}
+              {show.has('date') && (
+                <div
+                  className={cn(headerCls, 'relative h-full leading-7')}
+                  style={{ width: 'var(--date-w)' }}
+                >
+                  <ResizeHandle
+                    side="left"
+                    width={dateW}
+                    onResize={setDateW}
+                    onReset={() => setDateW(W.date)}
+                  />
+                  {t('Date / Time')}
+                </div>
+              )}
+              {show.has('sha') && (
+                <div
+                  className={cn(headerCls, 'relative h-full leading-7')}
+                  style={{ width: 'var(--sha-w)' }}
+                >
+                  <ResizeHandle
+                    side="left"
+                    width={shaW}
+                    onResize={setShaW}
+                    onReset={() => setShaW(W.sha)}
+                  />
+                  {t('Sha')}
+                </div>
+              )}
+            </>
+          )}
+        </div>
         {searchOpen ? (
           <div className="flex items-center gap-1 pr-2">
             <div className="relative">
@@ -560,53 +609,9 @@ export function CommitGraph() {
             </IconButton>
           </div>
         ) : (
-          <>
-            {show.has('author') && (
-              <div
-                className={cn(headerCls, 'relative h-full leading-7')}
-                style={{ width: 'var(--author-w)' }}
-              >
-                <ResizeHandle
-                  side="left"
-                  width={authorW}
-                  onResize={setAuthorW}
-                  onReset={() => setAuthorW(W.author)}
-                />
-                {t('Author')}
-              </div>
-            )}
-            {show.has('date') && (
-              <div
-                className={cn(headerCls, 'relative h-full leading-7')}
-                style={{ width: 'var(--date-w)' }}
-              >
-                <ResizeHandle
-                  side="left"
-                  width={dateW}
-                  onResize={setDateW}
-                  onReset={() => setDateW(W.date)}
-                />
-                {t('Date / Time')}
-              </div>
-            )}
-            {show.has('sha') && (
-              <div
-                className={cn(headerCls, 'relative h-full leading-7')}
-                style={{ width: 'var(--sha-w)' }}
-              >
-                <ResizeHandle
-                  side="left"
-                  width={shaW}
-                  onResize={setShaW}
-                  onReset={() => setShaW(W.sha)}
-                />
-                {t('Sha')}
-              </div>
-            )}
-            <IconButton label={t('Search commits (Ctrl+F)')} onClick={() => setSearchOpen(true)}>
-              <Search className="size-3.5" />
-            </IconButton>
-          </>
+          <IconButton label={t('Search commits (Ctrl+F)')} onClick={() => setSearchOpen(true)}>
+            <Search className="size-3.5" />
+          </IconButton>
         )}
         <ColumnSettingsMenu onReset={resetWidths} />
       </div>
