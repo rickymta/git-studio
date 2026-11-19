@@ -151,6 +151,9 @@ pub struct User {
     /// OAuth scopes of the token (classic tokens and OAuth apps; `None` for fine-grained tokens).
     #[serde(default)]
     pub scopes: Option<Vec<String>>,
+    /// Kind and expiry of the token used (never the token itself).
+    #[serde(default, skip_deserializing)]
+    pub token: crate::token::TokenInfo,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -322,6 +325,14 @@ impl Api {
                     .filter(|x| !x.is_empty())
                     .collect()
             });
+        user.token = crate::token::TokenInfo {
+            kind: crate::token::github_kind(&self.token),
+            // Sent for tokens with an expiry date (fine-grained, classic with expiry, app tokens).
+            expires_at: headers
+                .get("github-authentication-token-expiration")
+                .and_then(|h| h.to_str().ok())
+                .and_then(crate::token::parse_github_expiration),
+        };
         Ok(user)
     }
 
