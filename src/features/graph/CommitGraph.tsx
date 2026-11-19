@@ -1,6 +1,6 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronDown, ChevronUp, Search, Settings2, X } from 'lucide-react';
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   ContextMenuWrap,
@@ -20,6 +20,7 @@ import type { Commit, GitRef, Stash } from '@/lib/types';
 import { useGitHub } from '@/stores/github';
 import { useRepo } from '@/stores/repo';
 import * as A from '../actions';
+import { branchRows, rowIndex } from './branchFocus';
 import { onCurrentBranch, tidy } from './menuUtils';
 import { RefBadge, groupRefs } from './RefBadge';
 
@@ -407,6 +408,19 @@ export function CommitGraph() {
   }, [commits, query]);
   const matchSet = useMemo(() => new Set(matches), [matches]);
 
+  // Hovering a branch badge lights that branch's lane and fades the other rows (GitKraken).
+  // Worked out from the in-memory layout, so a hover costs no backend call.
+  const [hoverTip, setHoverTip] = useState<string | null>(null);
+  const index = useMemo(() => rowIndex(commits), [commits]);
+  const lit = useMemo(
+    () => (hoverTip ? branchRows(commits, graph, index, hoverTip) : null),
+    [commits, graph, index, hoverTip],
+  );
+  const onRefHover = useCallback(
+    (hash: string, on: boolean) => setHoverTip((cur) => (on ? hash : cur === hash ? null : cur)),
+    [],
+  );
+
   const count = commits.length + offset + (hasMore ? 1 : 0);
   const virt = useVirtualizer({
     count,
@@ -672,6 +686,7 @@ export function CommitGraph() {
               );
             }
             const c = commits[i]!;
+            const selected = selection?.type === 'commit' && selection.hash === c.hash;
             return (
               <CommitRow
                 key={c.hash}
@@ -681,10 +696,12 @@ export function CommitGraph() {
                 refs={refsByHash.get(c.hash)}
                 graphWidth={graphWidth}
                 cols={cols}
-                selected={selection?.type === 'commit' && selection.hash === c.hash}
+                selected={selected}
                 isHead={c.hash === st?.head}
                 match={matchSet.has(i)}
                 dim={matches.length > 0 && !matchSet.has(i)}
+                faded={!!lit && !lit.has(i) && !selected}
+                onRefHover={onRefHover}
                 onSelect={() => select({ type: 'commit', hash: c.hash })}
               />
             );
@@ -793,6 +810,8 @@ const CommitRow = memo(function CommitRow({
   isHead,
   match,
   dim,
+  faded,
+  onRefHover,
   onSelect,
 }: {
   style: React.CSSProperties;
@@ -805,6 +824,9 @@ const CommitRow = memo(function CommitRow({
   isHead: boolean;
   match: boolean;
   dim: boolean;
+  /** Another branch's badge is hovered: fade this row's band and text. */
+  faded: boolean;
+  onRefHover: (hash: string, on: boolean) => void;
   onSelect: () => void;
 }) {
   const groups = refs ? groupRefs(refs) : [];
@@ -816,6 +838,8 @@ const CommitRow = memo(function CommitRow({
   // mounted until the menu closes, or the menu vanishes as soon as it opens.
   const [menuOpen, setMenuOpen] = useState(false);
   const stack = hovered || menuOpen;
+  const onBadgeHover = (on: boolean) => onRefHover(c.hash, on);
+  const fade = faded && 'opacity-35';
   return (
     <ContextMenuWrap items={() => (c.stash ? stashMenu(c.stash) : commitMenu(c))}>
       <div
@@ -834,13 +858,13 @@ const CommitRow = memo(function CommitRow({
         {/* Branch-coloured band from the node to the end of the row. Only the focused (selected)
             row lights up; every other row, including the checked-out one, stays faint. */}
         <div
-          className="absolute inset-y-0.5 right-0"
+          className={cn('absolute inset-y-0.5 right-0', fade)}
           style={{
             ...band(bandLeft(cx), tint(color, selected ? '--lane-row-selected' : '--lane-row')),
             boxShadow: selected ? `inset 0 0 0 1px ${color}` : undefined,
           }}
         />
-        {!selected && (
+        {!selected && !faded && (
           <div
             className="absolute inset-y-0.5 right-0 opacity-0 group-hover:opacity-100"
             style={band(bandLeft(cx), tint(color, '--lane-row-hover'))}
@@ -857,7 +881,13 @@ const CommitRow = memo(function CommitRow({
             // Just the badges, continuing downward from the row's own badge; no box around them.
             <div className="absolute top-[3px] right-1 left-2 z-10 flex flex-col items-start gap-[3px]">
               {groups.map((g) => (
-                <RefBadge key={g.key} group={g} color={color} onMenuOpenChange={setMenuOpen} />
+                <RefBadge
+                  key={g.key}
+                  group={g}
+                  color={color}
+                  onMenuOpenChange={setMenuOpen}
+                  onHoverChange={onBadgeHover}
+                />
               ))}
             </div>
           )}
@@ -875,7 +905,7 @@ const CommitRow = memo(function CommitRow({
             )}
           >
             {groups.slice(0, 1).map((g) => (
-              <RefBadge key={g.key} group={g} color={color} />
+              <RefBadge key={g.key} group={g} color={color} onHoverChange={onBadgeHover} />
             ))}
             {groups.length > 1 && (
               <span
@@ -909,7 +939,7 @@ const CommitRow = memo(function CommitRow({
         />
 
         <div
-          className={cn('relative min-w-0 truncate px-2', match && 'text-accent')}
+          className={cn('relative min-w-0 truncate px-2', match && 'text-accent', fade)}
           style={{ flex: 'var(--msg-flex)' }}
           title={c.body ? `${c.subject}\n\n${c.body}` : c.subject}
         >
@@ -926,7 +956,7 @@ const CommitRow = memo(function CommitRow({
         <div style={{ flex: 'var(--msg-spacer)' }} />
         {cols.has('author') && (
           <div
-            className="relative shrink-0 truncate px-2 text-muted-foreground"
+            className={cn('relative shrink-0 truncate px-2 text-muted-foreground', fade)}
             style={{ width: 'var(--author-w)' }}
           >
             {c.authorName}
@@ -934,7 +964,7 @@ const CommitRow = memo(function CommitRow({
         )}
         {cols.has('date') && (
           <div
-            className="relative shrink-0 truncate px-2 text-muted-foreground"
+            className={cn('relative shrink-0 truncate px-2 text-muted-foreground', fade)}
             style={{ width: 'var(--date-w)' }}
             title={fullDate(c.authorTime)}
           >
@@ -943,7 +973,10 @@ const CommitRow = memo(function CommitRow({
         )}
         {cols.has('sha') && (
           <div
-            className="relative shrink-0 truncate px-2 font-mono text-xs text-muted-foreground"
+            className={cn(
+              'relative shrink-0 truncate px-2 font-mono text-xs text-muted-foreground',
+              fade,
+            )}
             style={{ width: 'var(--sha-w)' }}
           >
             {short(c.hash)}
