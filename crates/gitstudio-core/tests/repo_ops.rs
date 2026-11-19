@@ -595,6 +595,34 @@ async fn amend_message_keeps_staged_and_unstaged_changes_out() {
 }
 
 #[tokio::test]
+async fn remotes_containing_sees_a_push_without_upstream() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("repo");
+    let remote = tmp.path().join("remote.git");
+    let r = new_repo(&dir).await;
+    std::fs::write(dir.join("a.txt"), "one\n").unwrap();
+    r.stage(&[]).await.unwrap();
+    r.commit("first", false).await.unwrap();
+    let pushed = r.log(1, 0).await.unwrap()[0].hash.clone();
+
+    sh(tmp.path(), &["init", "--bare", "-q", "remote.git"]);
+    sh(&dir, &["remote", "add", "origin", remote.to_str().unwrap()]);
+    // Pushed without `-u`: the branch has no upstream, yet the commit is published.
+    sh(&dir, &["push", "-q", "origin", "main"]);
+    assert_eq!(
+        r.remotes_containing(&pushed).await.unwrap(),
+        ["origin/main"]
+    );
+
+    std::fs::write(dir.join("b.txt"), "two\n").unwrap();
+    r.stage(&[]).await.unwrap();
+    r.commit("second", false).await.unwrap();
+    let local = r.log(1, 0).await.unwrap()[0].hash.clone();
+    assert!(r.remotes_containing(&local).await.unwrap().is_empty());
+    assert!(r.remotes_containing("--evil").await.is_err());
+}
+
+#[tokio::test]
 async fn amend_message_of_a_merge_commit() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().join("repo");

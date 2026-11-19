@@ -21,13 +21,13 @@ export function branchRows(
   tip: string,
 ): Set<number> {
   const out = new Set<number>();
-  let i = index.get(tip);
+  let i: number | undefined = index.get(tip);
   if (i === undefined || !rows[i]) return out;
   const lane = rows[i]!.lane;
   while (i !== undefined) {
     out.add(i);
-    const parent = commits[i]!.parents[0];
-    const next = parent === undefined ? undefined : index.get(parent);
+    const parent: string | undefined = commits[i]!.parents[0];
+    const next: number | undefined = parent === undefined ? undefined : index.get(parent);
     if (next === undefined || next <= i || rows[next]?.lane !== lane) break;
     i = next;
   }

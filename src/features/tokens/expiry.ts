@@ -98,15 +98,22 @@ export function tokenSettingsUrl(rec: Pick<TokenRecord, 'provider' | 'host' | 'k
 /** The record to keep after asking the host about the account. */
 export function recordFrom(
   provider: TokenProvider,
-  user: { login: string; token?: { kind: TokenKind; expiresAt: string | null } },
+  user: {
+    login: string;
+    token?: { kind: TokenKind; expiresAt: string | null; expiryUnknown?: boolean };
+  },
   now: number,
+  /** The record we had; its date is kept when the host could not say this time. */
+  prev?: TokenRecord,
 ): TokenRecord {
+  const kind = user.token?.kind ?? 'unknown';
+  const keepPrev = !!user.token?.expiryUnknown && prev?.login === user.login && prev.kind === kind;
   return {
     provider,
     host: provider === 'github' ? 'github.com' : 'gitlab.com',
     login: user.login,
-    kind: user.token?.kind ?? 'unknown',
-    expiresAt: user.token?.expiresAt ?? null,
+    kind,
+    expiresAt: keepPrev ? prev.expiresAt : (user.token?.expiresAt ?? null),
     checkedAt: now,
   };
 }

@@ -910,8 +910,18 @@ export function headIsPushed(): boolean {
 export async function amendHeadMessage(hash: string, message: string): Promise<boolean> {
   const next = message.trim();
   if (!next) return false;
-  if (headIsPushed()) {
-    const upstream = repo().info?.status.upstream ?? '';
+  // The upstream check covers the usual case; a branch pushed without tracking (or HEAD already
+  // on another remote branch) only shows up by asking which remote branches contain it.
+  let upstream = headIsPushed() ? (repo().info?.status.upstream ?? '') : '';
+  const path = repo().path;
+  if (!upstream && path) {
+    try {
+      upstream = (await api.remotesContaining(path, hash))[0] ?? '';
+    } catch {
+      /* can't tell: fall through without the warning, as before */
+    }
+  }
+  if (upstream) {
     const ok = await confirm(
       t('Amend a pushed commit?'),
       t(

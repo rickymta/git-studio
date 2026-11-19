@@ -74,6 +74,8 @@ export const api = {
   /** Replace the message of HEAD (which must still be `hash`); returns the new HEAD. */
   amendMessage: (repo: string, hash: string, message: string) =>
     call<string>('history.amendMessage', { repo, hash, message }),
+  remotesContaining: (repo: string, hash: string) =>
+    call<string[]>('history.remotesContaining', { repo, hash }),
   dropCommit: (repo: string, hash: string) => call<null>('history.drop', { repo, hash }),
   moveCommit: (repo: string, hash: string, down: boolean) =>
     call<null>('history.move', { repo, hash, down }),

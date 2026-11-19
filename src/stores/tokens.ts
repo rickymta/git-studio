@@ -79,14 +79,17 @@ export const useTokens = create<TokenStore>((set, get) => {
     account: async (provider, user) => {
       const now = Date.now();
       if (user) {
-        put(provider, recordFrom(provider, user, now));
+        put(provider, recordFrom(provider, user, now, get().records[provider]));
       } else {
+        const before = get().records[provider];
         const stored = await api.storedTokens().then(
           (r) => r[provider],
           () => null,
         );
         if (stored === null) return; // backend unavailable: keep what we know
-        put(provider, keepAfterRejected(get().records[provider], stored, now));
+        // A sign-in finished while we waited: its fresh record wins over this stale rejection.
+        if (get().records[provider] !== before) return;
+        put(provider, keepAfterRejected(before, stored, now));
       }
       const rec = get().records[provider];
       if (rec) warnOnce(rec, now);
