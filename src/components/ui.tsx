@@ -184,13 +184,21 @@ export function ContextMenuWrap({
   );
 }
 
-export function Dropdown({ items, children }: { items: MenuItem[]; children: ReactNode }) {
+export function Dropdown({
+  items,
+  children,
+  align = 'start',
+}: {
+  items: MenuItem[];
+  children: ReactNode;
+  align?: 'start' | 'end';
+}) {
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>{children}</DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content
-          align="start"
+          align={align}
           sideOffset={4}
           className={contentCls}
           onCloseAutoFocus={(e) => e.preventDefault()}
