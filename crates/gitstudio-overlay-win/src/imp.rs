@@ -130,8 +130,51 @@ pub fn key(path: &str) -> String {
     s.to_lowercase()
 }
 
+/// Troubleshooting: with `overlay-debug.flag` next to the DLL, every call is appended to
+/// `overlay-debug.log` there.
+fn debug_log(msg: &str) {
+    // Next to the DLL: always writable by the user, whatever process loaded it.
+    let Some(dir) = module_path().and_then(|p| p.parent().map(|d| d.to_path_buf())) else {
+        return;
+    };
+    if !dir.join("overlay-debug.flag").exists() {
+        return;
+    }
+    use std::io::Write;
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("overlay-debug.log"))
+    {
+        let _ = writeln!(f, "{} pid={} {msg}", now_ms(), std::process::id());
+    }
+}
+
 /// Level of the repository at `path`, if GitStudio knows it.
 pub fn level_of(path: &str) -> Option<Level> {
+    let level = level_of_inner(path);
+    debug_log(&format!("lookup {path:?} key={:?} -> {level:?}", key(path)));
+    level
+}
+
+/// Read the status file, retrying briefly: GitStudio replaces it every few seconds.
+fn read_status(file: &std::path::Path) -> Option<StatusFile> {
+    for attempt in 0..4 {
+        if attempt > 0 {
+            std::thread::sleep(Duration::from_millis(15));
+        }
+        match std::fs::read(file) {
+            Ok(b) => match serde_json::from_slice(&b) {
+                Ok(f) => return Some(f),
+                Err(e) => debug_log(&format!("parse error {e}")),
+            },
+            Err(e) => debug_log(&format!("read error {} {e}", file.display())),
+        }
+    }
+    None
+}
+
+fn level_of_inner(path: &str) -> Option<Level> {
     let mut guard = CACHE.lock().unwrap_or_else(|p| p.into_inner());
     let fresh = guard
         .as_ref()
@@ -145,27 +188,27 @@ pub fn level_of(path: &str) -> Option<Level> {
                 c.checked = Instant::now();
             }
         } else {
-            let parsed: Option<StatusFile> = std::fs::read(&file)
-                .ok()
-                .and_then(|b| serde_json::from_slice(&b).ok());
-            *guard = Some(match parsed {
-                Some(f) => Cache {
-                    checked: Instant::now(),
-                    modified,
-                    updated_ms: f.updated,
-                    repos: f
-                        .repos
-                        .into_iter()
-                        .filter_map(|(k, v)| Level::parse(&v).map(|l| (k, l)))
-                        .collect(),
-                },
-                None => Cache {
-                    checked: Instant::now(),
-                    modified,
-                    updated_ms: 0,
-                    repos: HashMap::new(),
-                },
-            });
+            match read_status(&file) {
+                Some(f) => {
+                    *guard = Some(Cache {
+                        checked: Instant::now(),
+                        modified,
+                        updated_ms: f.updated,
+                        repos: f
+                            .repos
+                            .into_iter()
+                            .filter_map(|(k, v)| Level::parse(&v).map(|l| (k, l)))
+                            .collect(),
+                    });
+                }
+                // Keep what was known and try again on the next lookup: caching "nothing"
+                // would make Explorer remember "no badge" for every folder it asks about now.
+                None => {
+                    if let Some(c) = guard.as_mut() {
+                        c.checked = Instant::now() - RECHECK;
+                    }
+                }
+            }
         }
     }
     let c = guard.as_ref()?;
@@ -195,17 +238,19 @@ struct Overlay {
 
 impl IShellIconOverlayIdentifier_Impl for Overlay_Impl {
     fn IsMemberOf(&self, pwszpath: &PCWSTR, dwattrib: u32) -> windows::core::Result<()> {
-        const FILE_ATTRIBUTE_DIRECTORY: u32 = 0x10;
-        // Only folders get a badge; files are answered without touching anything.
-        if dwattrib != 0 && dwattrib & FILE_ATTRIBUTE_DIRECTORY == 0 {
-            return Err(S_FALSE.into());
-        }
+        // `dwattrib` holds SFGAO_* flags (IShellFolder::GetAttributesOf), and Explorer often passes
+        // only some of them, so it is not a reliable folder test: files simply never match a
+        // repository path in the map, which is a cheap lookup.
         if pwszpath.is_null() {
             return Err(S_FALSE.into());
         }
         // SAFETY: Explorer passes a valid NUL-terminated wide string.
         let path =
             unsafe { pwszpath.to_string() }.map_err(|_| windows::core::Error::from(S_FALSE))?;
+        debug_log(&format!(
+            "IsMemberOf {:?} attrib={dwattrib:#x} {path:?}",
+            self.level
+        ));
         if level_of(&path) == Some(self.level) {
             Ok(())
         } else {
@@ -242,6 +287,11 @@ impl IShellIconOverlayIdentifier_Impl for Overlay_Impl {
             *pindex = 0;
             *pdwflags = ISIOI_ICONFILE | ISIOI_ICONINDEX;
         }
+        debug_log(&format!(
+            "GetOverlayInfo {:?} -> {}",
+            self.level,
+            String::from_utf16_lossy(&icon[..icon.len() - 1])
+        ));
         Ok(())
     }
 
@@ -309,6 +359,7 @@ pub unsafe extern "system" fn DllMain(
 ) -> BOOL {
     if reason == DLL_PROCESS_ATTACH {
         MODULE.store(hinst.0 as isize, Ordering::Relaxed);
+        debug_log("loaded");
     }
     BOOL(1)
 }
@@ -331,7 +382,12 @@ pub unsafe extern "system" fn DllGetClassObject(
             return CLASS_E_CLASSNOTAVAILABLE;
         };
         let factory: IClassFactory = Factory { handler: i }.into();
-        factory.query(riid, ppv)
+        let hr = factory.query(riid, ppv);
+        debug_log(&format!(
+            "DllGetClassObject {:?} riid={:?} -> {hr:?}",
+            HANDLERS[i].level, *riid
+        ));
+        hr
     }
 }
 
@@ -499,8 +555,9 @@ mod tests {
         assert_eq!(member(&changed, r"H:\Work\Dirty", DIR), S_OK);
         assert_eq!(member(&danger, r"H:\Work\Bad", DIR), S_OK);
         assert_eq!(member(&clean, r"H:\Work\Other", DIR), S_FALSE);
-        // Files never get a badge.
-        assert_eq!(member(&clean, r"H:\Work\Clean", 0x20), S_FALSE);
+        // Anything inside a repository (files, sub-folders) gets no badge.
+        assert_eq!(member(&clean, r"H:\Work\Clean\src", 0x2000_0000), S_FALSE);
+        assert_eq!(member(&clean, r"H:\Work\Clean\README.md", 0), S_FALSE);
 
         // The icon path and flags.
         let mut buf = [0u16; 512];

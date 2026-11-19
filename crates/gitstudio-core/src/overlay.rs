@@ -233,7 +233,8 @@ fn write_to(file: &Path, repos: BTreeMap<String, Level>) -> Result<()> {
         pid: std::process::id(),
         repos,
     };
-    let tmp = file.with_extension("json.tmp");
+    // One temp file per process: the app and the sign-in agent may write at the same moment.
+    let tmp = file.with_extension(format!("{}.tmp", std::process::id()));
     fs::write(&tmp, serde_json::to_vec(&data)?)?;
     fs::rename(&tmp, file)?;
     Ok(())
@@ -257,8 +258,15 @@ fn other_writer_active() -> bool {
 /// Refresh forever (the login agent, `GitStudio --overlay-serve`). Stops when the overlays are
 /// turned off in Preferences.
 pub fn serve() {
+    let mut off = 0;
     loop {
-        if !settings::load().overlay_icons {
+        // settings.json may be read while it is being rewritten (falls back to defaults): only
+        // stop after the preference reads "off" several times in a row.
+        match enabled_in_settings() {
+            Some(false) => off += 1,
+            _ => off = 0,
+        }
+        if off >= 3 {
             return;
         }
         if !other_writer_active() {
@@ -266,6 +274,17 @@ pub fn serve() {
         }
         std::thread::sleep(INTERVAL);
     }
+}
+
+/// `overlayIcons` from settings.json; `None` when the file cannot be read or parsed right now.
+fn enabled_in_settings() -> Option<bool> {
+    let bytes = fs::read(settings::dir().join("settings.json")).ok()?;
+    let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    Some(
+        v.get("overlayIcons")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+    )
 }
 
 /// One round for the app's own background thread, used while GitStudio is open.

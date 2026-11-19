@@ -6,6 +6,7 @@ import { Button, ResizeHandle, Spinner, usePersistentWidth } from '@/components/
 import * as A from '@/features/actions';
 import { DiffView } from '@/features/diff/DiffView';
 import { GitHubSignIn } from '@/features/github/GitHubSignIn';
+import { ensureOverlaySetup } from '@/features/preferences/overlaySetup';
 import { RemotePanel } from '@/features/remotes/RemotePanel';
 import { CommitGraph } from '@/features/graph/CommitGraph';
 import { CommitPanel } from '@/features/panel/CommitPanel';
@@ -86,6 +87,8 @@ export function App() {
     (async () => {
       const repo = useRepo.getState();
       await Promise.all([repo.loadSettings(), useWorkspaces.getState().load()]);
+      // Folder status icons are on by default: finish their setup on first launch.
+      void ensureOverlaySetup();
       void useGitHub.getState().check();
       // Also reads both tokens' expiry for the status bar (and warns when it is close).
       ensureGitLabChecked();

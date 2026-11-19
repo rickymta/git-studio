@@ -29,9 +29,10 @@ def badge(size: int, color, glyph: str, corner: bool) -> Image.Image:
     s = size * scale
     img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    r = s * (0.27 if corner else 0.48)
+    # Overlays: about 3/4 of the icon wide, so the badge reads at 16 px (Details view) too.
+    r = s * (0.36 if corner else 0.48)
     cx, cy = (r + s * 0.02, s - r - s * 0.02) if corner else (s / 2, s / 2)
-    border = max(scale, s * 0.035)
+    border = max(scale, s * 0.03)
     d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=(255, 255, 255, 255))
     d.ellipse((cx - r + border, cy - r + border, cx + r - border, cy + r - border), fill=color + (255,))
     w = max(scale * 1.6, r * 0.24)

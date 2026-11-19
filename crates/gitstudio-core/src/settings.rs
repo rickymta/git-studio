@@ -68,7 +68,8 @@ impl Default for Settings {
             history_warn_mb: 5,
             history_max_mb: 20,
             history_load_limit: 2000,
-            overlay_icons: false,
+            // On by default; the app finishes the setup on first launch (see overlaySetup.ts).
+            overlay_icons: true,
         }
     }
 }
@@ -126,7 +127,10 @@ pub fn save(s: &Settings) -> Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    std::fs::write(path, serde_json::to_vec_pretty(s)?)?;
+    // Write then rename, so a reader (the overlay refresher) never sees a half-written file.
+    let tmp = path.with_extension(format!("{}.tmp", std::process::id()));
+    std::fs::write(&tmp, serde_json::to_vec_pretty(s)?)?;
+    std::fs::rename(&tmp, &path)?;
     Ok(())
 }
 

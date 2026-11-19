@@ -290,4 +290,8 @@ export const prefs: Record<string, string> = {
     'Đang đăng ký bản GitStudio cũ; hãy tắt rồi bật lại icon để cập nhật.',
   'The Finder extension is not registered yet: open GitStudio from /Applications once, then turn the icons on.':
     'Extension của Finder chưa được đăng ký: hãy mở GitStudio từ /Applications một lần rồi bật icon.',
+  'Git status icons in Explorer': 'Icon trạng thái git trong Explorer',
+  'GitStudio can show a badge on every repository folder in Explorer: green when clean, orange with changes, red when it needs attention. Windows asks for administrator permission once to install it. You can change this later in Preferences → File manager icons.':
+    'GitStudio có thể hiện badge trên mọi thư mục repository trong Explorer: xanh khi sạch, cam khi có thay đổi, đỏ khi cần chú ý. Windows sẽ hỏi quyền quản trị viên một lần để cài. Bạn có thể đổi lại trong Tuỳ chọn → Icon trên trình quản lý file.',
+  'Turn on': 'Bật',
 };
