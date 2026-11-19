@@ -21,6 +21,7 @@ import { CloneDialog } from '@/features/welcome/CloneDialog';
 import { Welcome } from '@/features/welcome/Welcome';
 import { NewWorkspaceDialog } from '@/features/workspace/WorkspaceDialogs';
 import { WorkspaceView } from '@/features/workspace/WorkspaceView';
+import { logActivity } from '@/stores/activity';
 import { useGitHub } from '@/stores/github';
 import { useRepo } from '@/stores/repo';
 import { useUi } from '@/stores/ui';
@@ -75,6 +76,19 @@ export function App() {
       const repo = useRepo.getState();
       await Promise.all([repo.loadSettings(), useWorkspaces.getState().load()]);
       void useGitHub.getState().check();
+      // Long paths on by default (Windows), unless the user already chose either way.
+      void api
+        .ensureGitDefaults()
+        .then((keys) => {
+          for (const key of keys)
+            logActivity({
+              repo: null,
+              label: 'Turned on {key} in your global Git config',
+              vars: { key: `${key}=true` },
+              status: 'info',
+            });
+        })
+        .catch(() => {});
       const active = useWorkspaces.getState().data.active;
       if (active) {
         await repo.setScope(active);

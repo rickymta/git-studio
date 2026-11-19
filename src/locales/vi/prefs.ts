@@ -51,9 +51,11 @@ export const prefs: Record<string, string> = {
   'Git Executable': 'Tệp thực thi Git',
   'GitStudio runs the git found on PATH, so hooks, credential helpers and LFS behave as in your terminal.':
     'GitStudio chạy git tìm thấy trong PATH, nên hook, credential helper và LFS hoạt động giống như trong terminal của bạn.',
-  Longpaths: 'Đường dẫn dài',
-  'Sets core.longpaths in your global Git config. Windows only supports paths under 260 characters without it.':
-    'Đặt core.longpaths trong cấu hình Git toàn cục. Nếu không bật, Windows chỉ hỗ trợ đường dẫn dưới 260 ký tự.',
+  'Long Paths': 'Đường dẫn dài',
+  'core.longpaths in your global Git config. Without it Git for Windows fails on paths over 260 characters (“Filename too long”, e.g. deep node_modules) when checking out, removing worktrees or cleaning. On by default: GitStudio turns it on at start unless you turned it off here.':
+    'core.longpaths trong cấu hình Git toàn cục. Nếu tắt, Git for Windows báo lỗi với đường dẫn dài hơn 260 ký tự (“Filename too long”, ví dụ node_modules lồng sâu) khi checkout, gỡ worktree hoặc dọn dẹp. Mặc định bật: GitStudio tự bật khi khởi động, trừ khi bạn đã tắt ở đây.',
+  'Not set yet (turned on at the next start)': 'Chưa đặt (sẽ tự bật ở lần khởi động tới)',
+  'Turned on {key} in your global Git config': 'Đã bật {key} trong cấu hình Git toàn cục',
   'Line Endings': 'Ký tự xuống dòng',
   'core.autocrlf in your global Git config.': 'core.autocrlf trong cấu hình Git toàn cục.',
   'Not set (Git default)': 'Chưa đặt (mặc định của Git)',

@@ -57,6 +57,7 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
     Ok(match cmd {
         // ---- app ----
         "app.gitVersion" => json!(git::version().await?),
+        "app.ensureGitDefaults" => json!(git::ensure_git_defaults().await?),
         // ---- SSH ----
         "ssh.info" => serde_json::to_value(ssh::info().await?)?,
         "ssh.save" => {

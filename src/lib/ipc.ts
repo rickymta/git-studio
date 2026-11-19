@@ -46,6 +46,8 @@ export const isTauri = inTauri;
 /** Typed wrappers. Every repo-scoped call takes the repo path first. */
 export const api = {
   gitVersion: () => call<string>('app.gitVersion'),
+  /** Apply GitStudio's global git defaults (core.longpaths on Windows); returns changed keys. */
+  ensureGitDefaults: () => call<string[]>('app.ensureGitDefaults'),
   openTerminal: (path: string) => call<null>('app.openTerminal', { path }),
   openEditor: (path: string) => call<null>('app.openEditor', { path }),
   // files, blame, history

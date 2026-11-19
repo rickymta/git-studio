@@ -520,3 +520,28 @@ async fn choose_a_credential_account_for_one_repository() {
             .is_err()
     );
 }
+
+#[tokio::test]
+async fn longpaths_default_respects_an_existing_choice() {
+    let tmp = tempfile::tempdir().unwrap();
+    let file = tmp.path().join("gitconfig");
+    let get = || {
+        let out = std::process::Command::new("git")
+            .args(["config", "--file"])
+            .arg(&file)
+            .args(["--get", "core.longpaths"])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    };
+
+    // Unset: turned on, once.
+    assert!(git::ensure_longpaths(Some(&file)).await.unwrap());
+    assert_eq!(get(), "true");
+    assert!(!git::ensure_longpaths(Some(&file)).await.unwrap());
+
+    // Turned off by the user: left off.
+    std::fs::write(&file, "[core]\n\tlongpaths = false\n").unwrap();
+    assert!(!git::ensure_longpaths(Some(&file)).await.unwrap());
+    assert_eq!(get(), "false");
+}

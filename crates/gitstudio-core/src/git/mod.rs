@@ -1205,6 +1205,49 @@ pub const GLOBAL_KEYS: &[&str] = &[
     "credential.useHttpPath",
 ];
 
+/// GitStudio's defaults for the global git config, applied at startup: `core.longpaths=true` on
+/// Windows (paths over 260 characters, e.g. deep `node_modules`, otherwise fail with "Filename
+/// too long"). A value the user already set, `false` included, is left alone. Returns the keys
+/// that were changed.
+pub async fn ensure_git_defaults() -> Result<Vec<String>> {
+    if !cfg!(windows) {
+        return Ok(Vec::new());
+    }
+    let mut changed = Vec::new();
+    if ensure_longpaths(None).await? {
+        changed.push("core.longpaths".to_string());
+    }
+    Ok(changed)
+}
+
+/// Set `core.longpaths=true` in the global config (or in `file`) when it is not set at all.
+pub async fn ensure_longpaths(file: Option<&Path>) -> Result<bool> {
+    let file_arg = file.map(|f| f.to_string_lossy().into_owned());
+    let scope: Vec<&str> = match &file_arg {
+        Some(f) => vec!["--file", f.as_str()],
+        None => vec!["--global"],
+    };
+    let mut get = vec!["config"];
+    get.extend(&scope);
+    get.extend(["--get", "core.longpaths"]);
+    let out = run::raw(None, &get, Opts::default()).await?;
+    match out.code {
+        // Set either way: the user's choice.
+        0 => return Ok(false),
+        // 1: not set.
+        1 => {}
+        _ => return Err(run::failure(&out)),
+    }
+    let mut set = vec!["config"];
+    set.extend(&scope);
+    set.extend(["core.longpaths", "true"]);
+    let out = run::raw(None, &set, Opts::default()).await?;
+    if out.code != 0 {
+        return Err(run::failure(&out));
+    }
+    Ok(true)
+}
+
 /// Read `key` from the global config, or from `repo`'s own config (`--local`) when given.
 pub async fn config_get(repo: Option<&Repo>, key: &str) -> Result<String> {
     if !GLOBAL_KEYS.contains(&key) {

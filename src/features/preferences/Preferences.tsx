@@ -584,15 +584,24 @@ function General() {
         <div className="pt-1.5 font-mono text-[13px]">{version || '…'}</div>
       </Row>
       <Row
-        label={t('Longpaths')}
+        label={t('Long Paths')}
         help={t(
-          'Sets core.longpaths in your global Git config. Windows only supports paths under 260 characters without it.',
+          'core.longpaths in your global Git config. Without it Git for Windows fails on paths over 260 characters (“Filename too long”, e.g. deep node_modules) when checking out, removing worktrees or cleaning. On by default: GitStudio turns it on at start unless you turned it off here.',
         )}
       >
         {git && (
           <Toggle
-            checked={git['core.longpaths'] === 'true'}
-            onChange={(v) => setGit('core.longpaths', v ? 'true' : null)}
+            // Unset counts as on: GitStudio sets it at the next start.
+            checked={git['core.longpaths'] !== 'false'}
+            // Off is written as `false`, so the default does not turn it back on.
+            onChange={(v) => setGit('core.longpaths', v ? 'true' : 'false')}
+            label={
+              git['core.longpaths'] === 'true'
+                ? 'core.longpaths = true'
+                : git['core.longpaths'] === 'false'
+                  ? 'core.longpaths = false'
+                  : t('Not set yet (turned on at the next start)')
+            }
           />
         )}
       </Row>
