@@ -1,10 +1,10 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ChevronDown, ChevronUp, Search, Settings2, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Search, X } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
+  Avatar,
   ContextMenuWrap,
-  Dropdown,
   IconButton,
   Input,
   ResizeHandle,
@@ -20,45 +20,38 @@ import type { Commit, GitRef, Stash } from '@/lib/types';
 import { useGitHub } from '@/stores/github';
 import { useRepo } from '@/stores/repo';
 import * as A from '../actions';
+import { ColumnSettingsMenu } from './ColumnSettingsMenu';
+import {
+  COMPACT_WIDTHS,
+  DEFAULT_WIDTHS,
+  focusTips,
+  relatedRows,
+  useColumnSettings,
+  type Column,
+} from './columnSettings';
 import { branchRows, rowIndex } from './branchFocus';
 import { onCurrentBranch, tidy } from './menuUtils';
 import { RefBadge, groupRefs } from './RefBadge';
 
 // Proportions measured from GitKraken: 28px rows, 22px lanes, ~20px avatar nodes.
 const ROW = 28;
-const LANE = 26;
-const PAD = 12;
-// Nodes 20% larger than GitKraken's (user preference).
-const NODE_R = 12;
 const MAX_GRAPH = 220;
+
+/** Lane geometry: `node` is the commit circle's radius. */
+interface Geom {
+  lane: number;
+  pad: number;
+  node: number;
+  compact: boolean;
+}
+// Nodes 20% larger than GitKraken's (user preference).
+const NORMAL: Geom = { lane: 26, pad: 12, node: 12, compact: false };
+/** "Compact Graph Column": narrow lanes and small dots instead of avatars. */
+const COMPACT: Geom = { lane: 14, pad: 8, node: 6, compact: true };
 /** Column widths live in CSS variables on the graph container, so resizing never re-renders rows. */
 const REFS_W = 'var(--refs-w)';
 const GRAPH_W = 'var(--graph-w)';
 const bandLeft = (cx: number) => `calc(${REFS_W} + ${cx}px)`;
-
-type Column = 'author' | 'date' | 'sha';
-
-function useColumns(): [Set<Column>, (c: Column) => void] {
-  const [cols, setCols] = useState<Set<Column>>(() => {
-    try {
-      return new Set(JSON.parse(localStorage.getItem('gitstudio.columns') ?? '[]'));
-    } catch {
-      return new Set();
-    }
-  });
-  const toggle = (c: Column) => {
-    const next = new Set(cols);
-    if (next.has(c)) next.delete(c);
-    else next.add(c);
-    setCols(next);
-    try {
-      localStorage.setItem('gitstudio.columns', JSON.stringify([...next]));
-    } catch {
-      /* ignore */
-    }
-  };
-  return [cols, toggle];
-}
 
 /** One entry for a single branch, a submenu of branch names for several. */
 function perBranch(label: string, refs: GitRef[], onSelect: (r: GitRef) => void): MenuItem[] {
@@ -326,7 +319,7 @@ function ViewBar() {
   );
 }
 
-const laneX = (lane: number) => PAD + lane * LANE + LANE / 2;
+const laneX = (lane: number, g: Geom) => g.pad + lane * g.lane + g.lane / 2;
 /** `amount` is a `--lane-row*` token so each theme sets how strong the band is. */
 const tint = (color: string, amount: string) =>
   `color-mix(in oklch, ${color} var(${amount}), transparent)`;
@@ -349,7 +342,9 @@ export function CommitGraph() {
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [matchIdx, setMatchIdx] = useState(0);
-  const [cols, toggleCol] = useColumns();
+  const { visible, compactGraph, smartBranches } = useColumnSettings();
+  const show = useMemo(() => new Set<Column>(visible), [visible]);
+  const geom = compactGraph ? COMPACT : NORMAL;
 
   const st = info?.status;
   const dirty = !!st && st.staged.length + st.unstaged.length + st.conflicted.length > 0;
@@ -367,27 +362,41 @@ export function CommitGraph() {
 
   const autoGraph = useMemo(() => {
     const lanes = graph.reduce((m, r) => Math.max(m, r.width), 1);
-    return Math.max(90, Math.min(MAX_GRAPH, PAD * 2 + lanes * LANE));
-  }, [graph]);
-  const [refsW, setRefsW] = usePersistentWidth('refs', 134, 70, 520);
+    return Math.max(geom.compact ? 48 : 90, Math.min(MAX_GRAPH, geom.pad * 2 + lanes * geom.lane));
+  }, [graph, geom]);
+  const W = DEFAULT_WIDTHS;
+  const [refsW, setRefsW] = usePersistentWidth('refs', W.refs, 70, 520);
   // 0 = automatic (fits the lanes up to MAX_GRAPH).
-  const [graphUser, setGraphW] = usePersistentWidth('graph', 0, 0, 900);
+  const [graphUser, setGraphW] = usePersistentWidth('graph', W.graph, 0, 900);
   const graphWidth = graphUser >= 40 ? graphUser : autoGraph;
-  const [authorW, setAuthorW] = usePersistentWidth('author', 160, 70, 420);
-  const [dateW, setDateW] = usePersistentWidth('date', 112, 60, 300);
-  const [shaW, setShaW] = usePersistentWidth('sha', 80, 60, 200);
+  const [authorW, setAuthorW] = usePersistentWidth('author', W.author, 70, 420);
+  const [dateW, setDateW] = usePersistentWidth('date', W.date, 60, 300);
+  const [shaW, setShaW] = usePersistentWidth('sha', W.sha, 60, 200);
   // 0 = fill the remaining space.
-  const [msgW, setMsgW] = usePersistentWidth('message', 0, 0, 3000);
+  const [msgW, setMsgW] = usePersistentWidth('message', W.message, 0, 3000);
   const msgRef = useRef<HTMLDivElement>(null);
+  /** The message column fills the row unless it has a set width or is hidden. */
+  const msgFixed = msgW >= 120 || !show.has('message');
+  // Hidden columns take no room: their width variables drop to 0.
   const vars = {
-    '--refs-w': `${refsW}px`,
-    '--graph-w': `${graphWidth}px`,
+    '--refs-w': show.has('refs') ? `${refsW}px` : '0px',
+    '--graph-w': show.has('graph') ? `${graphWidth}px` : '0px',
     '--author-w': `${authorW}px`,
     '--date-w': `${dateW}px`,
     '--sha-w': `${shaW}px`,
-    '--msg-flex': msgW >= 120 ? `0 0 ${msgW}px` : '1 1 0%',
-    '--msg-spacer': msgW >= 120 ? '1 1 0%' : '0 0 0px',
+    '--msg-flex': !show.has('message') ? '0 0 0px' : msgW >= 120 ? `0 0 ${msgW}px` : '1 1 0%',
+    '--msg-spacer': msgFixed ? '1 1 0%' : '0 0 0px',
   } as React.CSSProperties;
+  /** Column widths back to a layout preset (from the Column settings menu). */
+  const resetWidths = (compact: boolean) => {
+    const w = compact ? COMPACT_WIDTHS : DEFAULT_WIDTHS;
+    setRefsW(w.refs);
+    setGraphW(w.graph);
+    setMsgW(w.message);
+    setAuthorW(w.author);
+    setDateW(w.date);
+    setShaW(w.sha);
+  };
 
   const headIdx = useMemo(() => commits.findIndex((c) => c.hash === st?.head), [commits, st?.head]);
 
@@ -407,6 +416,12 @@ export function CommitGraph() {
     return out;
   }, [commits, query]);
   const matchSet = useMemo(() => new Set(matches), [matches]);
+  // Smart Branch Visibility: rows off the checked-out branch, its upstream and the base branches.
+  const related = useMemo(
+    () =>
+      smartBranches ? relatedRows(commits, focusTips(refs?.refs ?? [], st?.head ?? null)) : null,
+    [smartBranches, commits, refs, st?.head],
+  );
 
   // Hovering a branch badge lights that branch's lane and fades the other rows (GitKraken).
   // Worked out from the in-memory layout, so a hover costs no backend call.
@@ -473,18 +488,6 @@ export function CommitGraph() {
     else void select({ type: 'commit', hash: commits[next - offset]!.hash });
   };
 
-  const colMenu: MenuItem[] = (
-    [
-      ['author', 'Author'],
-      ['date', 'Date / time'],
-      ['sha', 'Commit sha'],
-    ] as const
-  ).map(([c, label]) => ({
-    label: t(label),
-    icon: cols.has(c) ? '✓' : undefined,
-    onSelect: () => toggleCol(c),
-  }));
-
   const headerCls =
     'shrink-0 px-2 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase';
 
@@ -492,27 +495,92 @@ export function CommitGraph() {
     <div className="flex h-full min-h-0 flex-col" style={vars}>
       <ViewBar />
       <div className="flex h-[22px] shrink-0 items-center border-b border-border bg-surface">
-        <div className={cn(headerCls, 'relative h-full leading-7')} style={{ width: REFS_W }}>
-          {t('Branch / Tag')}
-          <ResizeHandle width={refsW} onResize={setRefsW} onReset={() => setRefsW(134)} />
+        {/* The column titles clip when the pane is narrow; search and the gear stay put. */}
+        <div className="flex h-full min-w-0 flex-1 items-center overflow-hidden">
+          {show.has('refs') && (
+            <div
+              className={cn(headerCls, 'relative h-full truncate leading-7')}
+              style={{ width: REFS_W }}
+            >
+              {t('Branch / Tag')}
+              <ResizeHandle width={refsW} onResize={setRefsW} onReset={() => setRefsW(W.refs)} />
+            </div>
+          )}
+          {show.has('graph') && (
+            <div
+              className={cn(headerCls, 'relative h-full truncate leading-7')}
+              style={{ width: GRAPH_W }}
+            >
+              {t('Graph')}
+              <ResizeHandle
+                width={graphWidth}
+                onResize={setGraphW}
+                onReset={() => setGraphW(W.graph)}
+              />
+            </div>
+          )}
+          {show.has('message') && (
+            <div
+              ref={msgRef}
+              className={cn(headerCls, 'relative h-full min-w-0 truncate leading-7')}
+              style={{ flex: 'var(--msg-flex)' }}
+            >
+              {t('Commit message')}
+              <ResizeHandle
+                width={msgW >= 120 ? msgW : (msgRef.current?.offsetWidth ?? 400)}
+                onResize={(w) => setMsgW(Math.max(120, w))}
+                onReset={() => setMsgW(W.message)}
+              />
+            </div>
+          )}
+          {msgFixed && <div className="flex-1" />}
+          {!searchOpen && (
+            <>
+              {show.has('author') && (
+                <div
+                  className={cn(headerCls, 'relative h-full leading-7')}
+                  style={{ width: 'var(--author-w)' }}
+                >
+                  <ResizeHandle
+                    side="left"
+                    width={authorW}
+                    onResize={setAuthorW}
+                    onReset={() => setAuthorW(W.author)}
+                  />
+                  {t('Author')}
+                </div>
+              )}
+              {show.has('date') && (
+                <div
+                  className={cn(headerCls, 'relative h-full leading-7')}
+                  style={{ width: 'var(--date-w)' }}
+                >
+                  <ResizeHandle
+                    side="left"
+                    width={dateW}
+                    onResize={setDateW}
+                    onReset={() => setDateW(W.date)}
+                  />
+                  {t('Date / Time')}
+                </div>
+              )}
+              {show.has('sha') && (
+                <div
+                  className={cn(headerCls, 'relative h-full leading-7')}
+                  style={{ width: 'var(--sha-w)' }}
+                >
+                  <ResizeHandle
+                    side="left"
+                    width={shaW}
+                    onResize={setShaW}
+                    onReset={() => setShaW(W.sha)}
+                  />
+                  {t('Sha')}
+                </div>
+              )}
+            </>
+          )}
         </div>
-        <div className={cn(headerCls, 'relative h-full leading-7')} style={{ width: GRAPH_W }}>
-          {t('Graph')}
-          <ResizeHandle width={graphWidth} onResize={setGraphW} onReset={() => setGraphW(0)} />
-        </div>
-        <div
-          ref={msgRef}
-          className={cn(headerCls, 'relative h-full min-w-0 leading-7')}
-          style={{ flex: 'var(--msg-flex)' }}
-        >
-          {t('Commit message')}
-          <ResizeHandle
-            width={msgW >= 120 ? msgW : (msgRef.current?.offsetWidth ?? 400)}
-            onResize={(w) => setMsgW(Math.max(120, w))}
-            onReset={() => setMsgW(0)}
-          />
-        </div>
-        {msgW >= 120 && <div className="flex-1" />}
         {searchOpen ? (
           <div className="flex items-center gap-1 pr-2">
             <div className="relative">
@@ -555,64 +623,11 @@ export function CommitGraph() {
             </IconButton>
           </div>
         ) : (
-          <>
-            {cols.has('author') && (
-              <div
-                className={cn(headerCls, 'relative h-full leading-7')}
-                style={{ width: 'var(--author-w)' }}
-              >
-                <ResizeHandle
-                  side="left"
-                  width={authorW}
-                  onResize={setAuthorW}
-                  onReset={() => setAuthorW(160)}
-                />
-                {t('Author')}
-              </div>
-            )}
-            {cols.has('date') && (
-              <div
-                className={cn(headerCls, 'relative h-full leading-7')}
-                style={{ width: 'var(--date-w)' }}
-              >
-                <ResizeHandle
-                  side="left"
-                  width={dateW}
-                  onResize={setDateW}
-                  onReset={() => setDateW(112)}
-                />
-                {t('Date')}
-              </div>
-            )}
-            {cols.has('sha') && (
-              <div
-                className={cn(headerCls, 'relative h-full leading-7')}
-                style={{ width: 'var(--sha-w)' }}
-              >
-                <ResizeHandle
-                  side="left"
-                  width={shaW}
-                  onResize={setShaW}
-                  onReset={() => setShaW(80)}
-                />
-                {t('Sha')}
-              </div>
-            )}
-            <IconButton label={t('Search commits (Ctrl+F)')} onClick={() => setSearchOpen(true)}>
-              <Search className="size-3.5" />
-            </IconButton>
-            <Dropdown items={colMenu}>
-              <button
-                type="button"
-                aria-label={t('Graph columns')}
-                title={t('Graph columns')}
-                className="mr-2 ml-0.5 flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-surface-hover"
-              >
-                <Settings2 className="size-3.5" />
-              </button>
-            </Dropdown>
-          </>
+          <IconButton label={t('Search commits (Ctrl+F)')} onClick={() => setSearchOpen(true)}>
+            <Search className="size-3.5" />
+          </IconButton>
         )}
+        <ColumnSettingsMenu onReset={resetWidths} />
       </div>
 
       <div
@@ -628,28 +643,30 @@ export function CommitGraph() {
         )}
         <div style={{ height: virt.getTotalSize(), position: 'relative' }}>
           {/* One drag strip over the graph/message separators of every row. */}
-          <div
-            role="separator"
-            aria-orientation="vertical"
-            title={t('Drag to resize, double-click to reset')}
-            onDoubleClick={() => setGraphW(0)}
-            onPointerDown={(e) => {
-              e.preventDefault();
-              const x0 = e.clientX;
-              const w0 = graphWidth;
-              const move = (ev: PointerEvent) => setGraphW(Math.max(40, w0 + ev.clientX - x0));
-              const up = () => {
-                window.removeEventListener('pointermove', move);
-                window.removeEventListener('pointerup', up);
-                document.body.style.cursor = '';
-              };
-              document.body.style.cursor = 'col-resize';
-              window.addEventListener('pointermove', move);
-              window.addEventListener('pointerup', up);
-            }}
-            className="absolute top-0 z-20 h-full w-2 cursor-col-resize hover:bg-accent/40"
-            style={{ left: `calc(${REFS_W} + ${GRAPH_W} - 3px)` }}
-          />
+          {show.has('graph') && (
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              title={t('Drag to resize, double-click to reset')}
+              onDoubleClick={() => setGraphW(0)}
+              onPointerDown={(e) => {
+                e.preventDefault();
+                const x0 = e.clientX;
+                const w0 = graphWidth;
+                const move = (ev: PointerEvent) => setGraphW(Math.max(40, w0 + ev.clientX - x0));
+                const up = () => {
+                  window.removeEventListener('pointermove', move);
+                  window.removeEventListener('pointerup', up);
+                  document.body.style.cursor = '';
+                };
+                document.body.style.cursor = 'col-resize';
+                window.addEventListener('pointermove', move);
+                window.addEventListener('pointerup', up);
+              }}
+              className="absolute top-0 z-20 h-full w-2 cursor-col-resize hover:bg-accent/40"
+              style={{ left: `calc(${REFS_W} + ${GRAPH_W} - 3px)` }}
+            />
+          )}
           {virt.getVirtualItems().map((v) => {
             const style = {
               position: 'absolute' as const,
@@ -665,6 +682,8 @@ export function CommitGraph() {
                   key="wip"
                   style={style}
                   graphWidth={graphWidth}
+                  geom={geom}
+                  show={show}
                   headRow={headIdx >= 0 ? graph[headIdx]! : null}
                   selected={selection?.type === 'wip'}
                   onSelect={() => select({ type: 'wip' })}
@@ -695,11 +714,12 @@ export function CommitGraph() {
                 row={graph[i]!}
                 refs={refsByHash.get(c.hash)}
                 graphWidth={graphWidth}
-                cols={cols}
+                geom={geom}
+                show={show}
                 selected={selected}
                 isHead={c.hash === st?.head}
                 match={matchSet.has(i)}
-                dim={matches.length > 0 && !matchSet.has(i)}
+                dim={(matches.length > 0 && !matchSet.has(i)) || (!!related && !related.has(i))}
                 faded={!!lit && !lit.has(i) && !selected}
                 onRefHover={onRefHover}
                 onSelect={() => select({ type: 'commit', hash: c.hash })}
@@ -715,12 +735,16 @@ export function CommitGraph() {
 function WipRow({
   style,
   graphWidth,
+  geom,
+  show,
   headRow,
   selected,
   onSelect,
 }: {
   style: React.CSSProperties;
   graphWidth: number;
+  geom: Geom;
+  show: Set<Column>;
   headRow: GraphRow | null;
   selected: boolean;
   onSelect: () => void;
@@ -738,41 +762,47 @@ function WipRow({
     else counts.mod++;
   }
   const color = headRow ? laneColor(headRow.color) : 'var(--muted-foreground)';
-  const cx = laneX(headRow?.lane ?? 0);
+  const cx = laneX(headRow?.lane ?? 0, geom);
+  const r = geom.node;
   return (
     <div style={style} onClick={onSelect} className="relative flex cursor-default items-center">
       <div
         className="absolute inset-y-0.5 right-0"
         style={{
-          ...band(bandLeft(cx), tint(color, selected ? '--lane-row-selected' : '--lane-row')),
+          ...band(
+            bandLeft(show.has('graph') ? cx : 0),
+            tint(color, selected ? '--lane-row-selected' : '--lane-row'),
+          ),
           boxShadow: selected ? `inset 0 0 0 1px ${color}` : undefined,
         }}
       />
       <div style={{ width: REFS_W }} className="shrink-0" />
-      <svg width={graphWidth} height={ROW} className="relative shrink-0">
-        {headRow && (
-          <line
-            x1={cx}
-            x2={cx}
-            y1={ROW / 2 + NODE_R}
-            y2={ROW}
+      {show.has('graph') && (
+        <svg width={graphWidth} height={ROW} className="relative shrink-0">
+          {headRow && (
+            <line
+              x1={cx}
+              x2={cx}
+              y1={ROW / 2 + r}
+              y2={ROW}
+              stroke={color}
+              strokeWidth={2}
+              strokeDasharray="3 3"
+            />
+          )}
+          <circle
+            cx={cx}
+            cy={ROW / 2}
+            r={r - 1}
+            fill="var(--background)"
             stroke={color}
             strokeWidth={2}
-            strokeDasharray="3 3"
+            strokeDasharray={geom.compact ? '2 2' : '4 3'}
           />
-        )}
-        <circle
-          cx={cx}
-          cy={ROW / 2}
-          r={NODE_R - 1}
-          fill="var(--background)"
-          stroke={color}
-          strokeWidth={2}
-          strokeDasharray="4 3"
-        />
-      </svg>
+        </svg>
+      )}
       <div className="relative my-px w-[3px] shrink-0 self-stretch" style={{ background: color }} />
-      <div className="relative flex min-w-0 flex-1 items-center gap-3 px-2">
+      <div className="relative flex min-w-0 flex-1 items-center gap-3 overflow-hidden px-2">
         <span className="rounded border border-border/70 bg-background/60 px-2 py-0.5 text-muted-foreground italic">
           {'// WIP'}
         </span>
@@ -805,7 +835,8 @@ const CommitRow = memo(function CommitRow({
   row,
   refs,
   graphWidth,
-  cols,
+  geom,
+  show,
   selected,
   isHead,
   match,
@@ -819,7 +850,8 @@ const CommitRow = memo(function CommitRow({
   row: GraphRow;
   refs: GitRef[] | undefined;
   graphWidth: number;
-  cols: Set<Column>;
+  geom: Geom;
+  show: Set<Column>;
   selected: boolean;
   isHead: boolean;
   match: boolean;
@@ -831,7 +863,9 @@ const CommitRow = memo(function CommitRow({
 }) {
   const groups = refs ? groupRefs(refs) : [];
   const color = laneColor(row.color);
-  const cx = laneX(row.lane);
+  const cx = laneX(row.lane, geom);
+  // With the graph hidden, the branch band starts right after the Branch / Tag column.
+  const bandX = show.has('graph') ? cx : 0;
   // Several refs on one commit: hovering the badge column unfolds all of them in a stack.
   const [hovered, setHovered] = useState(false);
   // A badge's context menu takes the pointer away; keep the stack (and so the menu's anchor)
@@ -860,77 +894,82 @@ const CommitRow = memo(function CommitRow({
         <div
           className={cn('absolute inset-y-0.5 right-0', fade)}
           style={{
-            ...band(bandLeft(cx), tint(color, selected ? '--lane-row-selected' : '--lane-row')),
+            ...band(bandLeft(bandX), tint(color, selected ? '--lane-row-selected' : '--lane-row')),
             boxShadow: selected ? `inset 0 0 0 1px ${color}` : undefined,
           }}
         />
         {!selected && !faded && (
           <div
             className="absolute inset-y-0.5 right-0 opacity-0 group-hover:opacity-100"
-            style={band(bandLeft(cx), tint(color, '--lane-row-hover'))}
+            style={band(bandLeft(bandX), tint(color, '--lane-row-hover'))}
           />
         )}
 
-        <div
-          className="relative flex h-full shrink-0 items-center"
-          style={{ width: REFS_W }}
-          onMouseEnter={() => groups.length > 1 && setHovered(true)}
-          onMouseLeave={() => setHovered(false)}
-        >
-          {stack && (
-            // Just the badges, continuing downward from the row's own badge; no box around them.
-            <div className="absolute top-[3px] right-1 left-2 z-10 flex flex-col items-start gap-[3px]">
-              {groups.map((g) => (
-                <RefBadge
-                  key={g.key}
-                  group={g}
-                  color={color}
-                  onMenuOpenChange={setMenuOpen}
-                  onHoverChange={onBadgeHover}
-                />
-              ))}
-            </div>
-          )}
-          {groups.length > 0 && (
-            <div
-              className="absolute top-1/2 right-0 h-0.5 -translate-y-1/2"
-              style={{ left: 8, background: color }}
-            />
-          )}
+        {show.has('refs') && (
           <div
-            className={cn(
-              'relative flex min-w-0 items-center gap-1 pl-2',
-              // The unfolded list takes the badge's place while hovering.
-              stack && 'invisible',
-            )}
+            className="relative flex h-full shrink-0 items-center"
+            style={{ width: REFS_W }}
+            onMouseEnter={() => groups.length > 1 && setHovered(true)}
+            onMouseLeave={() => setHovered(false)}
           >
-            {groups.slice(0, 1).map((g) => (
-              <RefBadge key={g.key} group={g} color={color} onHoverChange={onBadgeHover} />
-            ))}
-            {groups.length > 1 && (
-              <span
-                className="shrink-0 rounded px-1 text-xs font-medium"
-                style={{ background: `color-mix(in oklch, ${color} 35%, var(--surface))` }}
-                title={groups
-                  .slice(1)
-                  .map((g) => g.label)
-                  .join('\n')}
-              >
-                +{groups.length - 1}
-              </span>
+            {stack && (
+              // Just the badges, continuing downward from the row's own badge; no box around them.
+              <div className="absolute top-[3px] right-1 left-2 z-10 flex flex-col items-start gap-[3px]">
+                {groups.map((g) => (
+                  <RefBadge
+                    key={g.key}
+                    group={g}
+                    color={color}
+                    onMenuOpenChange={setMenuOpen}
+                    onHoverChange={onBadgeHover}
+                  />
+                ))}
+              </div>
             )}
+            {groups.length > 0 && (
+              <div
+                className="absolute top-1/2 right-0 h-0.5 -translate-y-1/2"
+                style={{ left: 8, background: color }}
+              />
+            )}
+            <div
+              className={cn(
+                'relative flex min-w-0 items-center gap-1 pl-2',
+                // The unfolded list takes the badge's place while hovering.
+                stack && 'invisible',
+              )}
+            >
+              {groups.slice(0, 1).map((g) => (
+                <RefBadge key={g.key} group={g} color={color} onHoverChange={onBadgeHover} />
+              ))}
+              {groups.length > 1 && (
+                <span
+                  className="shrink-0 rounded px-1 text-xs font-medium"
+                  style={{ background: `color-mix(in oklch, ${color} 35%, var(--surface))` }}
+                  title={groups
+                    .slice(1)
+                    .map((g) => g.label)
+                    .join('\n')}
+                >
+                  +{groups.length - 1}
+                </span>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
-        <GraphCell
-          row={row}
-          width={graphWidth}
-          merge={c.parents.length > 1}
-          stash={!!c.stash}
-          head={isHead}
-          name={c.authorName}
-          withRefs={groups.length > 0}
-        />
+        {show.has('graph') && (
+          <GraphCell
+            row={row}
+            width={graphWidth}
+            geom={geom}
+            merge={c.parents.length > 1}
+            stash={!!c.stash}
+            head={isHead}
+            name={c.authorName}
+            withRefs={groups.length > 0 && show.has('refs')}
+          />
+        )}
         {/* Separator between the graph and the message; drag it (any row) to resize. */}
         {/* Same colour as the branch line; 1px gaps keep rows apart. */}
         <div
@@ -938,31 +977,38 @@ const CommitRow = memo(function CommitRow({
           style={{ background: color }}
         />
 
-        <div
-          className={cn('relative min-w-0 truncate px-2', match && 'text-accent', fade)}
-          style={{ flex: 'var(--msg-flex)' }}
-          title={c.body ? `${c.subject}\n\n${c.body}` : c.subject}
-        >
-          <span
-            className={cn(
-              selected && 'font-semibold text-foreground',
-              c.stash && !selected && 'text-foreground/85 italic',
-            )}
-          >
-            {c.subject}
-          </span>
-          {c.body && <span className="ml-2 text-muted-foreground">{c.body}</span>}
-        </div>
-        <div style={{ flex: 'var(--msg-spacer)' }} />
-        {cols.has('author') && (
+        {show.has('message') && (
           <div
-            className={cn('relative shrink-0 truncate px-2 text-muted-foreground', fade)}
-            style={{ width: 'var(--author-w)' }}
+            className={cn('relative min-w-0 truncate px-2', match && 'text-accent', fade)}
+            style={{ flex: 'var(--msg-flex)' }}
+            title={c.body ? `${c.subject}\n\n${c.body}` : c.subject}
           >
-            {c.authorName}
+            <span
+              className={cn(
+                selected && 'font-semibold text-foreground',
+                c.stash && !selected && 'text-foreground/85 italic',
+              )}
+            >
+              {c.subject}
+            </span>
+            {c.body && <span className="ml-2 text-muted-foreground">{c.body}</span>}
           </div>
         )}
-        {cols.has('date') && (
+        <div style={{ flex: 'var(--msg-spacer)' }} />
+        {show.has('author') && (
+          <div
+            className={cn(
+              'relative flex shrink-0 items-center gap-1.5 overflow-hidden px-2 text-muted-foreground',
+              fade,
+            )}
+            style={{ width: 'var(--author-w)' }}
+            title={`${c.authorName} <${c.authorEmail}>`}
+          >
+            <Avatar name={c.authorName} size={16} />
+            <span className="min-w-0 truncate">{c.authorName}</span>
+          </div>
+        )}
+        {show.has('date') && (
           <div
             className={cn('relative shrink-0 truncate px-2 text-muted-foreground', fade)}
             style={{ width: 'var(--date-w)' }}
@@ -971,7 +1017,7 @@ const CommitRow = memo(function CommitRow({
             {relativeTime(c.authorTime)}
           </div>
         )}
-        {cols.has('sha') && (
+        {show.has('sha') && (
           <div
             className={cn(
               'relative shrink-0 truncate px-2 font-mono text-xs text-muted-foreground',
@@ -989,9 +1035,9 @@ const CommitRow = memo(function CommitRow({
 });
 
 /** Lines run straight down their lane and turn with a rounded corner. */
-function segmentPath(s: Segment): string {
-  const x1 = laneX(s.fromLane);
-  const x2 = laneX(s.toLane);
+function segmentPath(s: Segment, g: Geom): string {
+  const x1 = laneX(s.fromLane, g);
+  const x2 = laneX(s.toLane, g);
   const y = (a: 0 | 1 | 2) => (a * ROW) / 2;
   const y1 = y(s.fromY);
   const y2 = y(s.toY);
@@ -1009,6 +1055,7 @@ function segmentPath(s: Segment): string {
 function GraphCell({
   row,
   width,
+  geom,
   merge,
   stash,
   head,
@@ -1017,14 +1064,16 @@ function GraphCell({
 }: {
   row: GraphRow;
   width: number;
+  geom: Geom;
   merge: boolean;
   stash: boolean;
   head: boolean;
   name: string;
   withRefs: boolean;
 }) {
-  const cx = laneX(row.lane);
+  const cx = laneX(row.lane, geom);
   const cy = ROW / 2;
+  const R = geom.node;
   const color = laneColor(row.color);
   return (
     <svg width={width} height={ROW} className="relative shrink-0 overflow-hidden">
@@ -1032,14 +1081,26 @@ function GraphCell({
       {row.segments.map((s, i) => (
         <path
           key={i}
-          d={segmentPath(s)}
+          d={segmentPath(s, geom)}
           fill="none"
           stroke={laneColor(s.color)}
           strokeWidth={2}
           strokeDasharray={s.dashed ? '2 3' : undefined}
         />
       ))}
-      {stash ? (
+      {stash && geom.compact ? (
+        <rect
+          x={cx - R}
+          y={cy - R}
+          width={R * 2}
+          height={R * 2}
+          rx={2}
+          fill="var(--background)"
+          stroke={color}
+          strokeWidth={1.5}
+          strokeDasharray="2 1.5"
+        />
+      ) : stash ? (
         // Like GitKraken: a dotted box with a stash (archive) glyph.
         <g>
           <rect
@@ -1062,15 +1123,34 @@ function GraphCell({
           />
         </g>
       ) : merge ? (
-        <circle cx={cx} cy={cy} r={6} fill={color} stroke="var(--background)" strokeWidth={1.5} />
+        <circle
+          cx={cx}
+          cy={cy}
+          r={geom.compact ? 4 : 6}
+          fill={color}
+          stroke="var(--background)"
+          strokeWidth={1.5}
+        />
+      ) : geom.compact ? (
+        // Compact: a small dot in the author's colour, ringed in the lane colour.
+        <circle
+          cx={cx}
+          cy={cy}
+          r={R}
+          fill={`oklch(0.42 0.09 ${hue(name)})`}
+          stroke={head ? 'white' : color}
+          strokeWidth={2}
+        >
+          <title>{name}</title>
+        </circle>
       ) : (
         <g>
           <title>{name}</title>
-          <circle cx={cx} cy={cy} r={NODE_R} fill={color} />
+          <circle cx={cx} cy={cy} r={R} fill={color} />
           <circle
             cx={cx}
             cy={cy}
-            r={NODE_R - 1.5}
+            r={R - 1.5}
             fill={`oklch(0.42 0.09 ${hue(name)})`}
             stroke={head ? 'white' : 'none'}
             strokeWidth={head ? 1 : 0}
