@@ -4,12 +4,13 @@ import {
   Check,
   Columns2,
   History,
+  ListCollapse,
   Minus,
   Pencil,
   Pilcrow,
   Plus,
-  Rows3,
   ScanText,
+  TextAlignJustify,
   TextWrap,
   X,
 } from 'lucide-react';
@@ -292,6 +293,7 @@ export function DiffView() {
         {req.source === 'unstaged' && (
           <Button
             size="sm"
+            title={t('Stage File')}
             className="h-6 border-success/60 bg-success-soft text-success"
             onClick={() => run('Stage', (p) => api.stage(p, [req.path]))}
           >
@@ -301,6 +303,7 @@ export function DiffView() {
         {req.source === 'staged' && (
           <Button
             size="sm"
+            title={t('Unstage File')}
             className="h-6 border-danger/60 bg-danger-soft text-danger"
             onClick={() => run('Unstage', (p) => api.unstage(p, [req.path]))}
           >
@@ -316,7 +319,13 @@ export function DiffView() {
       {!conflicted && (
         <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-3">
           {canEdit && !editing && (
-            <Button size="sm" className="h-6" onClick={startEdit} disabled={!file || file.binary}>
+            <Button
+              size="sm"
+              className="h-6"
+              title={t('Edit This File')}
+              onClick={startEdit}
+              disabled={!file || file.binary}
+            >
               <Pencil className="size-3.5" /> {t('Edit This File')}
             </Button>
           )}
@@ -332,6 +341,7 @@ export function DiffView() {
               <div className="flex overflow-hidden rounded-md border border-border">
                 <button
                   type="button"
+                  title={t('File View')}
                   className={segBtn(view === 'file')}
                   onClick={() => setView('file')}
                 >
@@ -339,6 +349,7 @@ export function DiffView() {
                 </button>
                 <button
                   type="button"
+                  title={t('Diff View')}
                   className={segBtn(view === 'diff' && tool !== 'blame')}
                   onClick={() => {
                     setView('diff');
@@ -355,6 +366,7 @@ export function DiffView() {
               <div className="flex overflow-hidden rounded-md border border-border">
                 <button
                   type="button"
+                  title={t('Blame')}
                   className={segBtn(tool === 'blame')}
                   disabled={deletedHere}
                   onClick={() => setTool(tool === 'blame' ? null : 'blame')}
@@ -363,6 +375,7 @@ export function DiffView() {
                 </button>
                 <button
                   type="button"
+                  title={t('History')}
                   className={segBtn(tool === 'history')}
                   onClick={() => setTool(tool === 'history' ? null : 'history')}
                 >
@@ -398,7 +411,7 @@ export function DiffView() {
                     className={segBtn(layout === 'hunk')}
                     onClick={() => setLayout('hunk')}
                   >
-                    <Rows3 className="size-3.5" />
+                    <ListCollapse className="size-3.5" />
                   </button>
                   <button
                     type="button"
@@ -406,7 +419,7 @@ export function DiffView() {
                     className={segBtn(layout === 'inline')}
                     onClick={() => setLayout('inline')}
                   >
-                    <ScanText className="size-3.5" />
+                    <TextAlignJustify className="size-3.5" />
                   </button>
                   <button
                     type="button"
@@ -479,10 +492,16 @@ export function DiffView() {
                 <option value="crlf">CRLF</option>
                 {saveFormat.eol === 'mixed' && <option value="mixed">{t('Mixed (keep)')}</option>}
               </select>
-              <Button size="sm" variant="ghost" onClick={stopEdit}>
+              <Button size="sm" variant="ghost" title={t('Cancel')} onClick={stopEdit}>
                 {t('Cancel')}
               </Button>
-              <Button size="sm" variant="primary" onClick={save} disabled={!dirty} title="Ctrl+S">
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={save}
+                disabled={!dirty}
+                title={`${t('Save')} (Ctrl+S)`}
+              >
                 <Check className="size-3.5" /> {t('Save')}
               </Button>
             </div>

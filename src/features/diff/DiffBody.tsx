@@ -1,23 +1,33 @@
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { Minus, Plus, RotateCcw, Undo2 } from 'lucide-react';
-import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Ref,
+} from 'react';
 
 import { Button, Spinner, cn } from '@/components/ui';
-import {
-  changeBlocks,
-  hunkAnchors,
-  hunkPatch,
-  parseDiff,
-  type DiffLine,
-  type Hunk,
-  type ParsedDiff,
-} from '@/lib/diff';
+import { changeBlocks, hunkPatch, parseDiff, type DiffLine, type ParsedDiff } from '@/lib/diff';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import type { DiffRequest } from '@/lib/types';
 import { useRepo } from '@/stores/repo';
 import { confirm } from '@/stores/ui';
+import {
+  TAB_SIZE,
+  buildRows,
+  focusBlock,
+  scrollTargetRow,
+  type DiffLayout,
+  type DiffRow,
+} from './rows';
 
-export type DiffLayout = 'hunk' | 'inline' | 'split';
+export type { DiffLayout } from './rows';
 /** Which hunk buttons make sense for this diff. */
 export type HunkActions = 'unstaged' | 'staged' | 'commit' | 'none';
 
@@ -26,14 +36,36 @@ export interface DiffNav {
 }
 
 const FULL = 1_000_000;
+const LINE_H = 20;
+const BAR_H = 28;
+/** Gap above every hunk header but the first (hunk layout). */
+const HUNK_GAP = 8;
 
 const bg = (k: DiffLine['kind']) =>
   k === 'add' ? 'bg-diff-add' : k === 'del' ? 'bg-diff-del' : '';
 const sign = (k: DiffLine['kind']) => (k === 'add' ? '+' : k === 'del' ? '−' : '');
+const signCls = (k: DiffLine['kind'] | undefined) =>
+  cn(
+    'w-5 shrink-0 text-center select-none',
+    k === 'add' && 'text-success',
+    k === 'del' && 'text-danger',
+  );
+const GUTTER = 'w-12 shrink-0 pr-2 text-right text-muted-foreground/70 select-none';
+
+const rowHeight = (r: DiffRow) =>
+  r.type === 'header' ? BAR_H + (r.hunk > 0 ? HUNK_GAP : 0) : r.type === 'action' ? BAR_H : LINE_H;
+
+interface Loaded {
+  key: string;
+  normal: ParsedDiff;
+  full: ParsedDiff | null;
+}
 
 /**
- * The diff itself in one of three layouts. Fetches what it needs: the normal diff (hunks for the
- * hunk layout and for staging), and the whole-file diff for the inline and split layouts.
+ * The diff itself in one of three layouts (GitKraken-style): hunks with 3 lines of context, the
+ * whole file inline, or the whole file split old | new. Rows are virtualised; with word wrap they
+ * are measured, and a split row is as tall as its taller side, so both sides stay aligned.
+ * Opening a diff (or switching layout) scrolls the first / current change into view.
  */
 export function DiffBody({
   request,
@@ -59,13 +91,18 @@ export function DiffBody({
 }) {
   const path = useRepo((s) => s.path)!;
   const run = useRepo((s) => s.run);
-  const [normal, setNormal] = useState<ParsedDiff | null>(null);
-  const [full, setFull] = useState<ParsedDiff | null>(null);
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [error, setError] = useState<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
+  const bars = useRef<(HTMLDivElement | null)[]>([null, null]);
   const [current, setCurrent] = useState(-1);
+  const [viewW, setViewW] = useState(0);
 
   const needFull = layout !== 'hunk';
+  // What the fetched data depends on (not refreshKey: a refresh keeps the old diff on screen).
+  const fileKey = JSON.stringify([path, request, ignoreWhitespace, encoding ?? null]);
+  const dataKey = `${fileKey}|${needFull}`;
+
   useEffect(() => {
     let alive = true;
     const base = { ...request, ignoreWhitespace, encoding };
@@ -75,36 +112,87 @@ export function DiffBody({
     ])
       .then(([n, f]) => {
         if (!alive) return;
-        setNormal(parseDiff(n));
-        setFull(f === null ? null : parseDiff(f));
+        setLoaded({ key: dataKey, normal: parseDiff(n), full: f === null ? null : parseDiff(f) });
         setError(null);
       })
       .catch((e) => alive && setError((e as Error).message));
     return () => {
       alive = false;
     };
-  }, [path, request, ignoreWhitespace, encoding, needFull, refreshKey]);
+  }, [path, request, ignoreWhitespace, encoding, needFull, refreshKey, dataKey]);
 
-  const shown = needFull ? full : normal;
-  const blocks = useMemo(() => (shown ? changeBlocks(shown) : []), [shown]);
+  const ready = loaded?.key === dataKey ? loaded : null;
+  const normal = ready?.normal ?? null;
+  const shown = needFull ? (ready?.full ?? null) : normal;
+  const model = useMemo(
+    () => (shown ? buildRows(shown, layout, normal) : null),
+    [shown, layout, normal],
+  );
+  const rows = model?.rows ?? [];
+  const blockCount = useMemo(() => (shown ? changeBlocks(shown).length : 0), [shown]);
+
+  // A new file starts from its first change; a new layout keeps the current one.
+  useEffect(() => setCurrent(-1), [fileKey]);
+  const pendingScroll = useRef<string | null>(null);
+  const scrollKey = `${fileKey}|${layout}`;
+  useLayoutEffect(() => {
+    pendingScroll.current = scrollKey;
+  }, [scrollKey]);
 
   useEffect(() => {
-    onBlocks?.(current, blocks.length);
-  }, [current, blocks.length, onBlocks]);
+    onBlocks?.(current, blockCount);
+  }, [current, blockCount, onBlocks]);
+
+  const getItemKey = useCallback((i: number) => `${layout}:${i}`, [layout]);
+  const virt = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => scroller.current,
+    estimateSize: (i) => (rows[i] ? rowHeight(rows[i]) : LINE_H),
+    getItemKey,
+    overscan: 30,
+  });
+
+  // Row sizes change with the rows and with wrapping: forget the measured ones.
+  useLayoutEffect(() => {
+    virt.measure();
+  }, [virt, model, wrap]);
+
+  // Jump to the first (or current) change once the diff for this file + layout is on screen.
+  useLayoutEffect(() => {
+    if (!model || pendingScroll.current !== scrollKey) return;
+    pendingScroll.current = null;
+    const block = focusBlock(model.blockRows.length, current);
+    if (block >= 0) {
+      if (block !== current) setCurrent(block);
+      virt.scrollToIndex(scrollTargetRow(model.blockRows, block), { align: 'start' });
+    } else virt.scrollToOffset(0);
+  }, [model, scrollKey, current, virt]);
+
+  // Split layout: each side scrolls horizontally on its own (bars under the panes).
+  const resetBars = useCallback(() => {
+    for (const [i, b] of bars.current.entries()) {
+      if (b) b.scrollLeft = 0;
+      scroller.current?.style.setProperty(i === 0 ? '--sx-a' : '--sx-b', '0px');
+    }
+  }, []);
+  useEffect(resetBars, [resetBars, fileKey, layout, wrap]);
+
+  const hasBody = !!model;
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setViewW(el.clientWidth));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [hasBody]);
 
   useImperativeHandle(navRef, () => ({
     go: (dir) => {
-      if (blocks.length === 0) return;
-      const next =
-        current < 0
-          ? dir > 0
-            ? 0
-            : blocks.length - 1
-          : (current + dir + blocks.length) % blocks.length;
+      if (!model || model.blockRows.length === 0) return;
+      const n = model.blockRows.length;
+      const next = current < 0 ? (dir > 0 ? 0 : n - 1) : (current + dir + n) % n;
       setCurrent(next);
-      scroller.current
-        ?.querySelector(`[data-block="${next}"]`)
-        ?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      virt.scrollToIndex(model.blockRows[next]!, { align: 'center' });
     },
   }));
 
@@ -142,7 +230,7 @@ export function DiffBody({
     await run(label, (p) => api.applyPatch(p, patch, cached, reverse, encoding));
   };
 
-  const HunkButtons = ({ i }: { i: number }) =>
+  const hunkButtons = (i: number) =>
     !canAct ? null : (
       <span className="ml-auto flex gap-1.5 font-sans">
         {actions === 'unstaged' && (
@@ -150,6 +238,7 @@ export function DiffBody({
             <Button
               size="sm"
               variant="ghost"
+              title={t('Discard Hunk')}
               className="h-5 border border-danger/60 text-danger"
               onClick={() => act(i, 'discard')}
             >
@@ -157,6 +246,7 @@ export function DiffBody({
             </Button>
             <Button
               size="sm"
+              title={t('Stage Hunk')}
               className="h-5 border-success/60 bg-success-soft text-success"
               onClick={() => act(i, 'stage')}
             >
@@ -167,6 +257,7 @@ export function DiffBody({
         {actions === 'staged' && (
           <Button
             size="sm"
+            title={t('Unstage Hunk')}
             className="h-5 border-danger/60 bg-danger-soft text-danger"
             onClick={() => act(i, 'unstage')}
           >
@@ -177,6 +268,7 @@ export function DiffBody({
           <Button
             size="sm"
             variant="ghost"
+            title={t('Revert Hunk')}
             className="h-5 border border-warning/60 text-warning"
             onClick={() => act(i, 'revert')}
           >
@@ -187,7 +279,7 @@ export function DiffBody({
     );
 
   if (error) return <div className="p-6 text-danger">{error}</div>;
-  if (!shown) {
+  if (!shown || !model) {
     return (
       <div className="flex h-full items-center justify-center">
         <Spinner className="text-muted-foreground" />
@@ -211,204 +303,175 @@ export function DiffBody({
     );
   }
 
-  // Anchor rows (block starts) and hunk-action positions for the whole-file layouts.
-  const blockAt = new Map<string, number>();
-  blocks.forEach((b, i) => blockAt.set(`${b.hunk}:${b.line}`, i));
-  const actionAt = new Map<string, number>();
-  if (needFull && normal && full) {
-    for (const a of hunkAnchors(normal)) {
-      full.hunks.forEach((h, hi) =>
-        h.lines.forEach((l, li) => {
-          if ((a.kind === 'add' ? l.newNo : l.oldNo) === a.no && l.kind === a.kind)
-            actionAt.set(`${hi}:${li}`, a.hunk);
-        }),
-      );
-    }
-  }
-
+  const split = layout === 'split';
   const textCls = wrap ? 'whitespace-pre-wrap break-all' : 'whitespace-pre';
+  const items = virt.getVirtualItems();
+  // Bars (hunk header, hunk buttons) span the visible width even when the rows scroll sideways.
+  const barStyle = viewW ? { width: viewW } : undefined;
 
-  return (
+  // Hunk layout: keep the header of the hunk at the top pinned while scrolling through it.
+  const offset = virt.scrollOffset ?? 0;
+  const top = items.find((it) => it.end > offset);
+  const topRow = top ? rows[top.index] : undefined;
+  const pinned =
+    layout === 'hunk' && topRow && !(topRow.type === 'header' && top!.start >= offset)
+      ? topRow.hunk
+      : null;
+
+  const header = (hi: number) => (
     <div
-      ref={scroller}
-      className="selectable h-full min-h-0 overflow-auto bg-background font-mono text-xs leading-5"
+      style={barStyle}
+      className="sticky left-0 flex h-7 items-center gap-2 border-y border-border bg-surface-muted px-3 text-muted-foreground"
     >
-      <div className={cn(!wrap && 'w-max min-w-full')}>
-        {shown.hunks.map((h, hi) => (
-          <div key={hi} className={cn(layout === 'hunk' && 'mb-2')}>
-            {layout === 'hunk' && (
-              <div className="sticky top-0 z-10 flex h-7 items-center gap-2 border-y border-border bg-surface-muted px-3 text-muted-foreground">
-                <span className="min-w-0 truncate">{h.header}</span>
-                <HunkButtons i={hi} />
-              </div>
-            )}
-            {layout === 'split' ? (
-              <SplitHunk
-                hunk={h}
-                hi={hi}
-                textCls={textCls}
-                blockAt={blockAt}
-                current={current}
-                actionAt={actionAt}
-                renderActions={(i) => <HunkButtons i={i} />}
-              />
-            ) : (
-              <UnifiedHunk
-                hunk={h}
-                hi={hi}
-                textCls={textCls}
-                blockAt={blockAt}
-                current={current}
-                actionAt={layout === 'inline' ? actionAt : undefined}
-                renderActions={(i) => <HunkButtons i={i} />}
-              />
-            )}
-          </div>
-        ))}
-      </div>
+      <span className="min-w-0 truncate">{shown.hunks[hi]?.header}</span>
+      {hunkButtons(hi)}
     </div>
   );
-}
 
-interface HunkProps {
-  hunk: Hunk;
-  hi: number;
-  textCls: string;
-  blockAt: Map<string, number>;
-  current: number;
-  actionAt?: Map<string, number>;
-  renderActions: (hunkIndex: number) => React.ReactNode;
-}
-
-function ActionRow({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="sticky left-0 flex h-7 items-center border-y border-border/60 bg-surface-muted/70 px-3">
-      {children}
+  const line = (l: DiffLine) => (
+    <div className={cn('flex', bg(l.kind))}>
+      <span className={GUTTER}>{l.oldNo ?? ''}</span>
+      <span className={GUTTER}>{l.newNo ?? ''}</span>
+      <span className={signCls(l.kind)}>{sign(l.kind)}</span>
+      <span
+        className={cn(
+          'min-w-0 flex-1 pr-4',
+          textCls,
+          l.kind === 'meta' && 'text-muted-foreground italic',
+        )}
+      >
+        {l.text || ' '}
+      </span>
     </div>
   );
-}
 
-function UnifiedHunk({ hunk, hi, textCls, blockAt, current, actionAt, renderActions }: HunkProps) {
-  return (
-    <>
-      {hunk.lines.map((l, li) => {
-        const block = blockAt.get(`${hi}:${li}`);
-        const action = actionAt?.get(`${hi}:${li}`);
-        return (
-          <div key={li}>
-            {action !== undefined && <ActionRow>{renderActions(action)}</ActionRow>}
-            <div
-              data-block={block}
-              className={cn(
-                'flex',
-                bg(l.kind),
-                block !== undefined &&
-                  block === current &&
-                  'outline-1 -outline-offset-1 outline-accent',
-              )}
-            >
-              <span className="w-12 shrink-0 pr-2 text-right text-muted-foreground/70 select-none">
-                {l.oldNo ?? ''}
-              </span>
-              <span className="w-12 shrink-0 pr-2 text-right text-muted-foreground/70 select-none">
-                {l.newNo ?? ''}
-              </span>
+  const side = (l: DiffLine | null, which: 'a' | 'b') => {
+    const edge = which === 'a' && 'border-r border-border';
+    if (!l) return <div className={cn('diff-hatch min-w-0', edge)} />;
+    return (
+      <div className={cn('flex min-w-0 flex-col', edge)}>
+        <div className={cn('flex', bg(l.kind))}>
+          <span className={GUTTER}>{(which === 'a' ? l.oldNo : l.newNo) ?? ''}</span>
+          <span className={signCls(l.kind)}>{sign(l.kind)}</span>
+          {wrap ? (
+            <span className={cn('min-w-0 flex-1 pr-3', textCls)}>{l.text || ' '}</span>
+          ) : (
+            <span className="min-w-0 flex-1 overflow-hidden pr-3">
               <span
                 className={cn(
-                  'w-5 shrink-0 text-center select-none',
-                  l.kind === 'add' && 'text-success',
-                  l.kind === 'del' && 'text-danger',
-                )}
-              >
-                {sign(l.kind)}
-              </span>
-              <span
-                className={cn(
-                  'min-w-0 flex-1 pr-4',
+                  'block',
                   textCls,
                   l.kind === 'meta' && 'text-muted-foreground italic',
                 )}
+                style={{ transform: `translateX(var(--sx-${which}, 0px))` }}
               >
                 {l.text || ' '}
               </span>
-            </div>
-          </div>
-        );
-      })}
-    </>
-  );
-}
+            </span>
+          )}
+        </div>
+        {/* The other side wrapped to more lines: fill the gap under this one. */}
+        {wrap && <div className="diff-hatch flex-1" />}
+      </div>
+    );
+  };
 
-/** Pair deletions with the additions that follow them; keep the index of each source line. */
-function pairLines(lines: DiffLine[]) {
-  const out: { a: DiffLine | null; b: DiffLine | null; li: number }[] = [];
-  let i = 0;
-  while (i < lines.length) {
-    const l = lines[i]!;
-    if (l.kind === 'ctx' || l.kind === 'meta') {
-      out.push({ a: l, b: l, li: i });
-      i++;
-      continue;
-    }
-    const start = i;
-    const dels: DiffLine[] = [];
-    const adds: DiffLine[] = [];
-    while (i < lines.length && lines[i]!.kind === 'del') dels.push(lines[i++]!);
-    while (i < lines.length && lines[i]!.kind === 'add') adds.push(lines[i++]!);
-    for (let k = 0; k < Math.max(dels.length, adds.length); k++)
-      out.push({ a: dels[k] ?? null, b: adds[k] ?? null, li: k === 0 ? start : -1 });
-  }
-  return out;
-}
-
-function SplitHunk({ hunk, hi, textCls, blockAt, current, actionAt, renderActions }: HunkProps) {
-  const rows = useMemo(() => pairLines(hunk.lines), [hunk]);
-  return (
-    <div className="grid grid-cols-2">
-      {rows.map(({ a, b, li }, r) => {
-        const block = li >= 0 ? blockAt.get(`${hi}:${li}`) : undefined;
-        const action = li >= 0 ? actionAt?.get(`${hi}:${li}`) : undefined;
-        const outline = block !== undefined && block === current;
-        const side = (l: DiffLine | null, which: 'a' | 'b') => (
-          <div
-            // `contents` rows have no box to scroll to; the left cell carries the anchor.
-            data-block={which === 'a' ? block : undefined}
-            className={cn(
-              'flex min-w-0',
-              l ? bg(l.kind) : 'diff-hatch',
-              which === 'a' && 'border-r border-border',
-              outline && 'outline-1 -outline-offset-1 outline-accent',
-            )}
-          >
-            <span className="w-12 shrink-0 pr-2 text-right text-muted-foreground/70 select-none">
-              {l ? ((which === 'a' ? l.oldNo : l.newNo) ?? '') : ''}
-            </span>
-            <span
-              className={cn(
-                'w-5 shrink-0 text-center select-none',
-                l?.kind === 'add' && 'text-success',
-                l?.kind === 'del' && 'text-danger',
-              )}
-            >
-              {l ? sign(l.kind) : ''}
-            </span>
-            <span className={cn('min-w-0 flex-1 overflow-hidden pr-3', textCls)}>
-              {l?.text ?? ''}
-            </span>
-          </div>
-        );
+  const renderRow = (r: DiffRow) => {
+    switch (r.type) {
+      case 'header':
+        return <div className={cn(r.hunk > 0 && 'pt-2')}>{header(r.hunk)}</div>;
+      case 'action':
         return (
-          <div key={r} className="contents">
-            {action !== undefined && (
-              <div className="col-span-2">
-                <ActionRow>{renderActions(action)}</ActionRow>
-              </div>
-            )}
-            {side(a, 'a')}
-            {side(b, 'b')}
+          <div
+            style={barStyle}
+            className="sticky left-0 flex h-7 items-center border-y border-border/60 bg-surface-muted/70 px-3"
+          >
+            {hunkButtons(r.action)}
           </div>
         );
-      })}
+      case 'line':
+        return line(r.line);
+      case 'pair':
+        return (
+          <div className="grid grid-cols-2">
+            {side(r.a, 'a')}
+            {side(r.b, 'b')}
+          </div>
+        );
+    }
+  };
+
+  // Without wrapping, the unified layouts scroll sideways as a whole: as wide as the widest line.
+  const innerWidth = !wrap && !split ? `calc(${model.cols.b}ch + 140px)` : undefined;
+
+  const onWheel = (e: React.WheelEvent) => {
+    if (!split || wrap) return;
+    const dx = e.deltaX || (e.shiftKey ? e.deltaY : 0);
+    if (!dx || !scroller.current) return;
+    const r = scroller.current.getBoundingClientRect();
+    const bar = bars.current[e.clientX < r.left + r.width / 2 ? 0 : 1];
+    if (bar) bar.scrollLeft += dx;
+  };
+
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-background">
+      <div
+        ref={scroller}
+        onWheel={onWheel}
+        style={{ tabSize: TAB_SIZE }}
+        className={cn(
+          'selectable min-h-0 flex-1 font-mono text-xs leading-5',
+          split ? 'overflow-x-hidden overflow-y-auto' : 'overflow-auto',
+        )}
+      >
+        {pinned !== null && <div className="sticky top-0 left-0 z-10 h-0">{header(pinned)}</div>}
+        <div
+          className="relative"
+          style={{ height: virt.getTotalSize(), width: innerWidth, minWidth: '100%' }}
+        >
+          {items.map((it) => {
+            const r = rows[it.index]!;
+            const block = r.type === 'line' || r.type === 'pair' ? r.block : undefined;
+            return (
+              <div
+                key={it.key}
+                data-index={it.index}
+                ref={wrap ? virt.measureElement : undefined}
+                className={cn(
+                  'absolute top-0 left-0 w-full',
+                  block !== undefined &&
+                    block === current &&
+                    'z-[1] outline-1 -outline-offset-1 outline-accent',
+                )}
+                style={{ transform: `translateY(${it.start}px)` }}
+              >
+                {renderRow(r)}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      {split && !wrap && (
+        <div className="flex shrink-0">
+          {(['a', 'b'] as const).map((s, i) => (
+            <div
+              key={s}
+              ref={(el) => {
+                bars.current[i] = el;
+              }}
+              onScroll={(e) =>
+                scroller.current?.style.setProperty(`--sx-${s}`, `${-e.currentTarget.scrollLeft}px`)
+              }
+              className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden"
+            >
+              <div
+                className="h-px font-mono text-xs"
+                style={{ width: `calc(${model.cols[s]}ch + 84px)` }}
+              />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
