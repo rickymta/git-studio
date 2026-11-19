@@ -29,9 +29,27 @@ fn fit_to_screen(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Bring the already-running main window to the front (a second launch lands here
+/// instead of opening another window).
+#[cfg(desktop)]
+fn focus_main(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Must be the first plugin: a second launch hands its arguments to the running
+    // instance and exits before anything else starts.
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        focus_main(app)
+    }));
+    builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
