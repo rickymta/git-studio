@@ -13,7 +13,7 @@ use crate::error::{Error, Result};
 use crate::text::{self, DecodedText, TextFormat};
 
 /// `path` relative to the repository, refusing anything that escapes it.
-fn safe_rel(path: &str) -> Result<PathBuf> {
+pub(super) fn safe_rel(path: &str) -> Result<PathBuf> {
     let p = Path::new(path);
     if path.is_empty()
         || p.is_absolute()

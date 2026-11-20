@@ -53,6 +53,9 @@ export const api = {
   // files, blame, history
   readFile: (repo: string, path: string, rev?: string, encoding?: string) =>
     call<T.DecodedText>('file.read', { repo, path, rev, encoding }),
+  /** Raw bytes of `path` in `rev` (`':'` = the index, none = working tree); `null` if absent. */
+  fileBlob: (repo: string, path: string, rev: string | null, max?: number) =>
+    call<T.FileBlob | null>('file.blob', { repo, path, rev, max }),
   writeFile: (repo: string, path: string, content: string, format: T.TextFormat) =>
     call<null>('file.write', { repo, path, content, format }),
   encodings: () => call<string[]>('file.encodings'),

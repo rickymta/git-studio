@@ -733,3 +733,77 @@ impl Repo {
         self.git(&a).await.map(drop)
     }
 }
+
+// ---- file contents at a revision (image diffs) ------------------------------------------------
+
+/// A file's raw bytes somewhere (a commit, the index, the working tree).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileBlob {
+    pub size: u64,
+    /// Base64 bytes; `None` when larger than the limit asked for.
+    pub data: Option<String>,
+}
+
+impl Repo {
+    /// The bytes of `path` in `rev` (a commit; `":"` = the index; `None` = the working tree),
+    /// after smudge filters (so Git LFS files give their real content). `Ok(None)` when the file
+    /// does not exist there.
+    pub async fn file_blob(
+        &self,
+        path: &str,
+        rev: Option<&str>,
+        max: u64,
+    ) -> Result<Option<FileBlob>> {
+        use base64::Engine;
+        let rel = super::files::safe_rel(path)?;
+        let encode = |bytes: Vec<u8>| FileBlob {
+            size: bytes.len() as u64,
+            data: (bytes.len() as u64 <= max)
+                .then(|| base64::engine::general_purpose::STANDARD.encode(&bytes)),
+        };
+        let Some(rev) = rev else {
+            let full = self.root.join(&rel);
+            let Ok(meta) = std::fs::metadata(&full) else {
+                return Ok(None);
+            };
+            if !meta.is_file() {
+                return Ok(None);
+            }
+            if meta.len() > max {
+                return Ok(Some(FileBlob {
+                    size: meta.len(),
+                    data: None,
+                }));
+            }
+            return Ok(Some(encode(std::fs::read(full)?)));
+        };
+        let rel = rel.to_string_lossy().replace('\\', "/");
+        let spec = if rev == ":" {
+            format!(":{rel}")
+        } else {
+            check_rev(rev)?;
+            format!("{rev}:{rel}")
+        };
+        let size = run::raw(
+            Some(&self.root),
+            &["cat-file", "-s", &spec],
+            Opts::default(),
+        )
+        .await?;
+        if size.code != 0 {
+            return Ok(None);
+        }
+        let size: u64 = size.text().trim().parse().unwrap_or(0);
+        if size > max {
+            return Ok(Some(FileBlob { size, data: None }));
+        }
+        let out = run::ok(
+            &self.root,
+            &["cat-file", "--filters", &spec],
+            Opts::default(),
+        )
+        .await?;
+        Ok(Some(encode(out.stdout)))
+    }
+}

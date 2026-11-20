@@ -445,6 +445,20 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
                 .await?;
             return done();
         }
+        "file.blob" => {
+            let rev: Option<String> = opt(a, "rev")?;
+            let max: Option<u64> = opt(a, "max")?;
+            serde_json::to_value(
+                repo(a)
+                    .await?
+                    .file_blob(
+                        &arg::<String>(a, "path")?,
+                        rev.as_deref(),
+                        max.unwrap_or(32 << 20),
+                    )
+                    .await?,
+            )?
+        }
         "bisect.state" => serde_json::to_value(repo(a).await?.bisect_state().await?)?,
         "bisect.start" => {
             let bad: Option<String> = opt(a, "bad")?;

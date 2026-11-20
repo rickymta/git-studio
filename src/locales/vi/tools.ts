@@ -123,6 +123,19 @@ export const tools: Record<string, string> = {
   'Bisecting: testing {hash}. About {n} revision(s) left (~{steps} step(s)).':
     'Đang bisect: kiểm tra {hash}. Còn khoảng {n} commit (~{steps} bước).',
 
+  // Image diff
+  'Side by side': 'Cạnh nhau',
+  Swipe: 'Trượt',
+  'Onion skin': 'Chồng lớp',
+  'Swipe position': 'Vị trí trượt',
+  Opacity: 'Độ mờ',
+  Before: 'Trước',
+  After: 'Sau',
+  'No file before this change': 'Chưa có file trước thay đổi này',
+  'The file was deleted': 'File đã bị xoá',
+  'Too large to preview ({size})': 'Quá lớn để xem trước ({size})',
+  Image: 'Ảnh',
+
   // External merge / diff tools
   'Merge tool': 'Merge tool',
   'Diff tool': 'Diff tool',

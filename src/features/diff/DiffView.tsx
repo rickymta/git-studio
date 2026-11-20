@@ -29,6 +29,8 @@ import { CodeView, type BlameInfo } from './CodeView';
 import { ConflictView } from './ConflictView';
 import { DiffBody, type DiffLayout, type DiffNav, type HunkActions } from './DiffBody';
 import { FileHistory } from './FileHistory';
+import { imageMime } from './image';
+import { ImageDiff } from './ImageDiff';
 
 function usePersisted<T>(key: string, initial: T): [T, (v: T) => void] {
   const [v, setV] = useState<T>(() => {
@@ -91,6 +93,8 @@ export function DiffView() {
     info?.status.staged.find((f) => f.path === req.path)?.status ??
     (conflicted ? 'U' : 'M');
   const deletedHere = status === 'D';
+  // Raster images get a picture diff; SVG keeps its (more useful) text diff.
+  const image = ![null, 'image/svg+xml'].includes(imageMime(req.path));
   // Version shown in File View / Blame / used to detect the encoding.
   const rev = req.source === 'commit' ? req.commit : undefined;
   const canEdit =
@@ -382,7 +386,7 @@ export function DiffView() {
                   <History className="size-3.5" /> {t('History')}
                 </button>
               </div>
-              {view === 'diff' && tool === null && (
+              {view === 'diff' && tool === null && !image && (
                 <div className="flex items-center">
                   <IconButton
                     label={t('Previous change')}
@@ -403,7 +407,7 @@ export function DiffView() {
                   </span>
                 </div>
               )}
-              {(view === 'diff' || tool === 'history') && tool !== 'blame' && (
+              {(view === 'diff' || tool === 'history') && tool !== 'blame' && !image && (
                 <div className="flex overflow-hidden rounded-md border border-border">
                   <button
                     type="button"
@@ -537,6 +541,8 @@ export function DiffView() {
             <div className="flex h-full items-center justify-center">
               <Spinner className="text-muted-foreground" />
             </div>
+          ) : file.binary && image && tool !== 'blame' ? (
+            <ImageDiff request={req} refreshKey={diff.text} only="after" />
           ) : file.binary ? (
             <div className="p-8 text-center text-muted-foreground">{t('Binary file')}</div>
           ) : (
@@ -548,6 +554,8 @@ export function DiffView() {
               blame={blameInfo}
             />
           )
+        ) : image ? (
+          <ImageDiff request={req} refreshKey={diff.text} />
         ) : (
           <DiffBody
             request={req}

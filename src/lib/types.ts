@@ -581,3 +581,10 @@ export interface MergeTools {
   /** Tools git supports but did not find. */
   other: string[];
 }
+
+/** A file's raw bytes at a revision, the index or the working tree. */
+export interface FileBlob {
+  size: number;
+  /** Base64; `null` when over the size limit. */
+  data: string | null;
+}

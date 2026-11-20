@@ -1297,3 +1297,56 @@ async fn mergetool_resolves_a_conflict_with_a_custom_tool() {
     );
     assert!(!dir.join("f.orig").exists());
 }
+
+#[tokio::test]
+async fn file_blob_reads_commit_index_and_worktree_bytes() {
+    use base64::Engine;
+    let b64 = |b: &[u8]| base64::engine::general_purpose::STANDARD.encode(b);
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("repo");
+    let r = new_repo(&dir).await;
+    let v1: &[u8] = &[0x89, b'P', b'N', b'G', 0, 1, 2, b'\r', b'\n'];
+    std::fs::write(dir.join("img.png"), v1).unwrap();
+    r.stage(&[]).await.unwrap();
+    r.commit("v1", false).await.unwrap();
+    std::fs::write(dir.join("img.png"), [1u8, 0, 2]).unwrap();
+    r.stage(&[]).await.unwrap();
+    std::fs::write(dir.join("img.png"), [3u8, 0]).unwrap();
+
+    let data = |b: Option<git::extras::FileBlob>| b.unwrap().data.unwrap();
+    let max = 1 << 20;
+    assert_eq!(
+        data(r.file_blob("img.png", Some("HEAD"), max).await.unwrap()),
+        b64(v1)
+    );
+    assert_eq!(
+        data(r.file_blob("img.png", Some(":"), max).await.unwrap()),
+        b64(&[1, 0, 2])
+    );
+    assert_eq!(
+        data(r.file_blob("img.png", None, max).await.unwrap()),
+        b64(&[3, 0])
+    );
+    // Missing somewhere is not an error.
+    assert!(
+        r.file_blob("nope.png", Some("HEAD"), max)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert!(r.file_blob("nope.png", None, max).await.unwrap().is_none());
+    assert!(
+        r.file_blob("img.png", Some("HEAD~1"), max)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    // Over the limit: the size only.
+    let big = r
+        .file_blob("img.png", Some("HEAD"), 4)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!((big.size, big.data), (v1.len() as u64, None));
+    assert!(r.file_blob("../x", None, 10).await.is_err());
+}
