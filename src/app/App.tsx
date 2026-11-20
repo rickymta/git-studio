@@ -9,6 +9,7 @@ import { GitHubSignIn } from '@/features/github/GitHubSignIn';
 import { RemotePanel } from '@/features/remotes/RemotePanel';
 import { CommitGraph } from '@/features/graph/CommitGraph';
 import { CommitPanel } from '@/features/panel/CommitPanel';
+import { ComparePanel } from '@/features/panel/ComparePanel';
 import { WipPanel } from '@/features/panel/WipPanel';
 import { Preferences, type PrefSection } from '@/features/preferences/Preferences';
 import { Sidebar } from '@/features/sidebar/Sidebar';
@@ -277,7 +278,13 @@ export function App() {
               onResize={setPanelW}
               onReset={() => setPanelW(400)}
             />
-            {selection?.type === 'commit' ? <CommitPanel hash={selection.hash} /> : <WipPanel />}
+            {selection?.type === 'commit' ? (
+              <CommitPanel hash={selection.hash} />
+            ) : selection?.type === 'compare' ? (
+              <ComparePanel base={selection.base} target={selection.target} />
+            ) : (
+              <WipPanel />
+            )}
           </aside>
         </div>
       </>

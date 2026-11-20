@@ -6,10 +6,13 @@ import { create } from 'zustand';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import type { FileChange } from '@/lib/types';
-import { useRepo } from './repo';
+import { useRepo, type CompareSide } from './repo';
 import { toast } from './ui';
 
 interface CompareStore {
+  /** "Mark as compare base": the commit or branch the next "Compare with…" starts from. */
+  base: CompareSide | null;
+  markBase: (side: CompareSide | null) => void;
   /** Commit being compared, or null when not comparing. */
   hash: string | null;
   files: FileChange[] | null;
@@ -21,6 +24,8 @@ interface CompareStore {
 }
 
 export const useCompare = create<CompareStore>((set, get) => ({
+  base: null,
+  markBase: (base) => set({ base }),
   hash: null,
   files: null,
   loading: false,
@@ -48,6 +53,8 @@ export const useCompare = create<CompareStore>((set, get) => ({
 }));
 
 useRepo.subscribe((s, prev) => {
+  // A compare base belongs to one repository.
+  if (s.path !== prev.path && useCompare.getState().base) useCompare.getState().markBase(null);
   const hash = useCompare.getState().hash;
   if (!hash) return;
   const sel = s.selection;

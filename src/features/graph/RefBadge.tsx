@@ -76,6 +76,8 @@ export function refMenu(ref: GitRef): MenuItem[] {
       { label: t('Copy tag name'), onSelect: () => copyText(ref.name) },
       ...commitCopyItems(ref.target),
       'sep',
+      ...A.compareMenu(A.refSide(ref)),
+      'sep',
       ...viewMenu(ref),
       'sep',
       {
@@ -233,6 +235,8 @@ export function refMenu(ref: GitRef): MenuItem[] {
       ? [{ label: t('Copy link to branch'), onSelect: () => A.copyBranchLink(ref) }]
       : []),
     ...commitCopyItems(ref.target),
+    'sep',
+    ...A.compareMenu(A.refSide(ref)),
     'sep',
     ...viewMenu(ref),
     'sep',

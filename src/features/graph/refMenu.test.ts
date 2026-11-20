@@ -1,6 +1,8 @@
 import type { MenuItem } from '@/components/ui';
 import type { Commit, GitRef, RepoInfo, Refs, Worktree } from '@/lib/types';
+import { useCompare } from '@/stores/compare';
 import { useRepo } from '@/stores/repo';
+import * as A from '../actions';
 import { refMenu } from './RefBadge';
 
 const commit = (hash: string, ...parents: string[]): Commit => ({
@@ -93,6 +95,9 @@ describe('refMenu', () => {
       'Copy commit sha',
       'Create patch from commit',
       '—',
+      'Compare main → feature/x',
+      'Mark as compare base',
+      '—',
       'Pin to Left',
       'Solo',
       'Hide',
@@ -100,6 +105,16 @@ describe('refMenu', () => {
       'Create tag here',
       'Create annotated tag here',
     ]);
+  });
+
+  it('compares with HEAD and with a marked base', () => {
+    useCompare.getState().markBase(A.refSide(side));
+    const l = labels(refMenu(feature));
+    expect(l).toContain('Compare main → feature/x');
+    expect(l).toContain('Compare side → feature/x');
+    // Not offered against itself.
+    expect(labels(refMenu(side))).not.toContain('Compare side → side');
+    useCompare.getState().markBase(null);
   });
 
   it('fast-forwards HEAD to a branch ahead of it', () => {

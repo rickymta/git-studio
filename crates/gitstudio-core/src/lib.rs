@@ -334,6 +334,12 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
                 .compare_with_worktree(&arg::<String>(a, "hash")?)
                 .await?,
         )?,
+        "repo.compareCommits" => serde_json::to_value(
+            repo(a)
+                .await?
+                .compare_commits(&arg::<String>(a, "base")?, &arg::<String>(a, "target")?)
+                .await?,
+        )?,
         "history.reword" => {
             repo(a)
                 .await?

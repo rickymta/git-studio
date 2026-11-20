@@ -29,6 +29,15 @@ export interface CommitDetail extends Commit {
   files: FileChange[];
 }
 
+/** What changes from one commit (or branch, tag) to another. */
+export interface Comparison {
+  files: FileChange[];
+  /** Commits on the target that the base does not have. */
+  ahead: number;
+  /** Commits on the base that the target does not have. */
+  behind: number;
+}
+
 export type RefKind = 'local' | 'remote' | 'tag';
 
 export interface GitRef {
