@@ -56,13 +56,8 @@ export function RefBadge({
         background: `color-mix(in oklch, ${color} var(${group.head ? '--lane-badge-head' : '--lane-badge'}), var(--background))`,
       }}
     >
+      {/* The tick marks the checked-out branch (or the detached HEAD badge). */}
       {group.head && <Check className="size-[15.4px] shrink-0" strokeWidth={2.4} />}
-      {/* The checked-out branch also says HEAD, like `git log --decorate`'s "HEAD -> main". */}
-      {group.head && group.kind === 'branch' && (
-        <span className="shrink-0 rounded-sm bg-foreground/15 px-1 text-[9px] leading-[14px] font-bold tracking-wide">
-          HEAD
-        </span>
-      )}
       {group.kind === 'tag' && <Tag className="size-[15.4px] shrink-0" strokeWidth={2.4} />}
       <span className="truncate">{group.label}</span>
       {hasLocal && <Laptop className="size-[15.4px] shrink-0" strokeWidth={2.4} />}
