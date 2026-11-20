@@ -291,6 +291,8 @@ export const prefs: Record<string, string> = {
     'Máy đã cài overlay của TortoiseGit / TortoiseSVN: cả hai có thể cùng gắn badge lên một thư mục.',
   'An older GitStudio version is registered; turn the icons off and on again to update them.':
     'Đang đăng ký bản GitStudio cũ; hãy tắt rồi bật lại icon để cập nhật.',
+  'The icons were updated: restart Explorer to load the new version.':
+    'Icon đã được cập nhật: khởi động lại Explorer để nạp bản mới.',
   'The Finder extension is not registered yet: open GitStudio from /Applications once, then turn the icons on.':
     'Extension của Finder chưa được đăng ký: hãy mở GitStudio từ /Applications một lần rồi bật icon.',
   'Git status icons in Explorer': 'Icon trạng thái git trong Explorer',

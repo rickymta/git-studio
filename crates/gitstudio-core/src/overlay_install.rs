@@ -142,6 +142,12 @@ mod platform {
     const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
     const RUN_VALUE: &str = "GitStudio Overlay";
     const CLSID_CLEAN: &str = "{6a1f3c20-5b7e-4d2a-9c41-2f8e0b6d7a01}";
+    const FILES: [&str; 4] = [
+        "gitstudio_overlay.dll",
+        "overlay-clean.ico",
+        "overlay-changed.ico",
+        "overlay-danger.ico",
+    ];
     const OVERLAYS: &str =
         r"HKLM\Software\Microsoft\Windows\CurrentVersion\Explorer\ShellIconOverlayIdentifiers";
     const OUR_FIRST: &str = "   GitStudio1Clean";
@@ -178,6 +184,110 @@ mod platform {
         )?;
         out.lines()
             .find_map(|l| l.split_once("REG_SZ").map(|(_, v)| v.trim().to_string()))
+    }
+
+    /// This build's overlay files (DLL and icons).
+    fn source_dir(resource_dir: Option<&Path>) -> Result<PathBuf> {
+        overlay_dir(resource_dir)
+            .filter(|d| d.join("gitstudio_overlay.dll").exists())
+            .ok_or_else(|| {
+                Error::Invalid(
+                    "The overlay DLL is not part of this build (run scripts/build-overlay.mjs)."
+                        .into(),
+                )
+            })
+    }
+
+    /// The registered DLL is this build's (same bytes, wherever it was copied to).
+    fn up_to_date(registered: &Path, resource_dir: Option<&Path>) -> bool {
+        let Ok(src) = source_dir(resource_dir) else {
+            return true; // nothing to update to
+        };
+        match (
+            std::fs::read(registered),
+            std::fs::read(src.join("gitstudio_overlay.dll")),
+        ) {
+            (Ok(a), Ok(b)) => a == b,
+            _ => false,
+        }
+    }
+
+    /// Copy this version's DLL and icons to their own folder (see `install_dir`).
+    fn copy_files(resource_dir: Option<&Path>) -> Result<PathBuf> {
+        let src = source_dir(resource_dir)?;
+        let dst = install_dir(resource_dir);
+        std::fs::create_dir_all(&dst)?;
+        for f in FILES {
+            let to = dst.join(f);
+            // A DLL Explorer has loaded cannot be replaced; the per-version folder makes that rare.
+            if let Err(e) = std::fs::copy(src.join(f), &to)
+                && !to.exists()
+            {
+                return Err(e.into());
+            }
+        }
+        Ok(dst.join("gitstudio_overlay.dll"))
+    }
+
+    /// Written when `upgrade` swapped the files: Explorer started before it still runs the old DLL.
+    const UPDATED_MARK: &str = "updated.mark";
+
+    /// Put this version's files where the registered DLL is. Explorer keeps that DLL open, so it
+    /// cannot be overwritten, but Windows lets a DLL in use be renamed: the old one moves aside
+    /// (removed on a later start) and the new one takes its name, loaded at Explorer's next start.
+    fn replace_in_place(dir: &Path, src: &Path) -> Result<()> {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or_default();
+        for f in FILES {
+            let to = dir.join(f);
+            if std::fs::copy(src.join(f), &to).is_ok() {
+                continue;
+            }
+            std::fs::rename(&to, dir.join(format!("{f}.old-{stamp}")))?;
+            std::fs::copy(src.join(f), &to)?;
+        }
+        std::fs::write(dir.join(UPDATED_MARK), stamp.to_string())?;
+        Ok(())
+    }
+
+    /// Files a previous `replace_in_place` moved aside, once Explorer has let go of them.
+    fn sweep_old(dir: &Path) {
+        for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            if e.file_name().to_string_lossy().contains(".old-") {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
+
+    /// At start-up, when the icons are on and an older version's DLL is registered: swap in this
+    /// version's files under the registered path, so no administrator prompt is needed. Only
+    /// done inside GitStudio's own folder. Returns true when it swapped them; Explorer loads
+    /// the new DLL once restarted.
+    pub fn upgrade(resource_dir: Option<&Path>) -> Result<bool> {
+        if !settings::load().overlay_icons {
+            return Ok(false);
+        }
+        let Some(registered) = registered_dll().map(PathBuf::from) else {
+            return Ok(false);
+        };
+        let Some(dir) = registered.parent() else {
+            return Ok(false);
+        };
+        let root = install_dir(resource_dir);
+        let ours = root.parent().is_some_and(|r| {
+            overlay::key(dir).starts_with(&overlay::key(r)) && registered.exists()
+        });
+        if !ours {
+            return Ok(false);
+        }
+        sweep_old(dir);
+        if up_to_date(&registered, resource_dir) {
+            return Ok(false);
+        }
+        replace_in_place(dir, &source_dir(resource_dir)?)?;
+        Ok(true)
     }
 
     fn overlay_names() -> Vec<String> {
@@ -219,14 +329,21 @@ mod platform {
 
     pub fn info(resource_dir: Option<&Path>) -> Info {
         let mut i = base_info("windows");
-        let ours = install_dir(resource_dir).join("gitstudio_overlay.dll");
         let registered = registered_dll();
         i.installed = registered.is_some();
         if let Some(r) = &registered {
-            if !Path::new(r).exists() {
+            let r = Path::new(r);
+            if !r.exists() {
                 i.installed = false;
-            } else if !super::same(Path::new(r), &ours) {
+            } else if !up_to_date(r, resource_dir) {
                 i.notes.push("An older GitStudio version is registered; turn the icons off and on again to update them.".into());
+            } else if r
+                .parent()
+                .is_some_and(|d| explorer_started_before(&d.join(UPDATED_MARK)))
+            {
+                i.notes.push(
+                    "The icons were updated: restart Explorer to load the new version.".into(),
+                );
             }
         }
         let names = overlay_names();
@@ -248,30 +365,7 @@ mod platform {
     }
 
     pub fn enable(resource_dir: Option<&Path>) -> Result<()> {
-        let src = overlay_dir(resource_dir)
-            .filter(|d| d.join("gitstudio_overlay.dll").exists())
-            .ok_or_else(|| {
-                Error::Invalid(
-                    "The overlay DLL is not part of this build (run scripts/build-overlay.mjs)."
-                        .into(),
-                )
-            })?;
-        let dst = install_dir(resource_dir);
-        std::fs::create_dir_all(&dst)?;
-        for f in [
-            "gitstudio_overlay.dll",
-            "overlay-clean.ico",
-            "overlay-changed.ico",
-            "overlay-danger.ico",
-        ] {
-            let to = dst.join(f);
-            // A DLL Explorer has loaded cannot be replaced; the per-version folder makes that rare.
-            if let Err(e) = std::fs::copy(src.join(f), &to)
-                && !to.exists()
-            {
-                return Err(e.into());
-            }
-        }
+        let dll = copy_files(resource_dir)?;
         set_enabled(true)?;
         let exe = exe()?;
         output(
@@ -290,7 +384,7 @@ mod platform {
         );
         overlay::refresh()?;
         spawn_server()?;
-        regsvr32(&dst.join("gitstudio_overlay.dll"), false)
+        regsvr32(&dll, false)
     }
 
     pub fn disable(_resource_dir: Option<&Path>) -> Result<()> {
@@ -300,6 +394,24 @@ mod platform {
             Some(dll) if Path::new(&dll).exists() => regsvr32(Path::new(&dll), true),
             _ => Ok(()),
         }
+    }
+
+    /// Explorer is still running from before `file` was written (the files were swapped then).
+    fn explorer_started_before(file: &Path) -> bool {
+        if !file.exists() {
+            return false;
+        }
+        let path = file.display().to_string().replace('\'', "''");
+        let script = format!(
+            "$f = (Get-Item -LiteralPath '{path}').LastWriteTime; \
+             $p = Get-Process explorer -ErrorAction SilentlyContinue | Sort-Object StartTime | Select-Object -First 1; \
+             if ($p -and $p.StartTime -lt $f) {{ 'yes' }}"
+        );
+        output(
+            "powershell",
+            &["-NoProfile", "-NonInteractive", "-Command", &script],
+        )
+        .is_some_and(|o| o.trim() == "yes")
     }
 
     /// Restart Explorer so it picks up (or drops) the overlay handlers.
@@ -677,4 +789,18 @@ pub fn disable(resource_dir: Option<&Path>) -> Result<Info> {
 
 pub fn restart_file_manager() -> Result<()> {
     platform::restart_file_manager()
+}
+
+/// Called at start-up: on Windows, move Explorer's handlers to this version's DLL when an older
+/// one is registered. Returns true when it did (Explorer needs a restart to load it).
+pub fn upgrade(resource_dir: Option<&Path>) -> Result<bool> {
+    #[cfg(windows)]
+    {
+        platform::upgrade(resource_dir)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = resource_dir;
+        Ok(false)
+    }
 }

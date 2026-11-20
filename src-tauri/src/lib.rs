@@ -62,6 +62,11 @@ pub fn run() {
         .setup(|app| {
             // The context menu entry follows the preference and points at this program.
             std::thread::spawn(gitstudio_core::shell_menu::sync_with_settings);
+            // After an update: Explorer's status icons move to this version's DLL by themselves.
+            let resources = app.path().resource_dir().ok();
+            std::thread::spawn(move || {
+                let _ = gitstudio_core::overlay_install::upgrade(resources.as_deref());
+            });
             // Keep overlay-status.json fresh while the app is open (when the icons are on).
             std::thread::spawn(|| {
                 loop {
