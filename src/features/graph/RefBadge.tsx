@@ -1,4 +1,4 @@
-import { Check, Cloud, FolderGit2, Laptop, Tag } from 'lucide-react';
+import { Check, Cloud, Laptop, Tag, TreeDeciduous } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import { ContextMenuWrap, cn, type MenuItem } from '@/components/ui';
@@ -329,7 +329,7 @@ export function RefBadge({
       <span className="truncate">{group.label}</span>
       {hasLocal && <Laptop className="size-[15.4px] shrink-0" strokeWidth={2.4} />}
       {hasRemote && <Cloud className="size-[15.4px] shrink-0" strokeWidth={2.4} />}
-      {worktree && <FolderGit2 className="size-[15.4px] shrink-0" strokeWidth={2.4} />}
+      {worktree && <TreeDeciduous className="size-[15.4px] shrink-0" strokeWidth={2.4} />}
     </span>
   );
 

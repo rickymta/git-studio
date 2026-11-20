@@ -6,7 +6,6 @@ import {
   Cloud,
   CloudOff,
   ExternalLink,
-  FolderGit2,
   GitBranch,
   GitCommitHorizontal,
   GitPullRequest,
@@ -19,6 +18,7 @@ import {
   RefreshCw,
   Search,
   Tag,
+  TreeDeciduous,
   type LucideIcon,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -148,7 +148,7 @@ function RefRow({ refItem, label, depth = 0 }: { refItem: GitRef; label: string;
         <span className="min-w-0 flex-1 truncate">{label}</span>
         {worktree && (
           <StateIcon
-            icon={FolderGit2}
+            icon={TreeDeciduous}
             label={t('Checked out in worktree {name}', { name: A.baseName(worktree.path) })}
           />
         )}
@@ -647,7 +647,7 @@ function WorktreesSection() {
     <Section
       id="worktrees"
       title={t('Worktrees')}
-      icon={<FolderGit2 className="size-3.5" />}
+      icon={<TreeDeciduous className="size-3.5" />}
       count={worktrees.length}
       actions={
         <Dropdown
@@ -685,7 +685,7 @@ function WorktreesSection() {
               </span>
             ) : (
               <span title={t('Linked worktree')} className="inline-flex shrink-0">
-                <FolderGit2 className={cn('size-3.5', !w.isCurrent && 'text-muted-foreground')} />
+                <TreeDeciduous className={cn('size-3.5', !w.isCurrent && 'text-muted-foreground')} />
               </span>
             )}
             <span className="min-w-0 shrink truncate">{A.baseName(w.path)}</span>
