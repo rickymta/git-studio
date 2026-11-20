@@ -2,6 +2,13 @@
 
 Các thay đổi đáng chú ý của GitStudio. File này do `pnpm release` cập nhật.
 
+## v0.2.3 - 2026-11-20
+
+Thay đổi từ v0.2.2.
+
+- fix(workspace): a repository opened in a workspace joins it (43038fd)
+- fix(graph): mark the checked-out branch with the tick only (ff72d85)
+
 ## v0.2.2 - 2026-11-20
 
 Thay đổi từ v0.2.1.
