@@ -1085,3 +1085,37 @@ async fn submodules_list_update_and_deinit() {
 
     assert!(r.submodule_add("-x", "p", None).await.is_err());
 }
+
+#[tokio::test]
+async fn lfs_track_list_and_untrack() {
+    use gitstudio_core::git::extras::lfs_patterns;
+    assert_eq!(
+        lfs_patterns(
+            "# c\n*.psd filter=lfs diff=lfs merge=lfs -text\n*.txt text\nassets/** filter=lfs\n"
+        ),
+        ["*.psd", "assets/**"]
+    );
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("repo");
+    let r = new_repo(&dir).await;
+    let info = r.lfs_info().await.unwrap();
+    if !info.available {
+        // git-lfs not installed here: nothing more to check.
+        assert!(info.files.is_empty());
+        return;
+    }
+    r.lfs_install().await.unwrap();
+    r.lfs_track("*.bin").await.unwrap();
+    assert_eq!(r.lfs_info().await.unwrap().patterns, ["*.bin"]);
+    std::fs::write(dir.join("big.bin"), [0u8, 1, 2, 3]).unwrap();
+    r.stage(&[]).await.unwrap();
+    r.commit("binary", false).await.unwrap();
+    let info = r.lfs_info().await.unwrap();
+    assert_eq!(info.files.len(), 1);
+    assert_eq!(info.files[0].path, "big.bin");
+    assert!(info.files[0].downloaded);
+    r.lfs_untrack("*.bin").await.unwrap();
+    assert!(r.lfs_info().await.unwrap().patterns.is_empty());
+    assert!(r.lfs_track("-x").await.is_err());
+    assert!(r.lfs_op("rm").await.is_err());
+}

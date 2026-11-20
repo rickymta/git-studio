@@ -21,6 +21,7 @@ import type { FileChange } from '@/lib/types';
 import { useRepo } from '@/stores/repo';
 import { confirm, openDialog, toast } from '@/stores/ui';
 import { commitChanges, ignoreFile, push, stashFiles, stashStaged } from '../actions';
+import { lfsPatternFor, lfsTrack } from '../repoTools';
 import {
   EmptyFiles,
   FILES_DRAG,
@@ -276,6 +277,9 @@ export function WipPanel() {
         },
         ...(f.status === '?' && !many
           ? [{ label: t('Add to .gitignore…'), onSelect: () => ignoreFile(f.path) }]
+          : []),
+        ...(!many
+          ? [{ label: t('Track with LFS…'), onSelect: () => lfsTrack(lfsPatternFor(f.path)) }]
           : []),
         'sep' as const,
         {

@@ -522,3 +522,19 @@ export interface Submodule {
   current: string | null;
   state: SubmoduleState;
 }
+
+export interface LfsFile {
+  path: string;
+  oid: string;
+  /** The real content is in the working tree, not just the LFS pointer. */
+  downloaded: boolean;
+}
+
+export interface LfsInfo {
+  /** git-lfs is installed. */
+  available: boolean;
+  version: string | null;
+  /** Patterns stored with LFS (top-level .gitattributes). */
+  patterns: string[];
+  files: LfsFile[];
+}

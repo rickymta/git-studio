@@ -93,6 +93,11 @@ export const api = {
     call<string[]>('history.remotesContaining', { repo, hash }),
   dropCommit: (repo: string, hash: string) => call<null>('history.drop', { repo, hash }),
   /** Commits of every ref matching `query`, found by git (not only the loaded ones). */
+  lfsInfo: (repo: string) => call<T.LfsInfo>('lfs.info', { repo }),
+  lfsTrack: (repo: string, pattern: string) => call<null>('lfs.track', { repo, pattern }),
+  lfsUntrack: (repo: string, pattern: string) => call<null>('lfs.untrack', { repo, pattern }),
+  lfsInstall: (repo: string) => call<null>('lfs.install', { repo }),
+  lfsOp: (repo: string, op: 'pull' | 'fetch' | 'prune') => call<string>('lfs.op', { repo, op }),
   submodules: (repo: string) => call<T.Submodule[]>('submodule.list', { repo }),
   /** `git submodule update --init` for `paths` (all when empty). */
   submoduleUpdate: (repo: string, paths: string[] = [], recursive = true) =>

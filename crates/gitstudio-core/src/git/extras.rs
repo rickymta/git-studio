@@ -197,3 +197,118 @@ impl Repo {
         self.git(&a).await.map(drop)
     }
 }
+
+// ---- Git LFS ----------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LfsFile {
+    pub path: String,
+    /// Short object id, as `git lfs ls-files` prints it.
+    pub oid: String,
+    /// The real content is in the working tree (not just the pointer).
+    pub downloaded: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LfsInfo {
+    /// `git lfs` can run.
+    pub available: bool,
+    pub version: Option<String>,
+    /// Patterns stored with LFS (`filter=lfs` in the top-level .gitattributes).
+    pub patterns: Vec<String>,
+    /// Files of HEAD stored with LFS.
+    pub files: Vec<LfsFile>,
+}
+
+/// Patterns with `filter=lfs` in a .gitattributes text.
+pub fn lfs_patterns(attributes: &str) -> Vec<String> {
+    attributes
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.starts_with('#'))
+        .filter_map(|l| {
+            let mut parts = l.split_whitespace();
+            let pattern = parts.next()?;
+            parts
+                .any(|a| a == "filter=lfs")
+                .then(|| pattern.to_string())
+        })
+        .collect()
+}
+
+fn check_pattern(p: &str) -> Result<&str> {
+    let p = p.trim();
+    if p.is_empty() || p.starts_with('-') || p.contains(['\0', '\n', '\r']) {
+        return Err(Error::Invalid(format!("Invalid pattern {p:?}")));
+    }
+    Ok(p)
+}
+
+impl Repo {
+    pub async fn lfs_info(&self) -> Result<LfsInfo> {
+        let version = run::raw(Some(&self.root), &["lfs", "version"], Opts::default())
+            .await
+            .ok()
+            .filter(|o| o.code == 0)
+            .map(|o| o.text().trim().to_string());
+        let patterns = std::fs::read(self.root.join(".gitattributes"))
+            .map(|b| lfs_patterns(&String::from_utf8_lossy(&b)))
+            .unwrap_or_default();
+        let mut files = Vec::new();
+        if version.is_some() && self.has_head().await {
+            let out = run::raw(
+                Some(&self.root),
+                &["-c", "core.quotePath=false", "lfs", "ls-files"],
+                Opts::default(),
+            )
+            .await?;
+            if out.code == 0 {
+                // `<oid> <*|-> <path>`: `*` full content, `-` pointer only.
+                for line in out.text().lines() {
+                    let mut it = line.splitn(3, ' ');
+                    if let (Some(oid), Some(mark), Some(path)) = (it.next(), it.next(), it.next()) {
+                        files.push(LfsFile {
+                            path: path.to_string(),
+                            oid: oid.to_string(),
+                            downloaded: mark == "*",
+                        });
+                    }
+                }
+            }
+        }
+        Ok(LfsInfo {
+            available: version.is_some(),
+            version,
+            patterns,
+            files,
+        })
+    }
+
+    /// Store files matching `pattern` with LFS from now on (`git lfs track`).
+    pub async fn lfs_track(&self, pattern: &str) -> Result<()> {
+        let p = check_pattern(pattern)?;
+        self.git(&["lfs", "track", "--", p]).await.map(drop)
+    }
+
+    pub async fn lfs_untrack(&self, pattern: &str) -> Result<()> {
+        let p = check_pattern(pattern)?;
+        self.git(&["lfs", "untrack", "--", p]).await.map(drop)
+    }
+
+    /// Set up the LFS hooks and filters for this repository only (`git lfs install --local`).
+    pub async fn lfs_install(&self) -> Result<()> {
+        self.git(&["lfs", "install", "--local"]).await.map(drop)
+    }
+
+    /// `pull`: download the content of the checked-out LFS files; `fetch`: download without
+    /// checking out; `prune`: delete old local copies already on the server.
+    pub async fn lfs_op(&self, op: &str) -> Result<String> {
+        let verb = match op {
+            "pull" | "fetch" | "prune" => op,
+            _ => return Err(Error::Invalid(format!("Unknown LFS operation {op}"))),
+        };
+        self.git_opts(&["lfs", verb], self.net(None).await).await
+    }
+}

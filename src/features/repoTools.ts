@@ -74,3 +74,56 @@ export async function deinitSubmodule(s: Submodule) {
       t('Deinitialised {name}', { name: s.path }),
     );
 }
+
+// ---- Git LFS ------------------------------------------------------------------------------------
+
+/** `*.ext` for a file with an extension, else the file itself. */
+export function lfsPatternFor(path: string): string {
+  const base = path.replace(/\\/g, '/').split('/').pop() ?? path;
+  const dot = base.lastIndexOf('.');
+  return dot > 0 && dot < base.length - 1 ? `*${base.slice(dot)}` : path.replace(/\\/g, '/');
+}
+
+/** Store files matching a pattern (asked, prefilled with `initial`) with LFS. */
+export async function lfsTrack(initial = '') {
+  const v = await ask({
+    title: t('Track with LFS'),
+    description: t(
+      'Files matching the pattern are stored with Git LFS from now on. The pattern goes into .gitattributes; commit it.',
+    ),
+    fields: [
+      { name: 'pattern', label: t('Pattern'), initial, placeholder: '*.psd', required: true },
+    ],
+    confirmLabel: t('Track'),
+  });
+  const pattern = (v?.pattern as string | undefined)?.trim();
+  if (pattern)
+    await run(
+      'LFS track',
+      (p) => api.lfsTrack(p, pattern),
+      t('{pattern} is tracked with LFS', { pattern }),
+    );
+}
+
+export async function lfsUntrack(pattern: string) {
+  await run(
+    'LFS untrack',
+    (p) => api.lfsUntrack(p, pattern),
+    t('{pattern} is no longer tracked with LFS', { pattern }),
+  );
+}
+
+export async function lfsInstall() {
+  await run('LFS install', (p) => api.lfsInstall(p), t('Git LFS is set up for this repository'));
+}
+
+export async function lfsOp(op: 'pull' | 'fetch' | 'prune') {
+  const label = op === 'pull' ? 'LFS pull' : op === 'fetch' ? 'LFS fetch' : 'LFS prune';
+  const done =
+    op === 'pull'
+      ? t('LFS files downloaded')
+      : op === 'fetch'
+        ? t('LFS objects fetched')
+        : t('Old LFS objects pruned');
+  await run(label, (p) => api.lfsOp(p, op), done);
+}

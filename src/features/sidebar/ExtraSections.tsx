@@ -1,4 +1,4 @@
-import { Boxes, Plus } from 'lucide-react';
+import { Boxes, HardDrive, Plus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { ContextMenuWrap, Dropdown, cn, type MenuItem } from '@/components/ui';
@@ -6,14 +6,19 @@ import { joinPath, short } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import { copyText, revealPath } from '@/lib/native';
-import type { Submodule } from '@/lib/types';
+import type { LfsInfo, Submodule } from '@/lib/types';
 import { useRepo } from '@/stores/repo';
 import * as R from '../repoTools';
 import { Section } from './Section';
 
 /** Sidebar sections for submodules and the other less common features. */
 export function ExtraSections() {
-  return <SubmodulesSection />;
+  return (
+    <>
+      <SubmodulesSection />
+      <LfsSection />
+    </>
+  );
 }
 
 /** Reload `load` whenever the repository changes (commit, checkout, refresh…). */
@@ -155,6 +160,75 @@ function SubmodulesSection() {
             </ContextMenuWrap>
           ))}
         </>
+      )}
+    </Section>
+  );
+}
+
+const NO_LFS: LfsInfo = { available: false, version: null, patterns: [], files: [] };
+
+const actionsButton = (label: string) => (
+  <button
+    type="button"
+    aria-label={label}
+    title={label}
+    className="inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-surface-hover hover:text-foreground"
+  >
+    <Plus className="size-3.5" />
+  </button>
+);
+
+/** Git LFS: tracked patterns and files; hidden while git-lfs is not installed. */
+function LfsSection() {
+  const lfs = useRepoData(api.lfsInfo, NO_LFS);
+  if (!lfs?.available) return null;
+  const missing = lfs.files.filter((f) => !f.downloaded).length;
+  return (
+    <Section
+      id="lfs"
+      title={t('Git LFS')}
+      icon={<HardDrive className="size-3.5" />}
+      count={lfs.files.length || undefined}
+      actions={
+        <Dropdown
+          items={[
+            { label: t('Track pattern…'), onSelect: () => R.lfsTrack() },
+            'sep',
+            { label: t('Download LFS files (pull)'), onSelect: () => R.lfsOp('pull') },
+            { label: t('Fetch LFS objects'), onSelect: () => R.lfsOp('fetch') },
+            { label: t('Prune old LFS objects'), onSelect: () => R.lfsOp('prune') },
+            'sep',
+            { label: t('Set up LFS for this repository'), onSelect: () => R.lfsInstall() },
+          ]}
+        >
+          {actionsButton(t('LFS actions'))}
+        </Dropdown>
+      }
+    >
+      <div className="pl-6 text-[11px] text-muted-foreground" title={lfs.version ?? ''}>
+        {lfs.patterns.length === 0 ? t('No patterns tracked with LFS.') : t('Tracked patterns')}
+      </div>
+      {lfs.patterns.map((p) => (
+        <ContextMenuWrap
+          key={p}
+          items={() => [
+            { label: t('Stop tracking with LFS'), onSelect: () => R.lfsUntrack(p) },
+            { label: t('Copy pattern'), onSelect: () => copyText(p) },
+          ]}
+        >
+          <div className="flex h-6 cursor-default items-center pr-2 pl-8 font-mono text-xs hover:bg-surface-hover">
+            {p}
+          </div>
+        </ContextMenuWrap>
+      ))}
+      {missing > 0 && (
+        <button
+          type="button"
+          onClick={() => void R.lfsOp('pull')}
+          className="mt-1 ml-6 text-xs text-accent hover:underline"
+        >
+          {t('{n} file(s) are only pointers: download them', { n: missing })}
+        </button>
       )}
     </Section>
   );

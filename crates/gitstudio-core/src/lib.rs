@@ -420,6 +420,26 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
                 .remotes_containing(&arg::<String>(a, "hash")?)
                 .await?
         ),
+        "lfs.info" => serde_json::to_value(repo(a).await?.lfs_info().await?)?,
+        "lfs.track" => {
+            repo(a)
+                .await?
+                .lfs_track(&arg::<String>(a, "pattern")?)
+                .await?;
+            return done();
+        }
+        "lfs.untrack" => {
+            repo(a)
+                .await?
+                .lfs_untrack(&arg::<String>(a, "pattern")?)
+                .await?;
+            return done();
+        }
+        "lfs.install" => {
+            repo(a).await?.lfs_install().await?;
+            return done();
+        }
+        "lfs.op" => serde_json::to_value(repo(a).await?.lfs_op(&arg::<String>(a, "op")?).await?)?,
         "submodule.list" => serde_json::to_value(repo(a).await?.submodules().await?)?,
         "submodule.update" => {
             let paths: Option<Vec<String>> = opt(a, "paths")?;
