@@ -1119,3 +1119,72 @@ async fn lfs_track_list_and_untrack() {
     assert!(r.lfs_track("-x").await.is_err());
     assert!(r.lfs_op("rm").await.is_err());
 }
+
+#[tokio::test]
+async fn ssh_signed_commits_are_verified() {
+    use gitstudio_core::git::extras::{SignatureStatus as S, SigningConfig};
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("repo");
+    let r = new_repo(&dir).await;
+    commit_file(&r, &dir, "plain").await;
+    let head = r.status().await.unwrap().head.unwrap();
+    assert_eq!(r.commit_signature(&head).await.unwrap().status, S::None);
+
+    let key = tmp.path().join("key");
+    let made = std::process::Command::new("ssh-keygen")
+        .args(["-q", "-t", "ed25519", "-N", "", "-C", "test", "-f"])
+        .arg(&key)
+        .status();
+    if !made.is_ok_and(|s| s.success()) {
+        return; // no ssh-keygen here
+    }
+    let pub_path = format!("{}.pub", key.display()).replace('\\', "/");
+    r.set_signing(
+        &SigningConfig {
+            sign_commits: true,
+            sign_tags: false,
+            format: "ssh".into(),
+            key: pub_path.clone(),
+        },
+        "local",
+    )
+    .await
+    .unwrap();
+    let cfg = r.signing_config("local").await.unwrap();
+    assert!(cfg.sign_commits && !cfg.sign_tags);
+    assert_eq!(
+        (cfg.format.as_str(), cfg.key.as_str()),
+        ("ssh", pub_path.as_str())
+    );
+
+    commit_file(&r, &dir, "signed").await;
+    let head = r.status().await.unwrap().head.unwrap();
+    // Signed, but git needs an allowed-signers file to check SSH signatures.
+    assert_eq!(r.commit_signature(&head).await.unwrap().status, S::Unverifiable);
+    let pubkey = std::fs::read_to_string(&pub_path).unwrap();
+    let allowed = tmp.path().join("allowed");
+    std::fs::write(&allowed, format!("tester@example.com {pubkey}")).unwrap();
+    sh(
+        &dir,
+        &[
+            "config",
+            "gpg.ssh.allowedSignersFile",
+            &allowed.display().to_string().replace('\\', "/"),
+        ],
+    );
+    let sig = r.commit_signature(&head).await.unwrap();
+    assert_eq!(sig.status, S::Good, "{sig:?}");
+    assert_eq!(sig.signer, "tester@example.com");
+
+    // Back to git's defaults.
+    r.set_signing(&SigningConfig::default(), "local")
+        .await
+        .unwrap();
+    let cfg = r.signing_config("local").await.unwrap();
+    assert!(!cfg.sign_commits && cfg.format.is_empty() && cfg.key.is_empty());
+    assert!(
+        r.set_signing(&SigningConfig::default(), "effective")
+            .await
+            .is_err()
+    );
+}

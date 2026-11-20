@@ -420,6 +420,29 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
                 .remotes_containing(&arg::<String>(a, "hash")?)
                 .await?
         ),
+        "signing.commit" => serde_json::to_value(
+            repo(a)
+                .await?
+                .commit_signature(&arg::<String>(a, "hash")?)
+                .await?,
+        )?,
+        "signing.get" => {
+            let scope: Option<String> = opt(a, "scope")?;
+            serde_json::to_value(
+                repo(a)
+                    .await?
+                    .signing_config(scope.as_deref().unwrap_or("effective"))
+                    .await?,
+            )?
+        }
+        "signing.set" => {
+            let cfg: git::extras::SigningConfig = arg(a, "config")?;
+            repo(a)
+                .await?
+                .set_signing(&cfg, &arg::<String>(a, "scope")?)
+                .await?;
+            return done();
+        }
         "lfs.info" => serde_json::to_value(repo(a).await?.lfs_info().await?)?,
         "lfs.track" => {
             repo(a)

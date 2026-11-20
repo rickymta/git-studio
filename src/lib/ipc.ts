@@ -93,6 +93,12 @@ export const api = {
     call<string[]>('history.remotesContaining', { repo, hash }),
   dropCommit: (repo: string, hash: string) => call<null>('history.drop', { repo, hash }),
   /** Commits of every ref matching `query`, found by git (not only the loaded ones). */
+  commitSignature: (repo: string, hash: string) =>
+    call<T.CommitSignature>('signing.commit', { repo, hash }),
+  signingConfig: (repo: string, scope: 'effective' | 'local' | 'global' = 'effective') =>
+    call<T.SigningConfig>('signing.get', { repo, scope }),
+  setSigning: (repo: string, config: T.SigningConfig, scope: 'local' | 'global') =>
+    call<null>('signing.set', { repo, config, scope }),
   lfsInfo: (repo: string) => call<T.LfsInfo>('lfs.info', { repo }),
   lfsTrack: (repo: string, pattern: string) => call<null>('lfs.track', { repo, pattern }),
   lfsUntrack: (repo: string, pattern: string) => call<null>('lfs.untrack', { repo, pattern }),

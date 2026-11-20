@@ -538,3 +538,22 @@ export interface LfsInfo {
   patterns: string[];
   files: LfsFile[];
 }
+
+export type SignatureStatus =
+  'good' | 'untrusted' | 'expired' | 'revoked' | 'bad' | 'unverifiable' | 'none';
+
+export interface CommitSignature {
+  status: SignatureStatus;
+  signer: string;
+  key: string;
+  fingerprint: string;
+}
+
+/** git's signing settings in one config scope. */
+export interface SigningConfig {
+  signCommits: boolean;
+  signTags: boolean;
+  /** `openpgp`, `ssh`, `x509`; empty = git's default. */
+  format: string;
+  key: string;
+}

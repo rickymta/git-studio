@@ -11,6 +11,7 @@ import { useCompare } from '@/stores/compare';
 import { useRepo } from '@/stores/repo';
 import { amendHeadMessage, canAmendMessage, headIsPushed } from '../actions';
 import { SUMMARY_MAX, joinMessage, splitMessage } from './commitMessage';
+import { SignatureBadge } from './SignatureBadge';
 import {
   FileList,
   FilesSection,
@@ -209,6 +210,7 @@ export function CommitPanel({ hash }: { hash: string }) {
         <IconButton label={t('Copy SHA')} onClick={() => copyText(d.hash)}>
           <Copy className="size-3.5" />
         </IconButton>
+        <SignatureBadge hash={d.hash} />
       </div>
 
       {/* Message */}

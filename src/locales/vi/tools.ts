@@ -60,4 +60,45 @@ export const tools: Record<string, string> = {
   'Stop tracking with LFS': 'Ngừng lưu bằng LFS',
   'Copy pattern': 'Sao chép mẫu',
   '{n} file(s) are only pointers: download them': '{n} file mới chỉ là con trỏ: tải về',
+
+  // Commit signing
+  'Commit signing': 'Ký commit',
+  Verified: 'Đã xác minh',
+  'Signed with a trusted key.': 'Được ký bằng khoá tin cậy.',
+  Signed: 'Đã ký',
+  'Valid signature, but the key is not marked as trusted.':
+    'Chữ ký hợp lệ nhưng khoá chưa được đánh dấu tin cậy.',
+  'Expired signature': 'Chữ ký hết hạn',
+  'The signature or its key has expired.': 'Chữ ký hoặc khoá ký đã hết hạn.',
+  'Revoked key': 'Khoá đã bị thu hồi',
+  'Signed with a key that has been revoked.': 'Được ký bằng khoá đã bị thu hồi.',
+  'Bad signature': 'Chữ ký sai',
+  'The signature does not match this commit.': 'Chữ ký không khớp với commit này.',
+  'Signed (unverified)': 'Đã ký (chưa xác minh)',
+  'Signed, but it could not be checked here: the key is missing, or for SSH signatures gpg.ssh.allowedSignersFile is not set.':
+    'Đã ký nhưng không kiểm tra được ở đây: thiếu khoá, hoặc với chữ ký SSH thì chưa đặt gpg.ssh.allowedSignersFile.',
+  Signer: 'Người ký',
+  Key: 'Khoá',
+  'Could not read signing settings': 'Không đọc được cài đặt ký',
+  'Open a repository to change signing settings.': 'Mở một repository để đổi cài đặt ký.',
+  'Signing settings saved': 'Đã lưu cài đặt ký',
+  'Could not save signing settings': 'Không lưu được cài đặt ký',
+  'Settings for': 'Áp dụng cho',
+  'This repository': 'Repository này',
+  'All repositories': 'Mọi repository',
+  'Saved in this repository; it overrides the settings for all repositories.':
+    'Lưu trong repository này; ghi đè cài đặt chung cho mọi repository.',
+  'Saved in your global git config.': 'Lưu trong cấu hình git toàn cục của bạn.',
+  Sign: 'Ký',
+  'Sign every commit': 'Ký mọi commit',
+  'Sign annotated tags': 'Ký annotated tag',
+  'Signature type': 'Kiểu chữ ký',
+  'Not set (GPG)': 'Chưa đặt (GPG)',
+  'SSH key': 'Khoá SSH',
+  'Signing key': 'Khoá ký',
+  'Key ID, e.g. 3AA5C34371567BD2': 'Key ID, vd 3AA5C34371567BD2',
+  'Path to your public key (or the key itself). To verify SSH signatures, git also needs gpg.ssh.allowedSignersFile.':
+    'Đường dẫn tới public key (hoặc chính key). Để xác minh chữ ký SSH, git còn cần gpg.ssh.allowedSignersFile.',
+  'Empty: GPG picks the key matching your commit email.':
+    'Để trống: GPG tự chọn khoá khớp email commit của bạn.',
 };

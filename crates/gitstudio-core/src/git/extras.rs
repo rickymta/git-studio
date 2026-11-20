@@ -312,3 +312,168 @@ impl Repo {
         self.git_opts(&["lfs", verb], self.net(None).await).await
     }
 }
+
+// ---- commit signatures ------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SignatureStatus {
+    /// Valid signature by a trusted key (`G`).
+    Good,
+    /// Valid signature, key not known to be trusted (`U`).
+    Untrusted,
+    /// Valid signature that has expired (`X`), or made by an expired key (`Y`).
+    Expired,
+    /// Signed by a revoked key (`R`).
+    Revoked,
+    /// The signature does not match the commit (`B`).
+    Bad,
+    /// Signed, but it could not be checked: key missing, no allowed-signers file… (`E`).
+    Unverifiable,
+    /// Not signed (`N`).
+    None,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitSignature {
+    pub status: SignatureStatus,
+    pub signer: String,
+    pub key: String,
+    pub fingerprint: String,
+}
+
+/// Commit / tag signing settings (`commit.gpgSign`, `tag.gpgSign`, `gpg.format`,
+/// `user.signingKey`), as set in one scope.
+#[derive(Debug, Clone, Default, Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SigningConfig {
+    pub sign_commits: bool,
+    pub sign_tags: bool,
+    /// `openpgp` (GPG), `ssh` or `x509`; empty = git's default (openpgp).
+    pub format: String,
+    /// Key id (GPG) or public key / key file (SSH); empty = git's default.
+    pub key: String,
+}
+
+fn config_scope(scope: &str) -> Result<Option<&'static str>> {
+    match scope {
+        "effective" => Ok(None),
+        "local" => Ok(Some("--local")),
+        "global" => Ok(Some("--global")),
+        _ => Err(Error::Invalid(format!("Unknown config scope {scope}"))),
+    }
+}
+
+impl Repo {
+    /// Whether `hash` is signed, and whether the signature checks out.
+    pub async fn commit_signature(&self, hash: &str) -> Result<CommitSignature> {
+        check_rev(hash)?;
+        let out = self
+            .git(&[
+                "show",
+                "-s",
+                "--format=%G?%x1f%GS%x1f%GK%x1f%GF",
+                hash,
+                "--",
+            ])
+            .await?;
+        let mut f = out.trim_end_matches(['\n', '\r']).split('\x1f');
+        let status = match f.next().unwrap_or("N") {
+            "G" => SignatureStatus::Good,
+            "U" => SignatureStatus::Untrusted,
+            "X" | "Y" => SignatureStatus::Expired,
+            "R" => SignatureStatus::Revoked,
+            "B" => SignatureStatus::Bad,
+            "E" => SignatureStatus::Unverifiable,
+            _ => SignatureStatus::None,
+        };
+        let mut next = || f.next().unwrap_or("").to_string();
+        // Without gpg.ssh.allowedSignersFile git reports an SSH-signed commit as unsigned: look
+        // for the signature header itself.
+        let status = if status == SignatureStatus::None
+            && self
+                .git(&["cat-file", "commit", hash])
+                .await?
+                .split("\n\n")
+                .next()
+                .is_some_and(|h| h.lines().any(|l| l.starts_with("gpgsig")))
+        {
+            SignatureStatus::Unverifiable
+        } else {
+            status
+        };
+        Ok(CommitSignature {
+            status,
+            signer: next(),
+            key: next(),
+            fingerprint: next(),
+        })
+    }
+
+    async fn config_get(&self, scope: Option<&str>, key: &str) -> Option<String> {
+        let mut a = vec!["config"];
+        a.extend(scope);
+        a.extend(["--get", key]);
+        run::raw(Some(&self.root), &a, Opts::default())
+            .await
+            .ok()
+            .filter(|o| o.code == 0)
+            .map(|o| o.text().trim().to_string())
+    }
+
+    /// Signing settings in `scope`: `effective` (what git uses here), `local` or `global`.
+    pub async fn signing_config(&self, scope: &str) -> Result<SigningConfig> {
+        let s = config_scope(scope)?;
+        let truthy = |v: Option<String>| {
+            v.is_some_and(|v| matches!(v.to_lowercase().as_str(), "true" | "yes" | "on" | "1"))
+        };
+        Ok(SigningConfig {
+            sign_commits: truthy(self.config_get(s, "commit.gpgsign").await),
+            sign_tags: truthy(self.config_get(s, "tag.gpgsign").await),
+            format: self.config_get(s, "gpg.format").await.unwrap_or_default(),
+            key: self
+                .config_get(s, "user.signingkey")
+                .await
+                .unwrap_or_default(),
+        })
+    }
+
+    /// Write signing settings to `local` (this repository) or `global` config. Empty format /
+    /// key are removed, so git's defaults apply.
+    pub async fn set_signing(&self, cfg: &SigningConfig, scope: &str) -> Result<()> {
+        let s = match config_scope(scope)? {
+            Some(s) => s,
+            None => return Err(Error::Invalid("Choose local or global".into())),
+        };
+        if !matches!(cfg.format.as_str(), "" | "openpgp" | "ssh" | "x509") {
+            return Err(Error::Invalid(format!(
+                "Unknown signing format {}",
+                cfg.format
+            )));
+        }
+        if cfg.key.contains(['\0', '\n']) {
+            return Err(Error::Invalid("Invalid signing key".into()));
+        }
+        let bool_str = |b: bool| if b { "true" } else { "false" };
+        self.git(&["config", s, "commit.gpgsign", bool_str(cfg.sign_commits)])
+            .await?;
+        self.git(&["config", s, "tag.gpgsign", bool_str(cfg.sign_tags)])
+            .await?;
+        for (key, value) in [("gpg.format", &cfg.format), ("user.signingkey", &cfg.key)] {
+            let value = value.trim();
+            if value.is_empty() {
+                // Exit code 5: nothing to remove.
+                run::raw(
+                    Some(&self.root),
+                    &["config", s, "--unset", key],
+                    Opts::default(),
+                )
+                .await?;
+            } else {
+                self.git(&["config", s, key, value]).await?;
+            }
+        }
+        Ok(())
+    }
+}

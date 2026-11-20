@@ -9,6 +9,7 @@ import {
   ExternalLink,
   FolderGit2,
   KeyRound,
+  PenLine,
   Plug,
   RefreshCw,
   Settings as SettingsIcon,
@@ -48,6 +49,7 @@ import { ensureGitLabChecked, useGitLab } from '@/stores/gitlab';
 import { CredentialsPrefs } from './Credentials';
 import { OverlayPrefs } from './OverlayPrefs';
 import { RepoPrefs } from './RepoPrefs';
+import { SigningPrefs } from './SigningPrefs';
 import { useRepo } from '@/stores/repo';
 import { confirm, toast, useUi } from '@/stores/ui';
 
@@ -62,6 +64,7 @@ export type PrefSection =
   | 'import'
   | 'data'
   | 'overlay'
+  | 'signing'
   | 'repo';
 
 const SECTIONS: { id: PrefSection; label: string; icon: ReactNode }[] = [
@@ -69,6 +72,7 @@ const SECTIONS: { id: PrefSection; label: string; icon: ReactNode }[] = [
   { id: 'profile', label: 'Profile', icon: <User className="size-[18px]" /> },
   { id: 'ssh', label: 'SSH', icon: <ShieldCheck className="size-[18px]" /> },
   { id: 'credentials', label: 'Credentials', icon: <KeyRound className="size-[18px]" /> },
+  { id: 'signing', label: 'Commit signing', icon: <PenLine className="size-[18px]" /> },
   { id: 'integrations', label: 'Integrations', icon: <Plug className="size-[18px]" /> },
   { id: 'ui', label: 'UI Customization', icon: <Brush className="size-[18px]" /> },
   { id: 'tools', label: 'External Tools', icon: <Wrench className="size-[18px]" /> },
@@ -173,6 +177,7 @@ export function Preferences({
           {section === 'profile' && <Profile />}
           {section === 'ssh' && <Ssh />}
           {section === 'credentials' && <CredentialsPrefs />}
+          {section === 'signing' && <SigningPrefs />}
           {section === 'repo' && repoPath && <RepoPrefs repo={repoPath} />}
           {section === 'integrations' && <Integrations onSignIn={onSignIn} />}
           {section === 'ui' && <UiPrefs />}
