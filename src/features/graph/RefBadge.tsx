@@ -132,6 +132,11 @@ export function refMenu(ref: GitRef): MenuItem[] {
         label: t('Merge {source} into {target}', { source: ref.name, target: cur }),
         onSelect: () => A.mergeInto(ref.name),
       });
+    if (ahead)
+      integrate.push({
+        label: t('Squash merge {source} into {target}', { source: ref.name, target: cur }),
+        onSelect: () => A.squashMerge(ref.name),
+      });
     integrate.push({
       label: t('Rebase {branch} onto {target}', { branch: cur, target: ref.name }),
       onSelect: () => A.rebaseOnto(ref.name),

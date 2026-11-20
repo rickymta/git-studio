@@ -867,6 +867,13 @@ impl Repo {
         self.git(&a).await.map(drop)
     }
 
+    /// Bring `target`'s changes into the index and working tree as one set of changes, without
+    /// a merge commit or moving HEAD (`git merge --squash`); committing them is up to the user.
+    pub async fn merge_squash(&self, target: &str) -> Result<()> {
+        check_rev(target)?;
+        self.git(&["merge", "--squash", target]).await.map(drop)
+    }
+
     /// Move local `branch` forward to `target` without checking it out; anything but a
     /// fast-forward is refused. A branch checked out here or in another worktree is moved with
     /// `merge --ff-only` inside that worktree, so its files follow the branch.
@@ -994,16 +1001,46 @@ impl Repo {
         include_untracked: bool,
         staged_only: bool,
     ) -> Result<()> {
+        self.stash_push(&StashPush {
+            message: message.map(str::to_string),
+            include_untracked,
+            staged_only,
+            ..Default::default()
+        })
+        .await
+    }
+
+    /// `git stash push` with every option the UI offers: only some files (`paths`), keep the
+    /// staged changes in place as well (`keep_index`), or only the staged changes.
+    pub async fn stash_push(&self, o: &StashPush) -> Result<()> {
         let mut a = vec!["stash", "push"];
-        if staged_only {
+        if o.staged_only {
             a.push("--staged");
-        } else if include_untracked {
-            a.push("--include-untracked");
+        } else {
+            if o.include_untracked {
+                a.push("--include-untracked");
+            }
+            if o.keep_index {
+                a.push("--keep-index");
+            }
         }
-        if let Some(m) = message.filter(|m| !m.trim().is_empty()) {
+        if let Some(m) = o.message.as_deref().filter(|m| !m.trim().is_empty()) {
             a.extend(["-m", m]);
         }
+        if !o.paths.is_empty() {
+            a.push("--");
+            a.extend(checked_paths(&o.paths)?);
+        }
         self.git(&a).await.map(drop)
+    }
+
+    /// Check out a new branch at the commit stash `index` was made on and apply the stash there
+    /// (dropped when it applies cleanly): `git stash branch`.
+    pub async fn stash_branch(&self, name: &str, index: u32) -> Result<()> {
+        check_ref_name(&self.root, &format!("heads/{name}")).await?;
+        self.git(&["stash", "branch", name, &format!("stash@{{{index}}}")])
+            .await
+            .map(drop)
     }
 
     async fn stashes(&self) -> Result<Vec<model::Stash>> {
@@ -1564,6 +1601,23 @@ pub enum CheckoutKind {
     /// commits not on the remote are left only in the reflog.
     RemoteReset,
     Detached,
+}
+
+/// Options of `stash.save`.
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StashPush {
+    #[serde(default)]
+    pub message: Option<String>,
+    #[serde(default)]
+    pub include_untracked: bool,
+    #[serde(default)]
+    pub staged_only: bool,
+    #[serde(default)]
+    pub keep_index: bool,
+    /// Only these files (empty: everything).
+    #[serde(default)]
+    pub paths: Vec<String>,
 }
 
 /// What to look for in the whole history (`history.search`). Every non-empty field must match;

@@ -644,13 +644,54 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
             let msg: Option<String> = opt(a, "message")?;
             let untracked: Option<bool> = opt(a, "includeUntracked")?;
             let staged: Option<bool> = opt(a, "stagedOnly")?;
+            let keep_index: Option<bool> = opt(a, "keepIndex")?;
+            let paths: Option<Vec<String>> = opt(a, "paths")?;
             repo(a)
                 .await?
-                .stash_save_with(
-                    msg.as_deref(),
-                    untracked.unwrap_or(true),
-                    staged.unwrap_or(false),
-                )
+                .stash_push(&git::StashPush {
+                    message: msg,
+                    include_untracked: untracked.unwrap_or(true),
+                    staged_only: staged.unwrap_or(false),
+                    keep_index: keep_index.unwrap_or(false),
+                    paths: paths.unwrap_or_default(),
+                })
+                .await?;
+            return done();
+        }
+        "stash.branch" => {
+            repo(a)
+                .await?
+                .stash_branch(&arg::<String>(a, "name")?, arg(a, "index")?)
+                .await?;
+            return done();
+        }
+        "history.mergeSquash" => {
+            repo(a)
+                .await?
+                .merge_squash(&arg::<String>(a, "target")?)
+                .await?;
+            return done();
+        }
+        "files.ignore" => serde_json::to_value(
+            repo(a)
+                .await?
+                .add_to_gitignore(&arg::<String>(a, "pattern")?)
+                .await?,
+        )?,
+        "files.cleanPreview" => {
+            let ignored: Option<bool> = opt(a, "ignored")?;
+            serde_json::to_value(
+                repo(a)
+                    .await?
+                    .clean_preview(ignored.unwrap_or(false))
+                    .await?,
+            )?
+        }
+        "files.clean" => {
+            let ignored: Option<bool> = opt(a, "ignored")?;
+            repo(a)
+                .await?
+                .clean_paths(&arg::<Vec<String>>(a, "paths")?, ignored.unwrap_or(false))
                 .await?;
             return done();
         }

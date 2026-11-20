@@ -469,21 +469,40 @@ export async function mergeInto(target: string) {
     description: t('Merge {source} into {target}.', { source: target, target: cur }),
     fields: [
       {
-        name: 'noFf',
-        label: t('Always create a merge commit (--no-ff)'),
-        type: 'checkbox',
-        initial: false,
+        name: 'how',
+        label: t('Merge as'),
+        type: 'select',
+        initial: 'merge',
+        options: [
+          { value: 'merge', label: t('Fast-forward if possible, else a merge commit') },
+          { value: 'noFf', label: t('Always create a merge commit (--no-ff)') },
+          { value: 'squash', label: t('Squash: stage all changes, commit them yourself') },
+        ],
       },
     ],
     confirmLabel: t('Merge'),
   });
   if (!v) return;
+  if (v.how === 'squash') {
+    await squashMerge(target);
+    return;
+  }
   const ok = await run(
     'Merge',
-    (p) => api.merge(p, target, v.noFf as boolean),
+    (p) => api.merge(p, target, v.how === 'noFf'),
     t('Merged {name}', { name: target }),
   );
   if (ok) await showMergeResult(null);
+}
+
+/** `git merge --squash`: `target`'s changes end up staged on the current branch, uncommitted. */
+export async function squashMerge(target: string) {
+  const ok = await run(
+    'Squash merge',
+    (p) => api.mergeSquash(p, target),
+    t('Changes of {name} are staged: commit them to finish the squash merge', { name: target }),
+  );
+  if (ok) await repo().select({ type: 'wip' });
 }
 
 /**
@@ -747,15 +766,99 @@ export async function stash() {
     fields: [
       { name: 'message', label: t('Message (optional)') },
       { name: 'untracked', label: t('Include untracked files'), type: 'checkbox', initial: true },
+      {
+        name: 'keepIndex',
+        label: t('Keep staged changes in place (--keep-index)'),
+        type: 'checkbox',
+        initial: false,
+      },
     ],
     confirmLabel: t('Stash'),
   });
   if (v)
     await run(
       'Stash',
-      (p) => api.stashSave(p, v.message as string, v.untracked as boolean),
+      (p) =>
+        api.stashPush(p, {
+          message: v.message as string,
+          includeUntracked: v.untracked as boolean,
+          keepIndex: v.keepIndex as boolean,
+        }),
       t('Changes stashed'),
     );
+}
+
+/** Stash only these files (staged and unstaged changes of each; untracked ones included). */
+export async function stashFiles(paths: string[]) {
+  if (paths.length === 0) return;
+  const v = await ask({
+    title: paths.length === 1 ? t('Stash file') : t('Stash {n} files', { n: paths.length }),
+    description: paths.length === 1 ? paths[0] : undefined,
+    fields: [{ name: 'message', label: t('Message (optional)') }],
+    confirmLabel: t('Stash'),
+  });
+  if (v)
+    await run(
+      'Stash',
+      (p) => api.stashPush(p, { message: v.message as string, includeUntracked: true, paths }),
+      t('Changes stashed'),
+    );
+}
+
+/** Check out a new branch where the stash was made and apply the stash there. */
+export async function stashToBranch(s: Stash) {
+  const v = await ask({
+    title: t('Create branch from stash'),
+    description: t(
+      'The branch starts at the commit {name} was made on; the stash is applied there and dropped if it applies cleanly.',
+      { name: s.name },
+    ),
+    fields: [{ name: 'name', label: t('Branch name'), required: true }],
+    confirmLabel: t('Create branch'),
+  });
+  const name = (v?.name as string | undefined)?.trim();
+  if (name)
+    await run(
+      'Create branch from stash',
+      (p) => api.stashBranch(p, name, s.index),
+      t('Created {name} from {stash}', { name, stash: s.name }),
+    );
+}
+
+/** `.gitignore` patterns offered for a file: the file itself, its extension, its folders. */
+export function ignorePatterns(path: string): string[] {
+  const clean = path.replace(/\\/g, '/').replace(/\/+$/, '');
+  const out = [`/${clean}`];
+  const base = clean.split('/').pop() ?? clean;
+  const dot = base.lastIndexOf('.');
+  if (dot > 0 && dot < base.length - 1) out.push(`*${base.slice(dot)}`);
+  const dirs = clean.split('/').slice(0, -1);
+  for (let i = dirs.length; i > 0; i--) out.push(`/${dirs.slice(0, i).join('/')}/`);
+  return out;
+}
+
+/** Add a pattern for `path` (picked by the user) to the repository's .gitignore. */
+export async function ignoreFile(path: string) {
+  const patterns = ignorePatterns(path);
+  const v = await ask({
+    title: t('Add to .gitignore'),
+    fields: [
+      {
+        name: 'pattern',
+        label: t('Ignore'),
+        type: 'select',
+        initial: patterns[0],
+        options: patterns.map((p) => ({ value: p, label: p })),
+      },
+    ],
+    confirmLabel: t('Ignore'),
+  });
+  const pattern = v?.pattern as string | undefined;
+  if (!pattern) return;
+  await run('Ignore', async (p) => {
+    const added = await api.ignore(p, pattern);
+    if (!added) toast('info', t('{pattern} is already in .gitignore', { pattern }));
+  });
 }
 
 export async function stashOp(s: Stash, op: 'apply' | 'pop' | 'drop') {

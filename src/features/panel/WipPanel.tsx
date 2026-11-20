@@ -2,6 +2,7 @@ import {
   Archive,
   Check,
   ChevronDown,
+  Eraser,
   ChevronRight,
   GitCommitHorizontal,
   Minus,
@@ -18,8 +19,8 @@ import { api } from '@/lib/ipc';
 import { copyText, revealPath } from '@/lib/native';
 import type { FileChange } from '@/lib/types';
 import { useRepo } from '@/stores/repo';
-import { confirm, toast } from '@/stores/ui';
-import { commitChanges, push, stashStaged } from '../actions';
+import { confirm, openDialog, toast } from '@/stores/ui';
+import { commitChanges, ignoreFile, push, stashFiles, stashStaged } from '../actions';
 import {
   EmptyFiles,
   FILES_DRAG,
@@ -269,6 +270,13 @@ export function WipPanel() {
               },
             ]
           : []),
+        {
+          label: many ? t('Stash {n} files', { n }) : t('Stash file'),
+          onSelect: () => stashFiles(targets.map((x) => x.path)),
+        },
+        ...(f.status === '?' && !many
+          ? [{ label: t('Add to .gitignore…'), onSelect: () => ignoreFile(f.path) }]
+          : []),
         'sep' as const,
         {
           label: t('Open in editor'),
@@ -471,6 +479,9 @@ export function WipPanel() {
           className="border border-danger/50"
         >
           <Trash2 className="size-3.5 text-danger" />
+        </IconButton>
+        <IconButton label={t('Clean untracked files…')} onClick={() => openDialog('clean')}>
+          <Eraser className="size-3.5" />
         </IconButton>
         <span className="min-w-0 flex-1 truncate text-center">
           {headerParts[0]}

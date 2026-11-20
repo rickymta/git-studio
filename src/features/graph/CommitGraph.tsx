@@ -70,6 +70,7 @@ function stashMenu(s: Stash): MenuItem[] {
     { label: t('Delete Stash'), danger: true, onSelect: () => A.stashOp(s, 'drop') },
     'sep',
     { label: t('Edit stash message'), onSelect: () => A.editStashMessage(s) },
+    { label: t('Create branch from stash…'), onSelect: () => A.stashToBranch(s) },
     'sep',
     { label: t('Hide'), onSelect: () => A.hideStash(s) },
   ];

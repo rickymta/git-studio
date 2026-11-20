@@ -83,8 +83,12 @@ export function parseDiff(text: string): ParsedDiff {
 export function hunkPatch(diff: ParsedDiff, index: number): string {
   const hunk = diff.hunks[index];
   if (!hunk) throw new Error(`No hunk ${index}`);
-  // Keep only the header lines git apply needs.
-  const header = diff.header.filter(
+  return [...patchHeader(diff), ...hunk.raw].join('\n') + '\n';
+}
+
+/** The file header lines `git apply` needs. */
+function patchHeader(diff: ParsedDiff): string[] {
+  return diff.header.filter(
     (l) =>
       l.startsWith('diff --git') ||
       l.startsWith('--- ') ||
@@ -94,7 +98,46 @@ export function hunkPatch(diff: ParsedDiff, index: number): string {
       l.startsWith('old mode') ||
       l.startsWith('new mode'),
   );
-  return [...header, ...hunk.raw].join('\n') + '\n';
+}
+
+/**
+ * A patch with only the chosen changed lines of hunk `index` (`lines`: indexes into the hunk's
+ * `lines`). The other changes stay where they are: applied forward (stage), an unchosen addition
+ * is left out and an unchosen removal becomes context; applied in `reverse` (unstage, discard),
+ * the target already has the new side, so an unchosen addition becomes context and an unchosen
+ * removal is left out. Null when no changed line is chosen. Apply with `--recount`.
+ */
+export function linesPatch(
+  diff: ParsedDiff,
+  index: number,
+  lines: Iterable<number>,
+  reverse: boolean,
+): string | null {
+  const hunk = diff.hunks[index];
+  if (!hunk) throw new Error(`No hunk ${index}`);
+  const chosen = new Set(lines);
+  if (!hunk.lines.some((l, i) => chosen.has(i) && (l.kind === 'add' || l.kind === 'del')))
+    return null;
+  const body: string[] = [];
+  // Whether the line before a "\ No newline at end of file" marker was kept.
+  let kept = true;
+  hunk.lines.forEach((l, i) => {
+    const raw = hunk.raw[i + 1]!;
+    if (l.kind === 'meta') {
+      if (kept) body.push(raw);
+      return;
+    }
+    if (l.kind === 'ctx' || chosen.has(i)) {
+      body.push(raw);
+      kept = true;
+      return;
+    }
+    // An unchosen change: kept as context on the side the patch is applied to, else dropped.
+    const asContext = reverse ? l.kind === 'add' : l.kind === 'del';
+    if (asContext) body.push(` ${raw.slice(1)}`);
+    kept = asContext;
+  });
+  return [...patchHeader(diff), hunk.raw[0]!, ...body].join('\n') + '\n';
 }
 
 /** A run of consecutive added/removed lines: what ↑/↓ navigation jumps between. */

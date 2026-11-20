@@ -231,4 +231,37 @@ export const panels: Record<string, string> = {
   lost: 'mất',
   'Show older entries': 'Xem các mục cũ hơn',
   'Copy {selector}': 'Copy {selector}',
+
+  // Squash merge, stash options, .gitignore, clean
+  'Merge as': 'Kiểu merge',
+  'Fast-forward if possible, else a merge commit':
+    'Fast-forward nếu được, nếu không thì tạo merge commit',
+  'Squash: stage all changes, commit them yourself':
+    'Squash: stage toàn bộ thay đổi, bạn tự commit',
+  'Squash merge {source} into {target}': 'Squash merge {source} vào {target}',
+  'Changes of {name} are staged: commit them to finish the squash merge':
+    'Thay đổi của {name} đã được stage: hãy commit để hoàn tất squash merge',
+  'Keep staged changes in place (--keep-index)': 'Giữ nguyên các thay đổi đã stage (--keep-index)',
+  'Stash file': 'Stash file',
+  'Stash {n} files': 'Stash {n} file',
+  'Create branch from stash': 'Tạo nhánh từ stash',
+  'Create branch from stash…': 'Tạo nhánh từ stash…',
+  'The branch starts at the commit {name} was made on; the stash is applied there and dropped if it applies cleanly.':
+    'Nhánh bắt đầu tại commit nơi {name} được tạo; stash được áp dụng ở đó và tự xoá nếu áp dụng không xung đột.',
+  'Created {name} from {stash}': 'Đã tạo {name} từ {stash}',
+  'Add to .gitignore': 'Thêm vào .gitignore',
+  'Add to .gitignore…': 'Thêm vào .gitignore…',
+  Ignore: 'Bỏ qua',
+  '{pattern} is already in .gitignore': '{pattern} đã có trong .gitignore',
+  'Clean untracked files…': 'Dọn file chưa theo dõi…',
+  'Clean working tree': 'Dọn thư mục làm việc',
+  'Delete untracked files and folders. They are not in git, so this cannot be undone.':
+    'Xoá các file và thư mục chưa được git theo dõi. Chúng không có trong git nên không thể khôi phục.',
+  'Also delete ignored files (build output, dependencies…)':
+    'Xoá cả file bị bỏ qua (kết quả build, thư viện phụ thuộc…)',
+  'Nothing to clean.': 'Không có gì để dọn.',
+  'Untick all': 'Bỏ chọn tất cả',
+  'Tick all': 'Chọn tất cả',
+  'Delete {n} item(s)': 'Xoá {n} mục',
+  'Deleted {n} untracked item(s)': 'Đã xoá {n} mục chưa theo dõi',
 };

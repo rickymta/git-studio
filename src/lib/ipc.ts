@@ -216,6 +216,16 @@ export const api = {
     call<null>('branch.fastForward', { repo, branch, target }),
   merge: (repo: string, target: string, noFf = false) =>
     call<null>('history.merge', { repo, target, noFf }),
+  /** `git merge --squash`: the changes are staged, nothing is committed. */
+  mergeSquash: (repo: string, target: string) =>
+    call<null>('history.mergeSquash', { repo, target }),
+  /** Append `pattern` to the top-level .gitignore; false when it is already there. */
+  ignore: (repo: string, pattern: string) => call<boolean>('files.ignore', { repo, pattern }),
+  /** Untracked files and folders `git clean` would delete (folders end with `/`). */
+  cleanPreview: (repo: string, ignored = false) =>
+    call<string[]>('files.cleanPreview', { repo, ignored }),
+  clean: (repo: string, paths: string[], ignored = false) =>
+    call<null>('files.clean', { repo, paths, ignored }),
   rebase: (repo: string, onto: string) => call<null>('history.rebase', { repo, onto }),
   cherryPick: (repo: string, hash: string, isMerge: boolean) =>
     call<null>('history.cherryPick', { repo, hash, isMerge }),
@@ -229,6 +239,19 @@ export const api = {
   deleteTag: (repo: string, name: string) => call<null>('tag.delete', { repo, name }),
   stashSave: (repo: string, message?: string, includeUntracked = true, stagedOnly = false) =>
     call<null>('stash.save', { repo, message, includeUntracked, stagedOnly }),
+  /** `git stash push` with options: only `paths`, keep the staged changes (`keepIndex`). */
+  stashPush: (
+    repo: string,
+    o: {
+      message?: string;
+      includeUntracked?: boolean;
+      keepIndex?: boolean;
+      paths?: string[];
+    },
+  ) => call<null>('stash.save', { repo, ...o }),
+  /** New branch at the stash's base commit with the stash applied (`git stash branch`). */
+  stashBranch: (repo: string, name: string, index: number) =>
+    call<null>('stash.branch', { repo, name, index }),
   stashRename: (repo: string, index: number, message: string) =>
     call<null>('stash.rename', { repo, index, message }),
   stashOp: (repo: string, op: 'apply' | 'pop' | 'drop', index: number) =>

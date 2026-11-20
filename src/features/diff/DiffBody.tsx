@@ -12,7 +12,14 @@ import {
 } from 'react';
 
 import { Button, Spinner, cn } from '@/components/ui';
-import { changeBlocks, hunkPatch, parseDiff, type DiffLine, type ParsedDiff } from '@/lib/diff';
+import {
+  changeBlocks,
+  hunkPatch,
+  linesPatch,
+  parseDiff,
+  type DiffLine,
+  type ParsedDiff,
+} from '@/lib/diff';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import type { DiffRequest } from '@/lib/types';
@@ -201,12 +208,51 @@ export function DiffBody({
   // Hunk actions only from the normal diff, and never on a whitespace-insensitive one
   // (its hunks don't match the file byte for byte).
   const canAct = actions !== 'none' && !ignoreWhitespace && !!normal;
-  const act = async (i: number, kind: 'stage' | 'unstage' | 'discard' | 'revert') => {
+
+  // Line staging (hunk layout): changed lines picked in one hunk, by clicking their gutter.
+  const canPick = canAct && layout === 'hunk' && (actions === 'unstaged' || actions === 'staged');
+  const pickKey = `${dataKey}|${String(refreshKey)}`;
+  const [pickedState, setPicked] = useState<{
+    key: string;
+    hunk: number;
+    lines: number[];
+    anchor: number;
+  } | null>(null);
+  const picked = canPick && pickedState?.key === pickKey ? pickedState : null;
+  const lineIndex = useMemo(() => {
+    const m = new Map<DiffLine, number>();
+    normal?.hunks.forEach((h) => h.lines.forEach((l, i) => m.set(l, i)));
+    return m;
+  }, [normal]);
+  const pickLine = (hunk: number, l: DiffLine, e: React.MouseEvent) => {
+    const i = lineIndex.get(l);
+    if (i === undefined || !normal || (l.kind !== 'add' && l.kind !== 'del')) return;
+    const same = picked?.hunk === hunk ? picked : null;
+    let lines: number[];
+    if (e.shiftKey && same) {
+      const [lo, hi] = same.anchor < i ? [same.anchor, i] : [i, same.anchor];
+      const range = normal.hunks[hunk]!.lines.flatMap((x, j) =>
+        j >= lo && j <= hi && (x.kind === 'add' || x.kind === 'del') ? [j] : [],
+      );
+      lines = [...new Set([...same.lines, ...range])];
+    } else if (same?.lines.includes(i)) {
+      lines = same.lines.filter((j) => j !== i);
+    } else {
+      lines = [...(same?.lines ?? []), i];
+    }
+    setPicked(lines.length ? { key: pickKey, hunk, lines, anchor: i } : null);
+  };
+
+  const act = async (
+    i: number,
+    kind: 'stage' | 'unstage' | 'discard' | 'revert',
+    lines?: number[],
+  ) => {
     if (!normal) return;
     if (
       (kind === 'discard' || kind === 'revert') &&
       !(await confirm(
-        kind === 'discard' ? t('Discard hunk') : t('Revert hunk'),
+        kind === 'discard' ? (lines ? t('Discard lines') : t('Discard hunk')) : t('Revert hunk'),
         kind === 'discard'
           ? t('Discard this change from the working tree? This cannot be undone.')
           : t(
@@ -217,23 +263,68 @@ export function DiffBody({
       ))
     )
       return;
-    const patch = hunkPatch(normal, i);
-    const label =
-      kind === 'stage'
-        ? 'Stage hunk'
-        : kind === 'unstage'
-          ? 'Unstage hunk'
-          : kind === 'discard'
-            ? 'Discard hunk'
-            : 'Revert hunk';
     // stage: index forward; unstage: index reverse; discard/revert: working tree reverse.
     const cached = kind === 'stage' || kind === 'unstage';
     const reverse = kind !== 'stage';
-    await run(label, (p) => api.applyPatch(p, patch, cached, reverse, encoding));
+    const patch = lines ? linesPatch(normal, i, lines, reverse) : hunkPatch(normal, i);
+    if (!patch) return;
+    const what = lines ? 'lines' : 'hunk';
+    const label =
+      kind === 'stage'
+        ? `Stage ${what}`
+        : kind === 'unstage'
+          ? `Unstage ${what}`
+          : kind === 'discard'
+            ? `Discard ${what}`
+            : 'Revert hunk';
+    const ok = await run(label, (p) => api.applyPatch(p, patch, cached, reverse, encoding));
+    if (ok && lines) setPicked(null);
+  };
+
+  /** Buttons for the lines picked in hunk `i`, in place of its hunk buttons. */
+  const lineButtons = (i: number, lines: number[]) => {
+    const n = lines.length;
+    return (
+      <span className="ml-auto flex gap-1.5 font-sans">
+        <Button size="sm" variant="ghost" className="h-5" onClick={() => setPicked(null)}>
+          {t('Clear')}
+        </Button>
+        {actions === 'unstaged' && (
+          <>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-5 border border-danger/60 text-danger"
+              onClick={() => act(i, 'discard', lines)}
+            >
+              <Undo2 className="size-3" /> {t('Discard {n} line(s)', { n })}
+            </Button>
+            <Button
+              size="sm"
+              className="h-5 border-success/60 bg-success-soft text-success"
+              onClick={() => act(i, 'stage', lines)}
+            >
+              <Plus className="size-3" /> {t('Stage {n} line(s)', { n })}
+            </Button>
+          </>
+        )}
+        {actions === 'staged' && (
+          <Button
+            size="sm"
+            className="h-5 border-danger/60 bg-danger-soft text-danger"
+            onClick={() => act(i, 'unstage', lines)}
+          >
+            <Minus className="size-3" /> {t('Unstage {n} line(s)', { n })}
+          </Button>
+        )}
+      </span>
+    );
   };
 
   const hunkButtons = (i: number) =>
-    !canAct ? null : (
+    !canAct ? null : picked?.hunk === i ? (
+      lineButtons(i, picked.lines)
+    ) : (
       <span className="ml-auto flex gap-1.5 font-sans">
         {actions === 'unstaged' && (
           <>
@@ -330,22 +421,36 @@ export function DiffBody({
     </div>
   );
 
-  const line = (l: DiffLine) => (
-    <div className={cn('flex', bg(l.kind))}>
-      <span className={GUTTER}>{l.oldNo ?? ''}</span>
-      <span className={GUTTER}>{l.newNo ?? ''}</span>
-      <span className={signCls(l.kind)}>{sign(l.kind)}</span>
-      <span
-        className={cn(
-          'min-w-0 flex-1 pr-4',
-          textCls,
-          l.kind === 'meta' && 'text-muted-foreground italic',
-        )}
-      >
-        {l.text || ' '}
-      </span>
-    </div>
-  );
+  const line = (l: DiffLine, hunk: number) => {
+    const pickable = canPick && (l.kind === 'add' || l.kind === 'del');
+    const on = picked?.hunk === hunk && picked.lines.includes(lineIndex.get(l) ?? -1);
+    return (
+      <div className={cn('flex', bg(l.kind), on && 'shadow-[inset_3px_0_0_var(--accent)]')}>
+        <span
+          className={cn(
+            'flex shrink-0',
+            pickable && 'cursor-pointer hover:bg-accent/15',
+            on && 'bg-accent/25',
+          )}
+          title={pickable ? t('Click to pick this line, Shift + click for a range') : undefined}
+          onClick={pickable ? (e) => pickLine(hunk, l, e) : undefined}
+        >
+          <span className={GUTTER}>{l.oldNo ?? ''}</span>
+          <span className={GUTTER}>{l.newNo ?? ''}</span>
+          <span className={signCls(l.kind)}>{sign(l.kind)}</span>
+        </span>
+        <span
+          className={cn(
+            'min-w-0 flex-1 pr-4',
+            textCls,
+            l.kind === 'meta' && 'text-muted-foreground italic',
+          )}
+        >
+          {l.text || ' '}
+        </span>
+      </div>
+    );
+  };
 
   const side = (l: DiffLine | null, which: 'a' | 'b') => {
     const edge = which === 'a' && 'border-r border-border';
@@ -392,7 +497,7 @@ export function DiffBody({
           </div>
         );
       case 'line':
-        return line(r.line);
+        return line(r.line, r.hunk);
       case 'pair':
         return (
           <div className="grid grid-cols-2">

@@ -107,4 +107,13 @@ export const diff: Record<string, string> = {
   'Repo-Specific Preferences': 'Tuỳ chọn riêng cho repository',
   'Repo: {name}': 'Repo: {name}',
   Credentials: 'Thông tin đăng nhập',
+
+  // Line staging
+  Clear: 'Bỏ chọn',
+  'Discard lines': 'Huỷ bỏ các dòng',
+  'Discard {n} line(s)': 'Huỷ bỏ {n} dòng',
+  'Stage {n} line(s)': 'Stage {n} dòng',
+  'Unstage {n} line(s)': 'Unstage {n} dòng',
+  'Click to pick this line, Shift + click for a range':
+    'Click để chọn dòng này, Shift + click để chọn một dải',
 };

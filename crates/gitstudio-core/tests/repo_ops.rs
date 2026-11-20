@@ -899,3 +899,93 @@ async fn search_finds_commits_by_message_author_content_and_path() {
     // Nothing to look for.
     assert!(r.search_commits(&q(" ", "", "", ""), 50).await.is_err());
 }
+
+#[tokio::test]
+async fn squash_merge_stash_options_ignore_and_clean() {
+    use gitstudio_core::git::StashPush;
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("repo");
+    let r = new_repo(&dir).await;
+    commit_file(&r, &dir, "a").await;
+
+    // merge --squash: the changes are staged, no merge commit, HEAD stays.
+    sh(&dir, &["switch", "-q", "-c", "topic"]);
+    commit_file(&r, &dir, "t1").await;
+    commit_file(&r, &dir, "t2").await;
+    sh(&dir, &["switch", "-q", "main"]);
+    let head = r.status().await.unwrap().head;
+    r.merge_squash("topic").await.unwrap();
+    let st = r.status().await.unwrap();
+    assert_eq!(st.head, head);
+    let mut staged: Vec<_> = st.staged.iter().map(|f| f.path.as_str()).collect();
+    staged.sort();
+    assert_eq!(staged, ["t1", "t2"]);
+    r.commit("squashed topic", false).await.unwrap();
+
+    // Stash only one file, keeping the other change in place.
+    std::fs::write(dir.join("a"), "a changed").unwrap();
+    std::fs::write(dir.join("t1"), "t1 changed").unwrap();
+    r.stash_push(&StashPush {
+        message: Some("only a".into()),
+        paths: vec!["a".into()],
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let st = r.status().await.unwrap();
+    let left: Vec<_> = st.unstaged.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(left, ["t1"]);
+
+    // Keep index: the staged change is stashed and also stays staged.
+    r.stage(&["t1".into()]).await.unwrap();
+    r.stash_push(&StashPush {
+        keep_index: true,
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let st = r.status().await.unwrap();
+    assert_eq!(st.staged.len(), 1);
+    r.unstage(&[]).await.unwrap();
+    r.discard(&["t1".into()], &[]).await.unwrap();
+
+    // Stash to a new branch: stash@{1} is "only a", made on the squashed commit.
+    r.stash_branch("from-stash", 1).await.unwrap();
+    let st = r.status().await.unwrap();
+    assert_eq!(st.branch.as_deref(), Some("from-stash"));
+    assert_eq!(std::fs::read_to_string(dir.join("a")).unwrap(), "a changed");
+    assert!(r.stash_branch("bad name..", 0).await.is_err());
+
+    // .gitignore: appended once, created when missing.
+    assert!(r.add_to_gitignore("*.log").await.unwrap());
+    assert!(!r.add_to_gitignore("*.log").await.unwrap());
+    assert!(r.add_to_gitignore("build/").await.unwrap());
+    assert_eq!(
+        std::fs::read_to_string(dir.join(".gitignore")).unwrap(),
+        "*.log\nbuild/\n"
+    );
+    assert!(r.add_to_gitignore("a\nb").await.is_err());
+
+    // Clean: untracked files and folders; ignored ones only when asked.
+    std::fs::write(dir.join("junk.txt"), "x").unwrap();
+    std::fs::create_dir_all(dir.join("tmp dir")).unwrap();
+    std::fs::write(dir.join("tmp dir/x"), "x").unwrap();
+    std::fs::write(dir.join("debug.log"), "x").unwrap();
+    let mut plain = r.clean_preview(false).await.unwrap();
+    plain.sort();
+    assert_eq!(plain, [".gitignore", "junk.txt", "tmp dir/"]);
+    assert!(
+        r.clean_preview(true)
+            .await
+            .unwrap()
+            .contains(&"debug.log".to_string())
+    );
+    r.clean_paths(&["junk.txt".into(), "tmp dir/".into()], false)
+        .await
+        .unwrap();
+    assert!(!dir.join("junk.txt").exists());
+    assert!(!dir.join("tmp dir").exists());
+    assert!(dir.join("debug.log").exists());
+    r.clean_paths(&["debug.log".into()], true).await.unwrap();
+    assert!(!dir.join("debug.log").exists());
+}
