@@ -32,6 +32,8 @@ pub struct Settings {
     pub initial_commits: u32,
     /// Reopen the tabs of the last session.
     pub remember_tabs: bool,
+    /// Show commit authors' Gravatar pictures (fetched from gravatar.com by email hash).
+    pub gravatar: bool,
     /// Command that opens a file or folder in an editor (e.g. `code`).
     pub external_editor: String,
     /// `auto`, `wt`, `powershell`, `cmd` or `gitbash`.
@@ -60,6 +62,7 @@ impl Default for Settings {
             default_branch: "main".into(),
             initial_commits: 2000,
             remember_tabs: true,
+            gravatar: true,
             external_editor: "code".into(),
             terminal: "auto".into(),
             history_retention_days: 30,

@@ -696,7 +696,9 @@ function WorktreesSection() {
               </span>
             ) : (
               <span title={t('Linked worktree')} className="inline-flex shrink-0">
-                <TreeDeciduous className={cn('size-3.5', !w.isCurrent && 'text-muted-foreground')} />
+                <TreeDeciduous
+                  className={cn('size-3.5', !w.isCurrent && 'text-muted-foreground')}
+                />
               </span>
             )}
             <span className="min-w-0 shrink truncate">{A.baseName(w.path)}</span>

@@ -570,6 +570,14 @@ function General() {
       <Row label={t('Remember Tabs')} help={t('Reopen the repository tabs of your last session.')}>
         <Toggle checked={s.rememberTabs} onChange={(v) => update({ rememberTabs: v })} />
       </Row>
+      <Row
+        label={t('Gravatar')}
+        help={t(
+          "Show commit authors' pictures from gravatar.com. Only a hash of the author email is sent; authors without one keep their initials.",
+        )}
+      >
+        <Toggle checked={s.gravatar} onChange={(v) => update({ gravatar: v })} />
+      </Row>
       <Row label={t('Default Clone Folder')}>
         <div className="flex gap-1">
           <Field value={s.cloneDir} onSave={(v) => update({ cloneDir: v })} className="w-[420px]" />

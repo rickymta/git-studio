@@ -123,6 +123,8 @@ export interface Settings {
   defaultBranch: string;
   initialCommits: number;
   rememberTabs: boolean;
+  /** Show commit authors' Gravatar pictures. */
+  gravatar: boolean;
   externalEditor: string;
   terminal: 'auto' | 'wt' | 'powershell' | 'cmd' | 'gitbash';
   /** Days of activity history kept; 0 keeps everything. */

@@ -354,7 +354,7 @@ export function CommitPanel({ hash }: { hash: string }) {
       {/* Author, parent, co-authors */}
       <div className="shrink-0 px-3 pb-2">
         <div className="flex items-start gap-3">
-          <Avatar name={d.authorName} size={40} />
+          <Avatar name={d.authorName} email={d.authorEmail} size={40} />
           <div className="min-w-0 flex-1">
             <div className="truncate text-[15px] font-medium" title={d.authorEmail}>
               {d.authorName}
@@ -391,7 +391,7 @@ export function CommitPanel({ hash }: { hash: string }) {
             <span className="flex gap-1">
               {coauthors.map((c) => (
                 <span key={c.email} title={`${c.name} <${c.email}>`}>
-                  <Avatar name={c.name} size={22} />
+                  <Avatar name={c.name} email={c.email} size={22} />
                 </span>
               ))}
             </span>

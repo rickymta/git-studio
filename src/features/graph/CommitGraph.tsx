@@ -1,6 +1,6 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronDown, ChevronUp, LocateFixed, Search, X } from 'lucide-react';
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import {
   Avatar,
@@ -12,6 +12,7 @@ import {
   usePersistentWidth,
   type MenuItem,
 } from '@/components/ui';
+import { useGravatar } from '@/components/useGravatar';
 import { fullDate, hue, initials, relativeTime, short } from '@/lib/format';
 import { laneColor, type GraphRow, type Segment } from '@/lib/graph';
 import { t } from '@/lib/i18n';
@@ -978,6 +979,7 @@ const CommitRow = memo(function CommitRow({
             stash={!!c.stash}
             head={isHead}
             name={c.authorName}
+            email={c.authorEmail}
             withRefs={groups.length > 0 && show.has('refs')}
           />
         )}
@@ -1015,7 +1017,7 @@ const CommitRow = memo(function CommitRow({
             style={{ width: 'var(--author-w)' }}
             title={`${c.authorName} <${c.authorEmail}>`}
           >
-            <Avatar name={c.authorName} size={16} />
+            <Avatar name={c.authorName} email={c.authorEmail} size={16} />
             <span className="min-w-0 truncate">{c.authorName}</span>
           </div>
         )}
@@ -1071,6 +1073,7 @@ function GraphCell({
   stash,
   head,
   name,
+  email,
   withRefs,
 }: {
   row: GraphRow;
@@ -1080,12 +1083,18 @@ function GraphCell({
   stash: boolean;
   head: boolean;
   name: string;
+  email: string;
   withRefs: boolean;
 }) {
   const cx = laneX(row.lane, geom);
   const cy = ROW / 2;
   const R = geom.node;
   const color = laneColor(row.color);
+  // The author's Gravatar fills the avatar node (not compact dots, merges or stashes); the
+  // initials underneath show until it has loaded, and stay when there is none.
+  const face = R - 1.5;
+  const gravatar = useGravatar(geom.compact || merge || stash ? null : email, face * 2);
+  const clip = `gv${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
   return (
     <svg width={width} height={ROW} className="relative shrink-0 overflow-hidden">
       {withRefs && <line x1={0} x2={cx} y1={cy} y2={cy} stroke={color} strokeWidth={2} />}
@@ -1177,6 +1186,26 @@ function GraphCell({
           >
             {initials(name)}
           </text>
+          {gravatar.url && (
+            <>
+              <clipPath id={clip}>
+                <circle cx={cx} cy={cy} r={face} />
+              </clipPath>
+              <image
+                href={gravatar.url}
+                x={cx - face}
+                y={cy - face}
+                width={face * 2}
+                height={face * 2}
+                clipPath={`url(#${clip})`}
+                preserveAspectRatio="xMidYMid slice"
+                onError={gravatar.fail}
+              />
+              {head && (
+                <circle cx={cx} cy={cy} r={face} fill="none" stroke="white" strokeWidth={1} />
+              )}
+            </>
+          )}
         </g>
       )}
       {/* The checked-out commit: a ring in the text colour around the node, so HEAD stands out
