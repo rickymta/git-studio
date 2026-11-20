@@ -2,10 +2,12 @@
 
 Các thay đổi đáng chú ý của GitStudio. File này do `pnpm release` cập nhật.
 
-## v0.2.0 - 2026-11-20
+## v0.2.1 - 2026-11-20
 
-Thay đổi từ v0.1.4.
+Thay đổi từ v0.1.4. Bản v0.2.0 không được phát hành (test bisect lỗi trên CI), nên bản này gồm
+toàn bộ thay đổi của v0.2.0 cùng bản sửa đó.
 
+- fix(bisect): find the first bad commit when git does not log it (183e3d6)
 - test: component tests for image diff, bisect, maintenance and merge tools (c45df6e)
 - refactor: move non-component exports out of component files (10aa0be)
 - feat: repository maintenance (4e5eb10)
@@ -28,6 +30,10 @@ Thay đổi từ v0.1.4.
 - feat(head): show and manage HEAD in the graph, sidebar and toolbar (8793194)
 - feat(ui): tree icon for worktrees in the sidebar and branch badges (338d183)
 - docs: refresh README; add MIT LICENSE and CONTRIBUTING (856d81f)
+
+## v0.2.0 - 2026-11-20
+
+Không phát hành (test lỗi trên CI); các thay đổi nằm trong v0.2.1.
 
 ## v0.1.4 - 2026-11-19
 
