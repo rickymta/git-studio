@@ -507,3 +507,18 @@ export interface HostCredential {
   repoChoice: string | null;
   globalChoice: string | null;
 }
+
+export type SubmoduleState = 'clean' | 'uninitialized' | 'modified' | 'conflict';
+
+export interface Submodule {
+  name: string;
+  /** Relative to the repository root. */
+  path: string;
+  url: string;
+  branch: string | null;
+  /** Commit the repository records for it. */
+  recorded: string | null;
+  /** Commit checked out in it (null until initialised). */
+  current: string | null;
+  state: SubmoduleState;
+}

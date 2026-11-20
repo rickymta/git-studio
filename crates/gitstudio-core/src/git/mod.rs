@@ -1,6 +1,7 @@
 //! Git operations, implemented on top of the `git` CLI so behaviour (hooks, credential helpers,
 //! config, LFS…) matches what the user gets in a terminal.
 
+pub mod extras;
 pub mod files;
 pub mod model;
 pub mod parse;

@@ -1031,3 +1031,57 @@ async fn clone_with_branch_origin_depth_and_bare() {
     git::clone_run(&url, &bare, None, &opts).await.unwrap();
     assert!(bare.join("HEAD").exists() && !bare.join(".git").exists());
 }
+
+#[tokio::test]
+async fn submodules_list_update_and_deinit() {
+    use gitstudio_core::git::extras::SubmoduleState as S;
+    let tmp = tempfile::tempdir().unwrap();
+    let sub_dir = tmp.path().join("sub");
+    let sub = new_repo(&sub_dir).await;
+    commit_file(&sub, &sub_dir, "one").await;
+    commit_file(&sub, &sub_dir, "two").await;
+    let dir = tmp.path().join("super");
+    let r = new_repo(&dir).await;
+    assert!(r.submodules().await.unwrap().is_empty());
+    commit_file(&r, &dir, "readme").await;
+    let url = sub_dir.display().to_string().replace('\\', "/");
+    sh(
+        &dir,
+        &[
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            "-q",
+            &url,
+            "libs/my sub",
+        ],
+    );
+    r.commit("add submodule", false).await.unwrap();
+
+    let list = r.submodules().await.unwrap();
+    assert_eq!(list.len(), 1);
+    let m = &list[0];
+    assert_eq!((m.path.as_str(), m.state), ("libs/my sub", S::Clean));
+    assert_eq!(m.url, url);
+    assert!(m.recorded.is_some() && m.recorded == m.current);
+
+    // Another commit checked out inside: modified until updated.
+    sh(&dir.join("libs/my sub"), &["checkout", "-q", "HEAD~1"]);
+    assert_eq!(r.submodules().await.unwrap()[0].state, S::Modified);
+    r.submodule_update(&[], true).await.unwrap();
+    assert_eq!(r.submodules().await.unwrap()[0].state, S::Clean);
+
+    r.submodule_deinit("libs/my sub", true).await.unwrap();
+    let m = r.submodules().await.unwrap().remove(0);
+    assert_eq!(m.state, S::Uninitialized);
+    assert!(m.current.is_none());
+    // Its clone is kept in .git/modules: init again without fetching.
+    r.submodule_update(&["libs/my sub".into()], false)
+        .await
+        .unwrap();
+    assert_eq!(r.submodules().await.unwrap()[0].state, S::Clean);
+    r.submodule_sync().await.unwrap();
+
+    assert!(r.submodule_add("-x", "p", None).await.is_err());
+}

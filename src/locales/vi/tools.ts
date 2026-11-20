@@ -1,0 +1,37 @@
+// Submodules, LFS, signatures, bisect, merge tools, image diff, maintenance.
+export const tools: Record<string, string> = {
+  // Submodules
+  Submodules: 'Submodule',
+  'Submodule actions': 'Thao tác submodule',
+  'No submodules.': 'Không có submodule.',
+  'Add submodule': 'Thêm submodule',
+  'Add submodule…': 'Thêm submodule…',
+  'Update all submodules': 'Cập nhật tất cả submodule',
+  'Sync URLs from .gitmodules': 'Đồng bộ URL từ .gitmodules',
+  'Update {n} out-of-date submodule(s)': 'Cập nhật {n} submodule chưa khớp',
+  'Up to date': 'Đã khớp',
+  'Not initialised': 'Chưa khởi tạo',
+  'Checked out at another commit than recorded': 'Đang checkout commit khác commit đã ghi nhận',
+  'Merge conflict': 'Xung đột merge',
+  'Open submodule': 'Mở submodule',
+  'Initialise and update': 'Khởi tạo và cập nhật',
+  'Update to recorded commit': 'Cập nhật về commit đã ghi nhận',
+  'Copy path': 'Sao chép đường dẫn',
+  'Copy URL': 'Sao chép URL',
+  'Show in file manager': 'Mở trong trình quản lý file',
+  'Deinitialise…': 'Huỷ khởi tạo…',
+  'Deinitialise submodule': 'Huỷ khởi tạo submodule',
+  Deinitialise: 'Huỷ khởi tạo',
+  'Empty the folder {path} and stop checking it out? Local changes in it are lost; Update brings it back.':
+    'Làm trống thư mục {path} và ngừng checkout nó? Thay đổi chưa commit trong đó sẽ mất; dùng Cập nhật để lấy lại.',
+  'Deinitialised {name}': 'Đã huỷ khởi tạo {name}',
+  'Updated {name}': 'Đã cập nhật {name}',
+  'Submodules updated': 'Đã cập nhật các submodule',
+  'Submodule URLs synced': 'Đã đồng bộ URL submodule',
+  'Clones the repository into a folder of this one; commit to record it.':
+    'Clone repository vào một thư mục của repo này; commit để ghi nhận.',
+  'Repository URL': 'URL repository',
+  'Folder (relative to the repository)': 'Thư mục (tương đối so với repository)',
+  'Branch to follow (optional)': 'Nhánh theo dõi (không bắt buộc)',
+  'Added submodule {name}': 'Đã thêm submodule {name}',
+};

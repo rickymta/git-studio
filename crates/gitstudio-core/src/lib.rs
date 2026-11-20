@@ -420,6 +420,40 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
                 .remotes_containing(&arg::<String>(a, "hash")?)
                 .await?
         ),
+        "submodule.list" => serde_json::to_value(repo(a).await?.submodules().await?)?,
+        "submodule.update" => {
+            let paths: Option<Vec<String>> = opt(a, "paths")?;
+            let recursive: Option<bool> = opt(a, "recursive")?;
+            repo(a)
+                .await?
+                .submodule_update(&paths.unwrap_or_default(), recursive.unwrap_or(true))
+                .await?;
+            return done();
+        }
+        "submodule.sync" => {
+            repo(a).await?.submodule_sync().await?;
+            return done();
+        }
+        "submodule.add" => {
+            let branch: Option<String> = opt(a, "branch")?;
+            repo(a)
+                .await?
+                .submodule_add(
+                    &arg::<String>(a, "url")?,
+                    &arg::<String>(a, "path")?,
+                    branch.as_deref(),
+                )
+                .await?;
+            return done();
+        }
+        "submodule.deinit" => {
+            let force: Option<bool> = opt(a, "force")?;
+            repo(a)
+                .await?
+                .submodule_deinit(&arg::<String>(a, "path")?, force.unwrap_or(false))
+                .await?;
+            return done();
+        }
         "history.search" => {
             let limit: Option<u32> = opt(a, "limit")?;
             serde_json::to_value(

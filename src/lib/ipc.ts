@@ -93,6 +93,15 @@ export const api = {
     call<string[]>('history.remotesContaining', { repo, hash }),
   dropCommit: (repo: string, hash: string) => call<null>('history.drop', { repo, hash }),
   /** Commits of every ref matching `query`, found by git (not only the loaded ones). */
+  submodules: (repo: string) => call<T.Submodule[]>('submodule.list', { repo }),
+  /** `git submodule update --init` for `paths` (all when empty). */
+  submoduleUpdate: (repo: string, paths: string[] = [], recursive = true) =>
+    call<null>('submodule.update', { repo, paths, recursive }),
+  submoduleSync: (repo: string) => call<null>('submodule.sync', { repo }),
+  submoduleAdd: (repo: string, url: string, path: string, branch?: string) =>
+    call<null>('submodule.add', { repo, url, path, branch }),
+  submoduleDeinit: (repo: string, path: string, force = false) =>
+    call<null>('submodule.deinit', { repo, path, force }),
   searchCommits: (repo: string, query: T.CommitSearch, limit = 200) =>
     call<T.Commit[]>('history.search', { repo, query, limit }),
   /** Commits an interactive rebase from `from` rewrites: `from` up to HEAD, oldest first. */

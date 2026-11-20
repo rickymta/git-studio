@@ -1,0 +1,199 @@
+//! Less common repository features: submodules, Git LFS, commit signatures, bisect, external
+//! merge / diff tools, file contents at a revision (image diffs) and maintenance.
+
+use std::collections::BTreeMap;
+
+use serde::Serialize;
+
+use super::run::{self, Opts};
+use super::{Repo, check_path, check_rev};
+use crate::error::{Error, Result};
+
+// ---- submodules -------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SubmoduleState {
+    /// Checked out at the commit the superproject records.
+    Clean,
+    /// Listed in .gitmodules but not cloned / initialised yet.
+    Uninitialized,
+    /// Checked out at another commit than the recorded one.
+    Modified,
+    /// Merge conflict on the submodule entry.
+    Conflict,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Submodule {
+    pub name: String,
+    /// Relative to the superproject root.
+    pub path: String,
+    pub url: String,
+    /// Branch to follow (`submodule.<name>.branch`), if set.
+    pub branch: Option<String>,
+    /// Commit the superproject records for it (index).
+    pub recorded: Option<String>,
+    /// Commit checked out in it, when initialised.
+    pub current: Option<String>,
+    pub state: SubmoduleState,
+}
+
+impl Repo {
+    /// Submodules from `.gitmodules`, with what is checked out in each.
+    pub async fn submodules(&self) -> Result<Vec<Submodule>> {
+        if !self.root.join(".gitmodules").exists() {
+            return Ok(Vec::new());
+        }
+        let cfg = run::raw(
+            Some(&self.root),
+            &[
+                "config",
+                "-z",
+                "-f",
+                ".gitmodules",
+                "--get-regexp",
+                r"^submodule\..*\.(path|url|branch)$",
+            ],
+            Opts::default(),
+        )
+        .await?;
+        // name → (path, url, branch)
+        let mut by_name: BTreeMap<String, (String, String, Option<String>)> = BTreeMap::new();
+        // `-z`: `key\nvalue\0`, so names and paths may contain spaces.
+        for entry in cfg.text().split('\0') {
+            let Some((key, value)) = entry.split_once('\n') else {
+                continue;
+            };
+            let Some(rest) = key.strip_prefix("submodule.") else {
+                continue;
+            };
+            let Some((name, field)) = rest.rsplit_once('.') else {
+                continue;
+            };
+            let e = by_name.entry(name.to_string()).or_default();
+            match field {
+                "path" => e.0 = value.to_string(),
+                "url" => e.1 = value.to_string(),
+                "branch" => e.2 = Some(value.to_string()),
+                _ => {}
+            }
+        }
+        // Recorded commits: gitlinks (mode 160000) in the index.
+        let staged = run::ok(&self.root, &["ls-files", "-s", "-z"], Opts::default()).await?;
+        let mut recorded: BTreeMap<String, String> = BTreeMap::new();
+        for entry in staged.text().split('\0') {
+            let Some((meta, path)) = entry.split_once('\t') else {
+                continue;
+            };
+            let mut parts = meta.split(' ');
+            if parts.next() == Some("160000")
+                && let Some(hash) = parts.next()
+            {
+                recorded.insert(path.to_string(), hash.to_string());
+            }
+        }
+        let status = run::raw(Some(&self.root), &["submodule", "status"], Opts::default()).await?;
+        let mut state: BTreeMap<String, SubmoduleState> = BTreeMap::new();
+        for line in status.text().lines() {
+            // `<flag><sha> <path>[ (<describe>)]`
+            let Some(flag) = line.chars().next() else {
+                continue;
+            };
+            let Some((_, rest)) = line[flag.len_utf8()..].split_once(' ') else {
+                continue;
+            };
+            let path = match rest.rfind(" (") {
+                Some(i) if rest.ends_with(')') => &rest[..i],
+                _ => rest,
+            };
+            state.insert(
+                path.to_string(),
+                match flag {
+                    '-' => SubmoduleState::Uninitialized,
+                    '+' => SubmoduleState::Modified,
+                    'U' => SubmoduleState::Conflict,
+                    _ => SubmoduleState::Clean,
+                },
+            );
+        }
+        let mut out = Vec::new();
+        for (name, (path, url, branch)) in by_name {
+            if path.is_empty() {
+                continue;
+            }
+            let st = state
+                .get(&path)
+                .copied()
+                .unwrap_or(SubmoduleState::Uninitialized);
+            let current = if st == SubmoduleState::Uninitialized {
+                None
+            } else {
+                run::raw(
+                    Some(&self.root.join(&path)),
+                    &["rev-parse", "--verify", "-q", "HEAD"],
+                    Opts::default(),
+                )
+                .await
+                .ok()
+                .filter(|o| o.code == 0)
+                .map(|o| o.text().trim().to_string())
+            };
+            out.push(Submodule {
+                recorded: recorded.get(&path).cloned(),
+                name,
+                path,
+                url,
+                branch,
+                current,
+                state: st,
+            });
+        }
+        Ok(out)
+    }
+
+    /// `git submodule update --init` for `paths` (all when empty).
+    pub async fn submodule_update(&self, paths: &[String], recursive: bool) -> Result<()> {
+        let mut a = vec!["submodule", "update", "--init"];
+        if recursive {
+            a.push("--recursive");
+        }
+        a.push("--");
+        a.extend(super::checked_paths(paths)?);
+        self.git_opts(&a, self.net(None).await).await.map(drop)
+    }
+
+    /// Copy the URLs from `.gitmodules` into the configuration (after a URL change).
+    pub async fn submodule_sync(&self) -> Result<()> {
+        self.git(&["submodule", "sync", "--recursive"])
+            .await
+            .map(drop)
+    }
+
+    /// Clone `url` into `path` as a new submodule (staged, not committed).
+    pub async fn submodule_add(&self, url: &str, path: &str, branch: Option<&str>) -> Result<()> {
+        if url.trim().is_empty() || url.starts_with('-') || url.contains(['\0', '\n']) {
+            return Err(Error::Invalid(format!("Invalid URL: {url:?}")));
+        }
+        check_path(path)?;
+        let mut a = vec!["submodule", "add"];
+        if let Some(b) = branch.filter(|b| !b.trim().is_empty()) {
+            check_rev(b)?;
+            a.extend(["-b", b]);
+        }
+        a.extend(["--", url, path]);
+        self.git_opts(&a, self.net(None).await).await.map(drop)
+    }
+
+    /// Empty a submodule's working tree and unregister it (`git submodule deinit`).
+    pub async fn submodule_deinit(&self, path: &str, force: bool) -> Result<()> {
+        check_path(path)?;
+        let mut a = vec!["submodule", "deinit"];
+        if force {
+            a.push("--force");
+        }
+        a.extend(["--", path]);
+        self.git(&a).await.map(drop)
+    }
+}

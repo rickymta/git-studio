@@ -7,6 +7,7 @@ import { integrations } from './vi/integrations';
 import { home } from './vi/home';
 import { panels } from './vi/panels';
 import { prefs } from './vi/prefs';
+import { tools } from './vi/tools';
 
 export const vi: Record<string, string> = {
   ...core,
@@ -17,4 +18,5 @@ export const vi: Record<string, string> = {
   ...history,
   ...integrations,
   ...help,
+  ...tools,
 };
