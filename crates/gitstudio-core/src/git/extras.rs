@@ -807,3 +807,87 @@ impl Repo {
         Ok(Some(encode(out.stdout)))
     }
 }
+
+// ---- maintenance ------------------------------------------------------------------------------
+
+/// Object database size, from `git count-objects -v` (sizes in bytes).
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoStats {
+    pub loose_objects: u64,
+    pub loose_size: u64,
+    pub packed_objects: u64,
+    pub packs: u64,
+    pub pack_size: u64,
+    /// Loose objects already in a pack (`git prune-packed` removes them).
+    pub prune_packable: u64,
+    pub garbage: u64,
+    pub garbage_size: u64,
+}
+
+pub fn parse_count_objects(text: &str) -> RepoStats {
+    let mut s = RepoStats::default();
+    for line in text.lines() {
+        let Some((k, v)) = line.split_once(':') else {
+            continue;
+        };
+        let n: u64 = v.trim().parse().unwrap_or(0);
+        match k.trim() {
+            "count" => s.loose_objects = n,
+            "size" => s.loose_size = n * 1024,
+            "in-pack" => s.packed_objects = n,
+            "packs" => s.packs = n,
+            "size-pack" => s.pack_size = n * 1024,
+            "prune-packable" => s.prune_packable = n,
+            "garbage" => s.garbage = n,
+            "size-garbage" => s.garbage_size = n * 1024,
+            _ => {}
+        }
+    }
+    s
+}
+
+/// What a maintenance task printed, and whether git reported success.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskOutput {
+    pub ok: bool,
+    pub output: String,
+}
+
+impl Repo {
+    pub async fn repo_stats(&self) -> Result<RepoStats> {
+        Ok(parse_count_objects(
+            &self.git(&["count-objects", "-v"]).await?,
+        ))
+    }
+
+    /// Run one maintenance task: `gc`, `gc-aggressive`, `prune` (unreachable loose objects),
+    /// `repack` (everything into one pack), `commit-graph`, `pack-refs` or `fsck`. Problems
+    /// `fsck` finds come back as output with `ok: false`, not as an error.
+    pub async fn maintenance(&self, task: &str) -> Result<TaskOutput> {
+        let args: &[&str] = match task {
+            "gc" => &["gc"],
+            "gc-aggressive" => &["gc", "--aggressive", "--prune=now"],
+            "prune" => &["prune", "-v"],
+            "repack" => &["repack", "-a", "-d"],
+            "commit-graph" => &["commit-graph", "write", "--reachable", "--changed-paths"],
+            "pack-refs" => &["pack-refs", "--all"],
+            "fsck" => &["fsck", "--full", "--no-progress"],
+            _ => return Err(Error::Invalid(format!("Unknown maintenance task {task}"))),
+        };
+        let out = run::raw(Some(&self.root), args, Opts::default()).await?;
+        let mut output = out.text();
+        let err = out.stderr.trim_end();
+        if !err.is_empty() {
+            if !output.is_empty() && !output.ends_with('\n') {
+                output.push('\n');
+            }
+            output.push_str(err);
+        }
+        Ok(TaskOutput {
+            ok: out.code == 0,
+            output: output.trim_end().to_string(),
+        })
+    }
+}

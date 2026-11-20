@@ -53,6 +53,10 @@ export const api = {
   // files, blame, history
   readFile: (repo: string, path: string, rev?: string, encoding?: string) =>
     call<T.DecodedText>('file.read', { repo, path, rev, encoding }),
+  repoStats: (repo: string) => call<T.RepoStats>('maintenance.stats', { repo }),
+  /** Run a housekeeping task; `ok: false` with git's output when it reports a problem. */
+  maintenance: (repo: string, task: T.MaintenanceTask) =>
+    call<{ ok: boolean; output: string }>('maintenance.run', { repo, task }),
   /** Raw bytes of `path` in `rev` (`':'` = the index, none = working tree); `null` if absent. */
   fileBlob: (repo: string, path: string, rev: string | null, max?: number) =>
     call<T.FileBlob | null>('file.blob', { repo, path, rev, max }),

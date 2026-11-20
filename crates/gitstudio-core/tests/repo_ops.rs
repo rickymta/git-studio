@@ -1350,3 +1350,60 @@ async fn file_blob_reads_commit_index_and_worktree_bytes() {
     assert_eq!((big.size, big.data), (v1.len() as u64, None));
     assert!(r.file_blob("../x", None, 10).await.is_err());
 }
+
+#[test]
+fn count_objects_sizes_are_bytes() {
+    let s = git::extras::parse_count_objects(
+        "count: 12\nsize: 48\nin-pack: 300\npacks: 2\nsize-pack: 1024\nprune-packable: 1\ngarbage: 0\nsize-garbage: 0\n",
+    );
+    assert_eq!((s.loose_objects, s.loose_size), (12, 48 * 1024));
+    assert_eq!(
+        (s.packed_objects, s.packs, s.pack_size),
+        (300, 2, 1024 * 1024)
+    );
+    assert_eq!(s.prune_packable, 1);
+}
+
+#[tokio::test]
+async fn maintenance_tasks_pack_and_check_the_repository() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("repo");
+    let r = new_repo(&dir).await;
+    for i in 0..3 {
+        std::fs::write(dir.join("f"), format!("v{i}\n")).unwrap();
+        r.stage(&[]).await.unwrap();
+        r.commit(&format!("c{i}"), false).await.unwrap();
+    }
+    let before = r.repo_stats().await.unwrap();
+    assert!(before.loose_objects >= 9, "{before:?}");
+    assert_eq!(before.packs, 0);
+
+    for task in ["gc", "commit-graph", "pack-refs", "prune", "repack"] {
+        let out = r.maintenance(task).await.unwrap();
+        assert!(out.ok, "{task}: {}", out.output);
+    }
+    let after = r.repo_stats().await.unwrap();
+    assert_eq!(after.loose_objects, 0, "{after:?}");
+    assert!(after.packs >= 1 && after.packed_objects >= 9, "{after:?}");
+    assert!(dir.join(".git/objects/info/commit-graph").exists());
+
+    assert!(r.maintenance("fsck").await.unwrap().ok);
+    // A corrupt object makes fsck fail, as output rather than an error.
+    let pack_dir = dir.join(".git/objects/pack");
+    for e in std::fs::read_dir(&pack_dir).unwrap() {
+        let p = e.unwrap().path();
+        if p.extension().is_some_and(|x| x == "pack") {
+            let mut perm = std::fs::metadata(&p).unwrap().permissions();
+            #[allow(clippy::permissions_set_readonly_false)]
+            perm.set_readonly(false);
+            std::fs::set_permissions(&p, perm).unwrap();
+            let mut bytes = std::fs::read(&p).unwrap();
+            let mid = bytes.len() / 2;
+            bytes[mid] ^= 0xff;
+            std::fs::write(&p, bytes).unwrap();
+        }
+    }
+    let bad = r.maintenance("fsck").await.unwrap();
+    assert!(!bad.ok && !bad.output.is_empty());
+    assert!(r.maintenance("rm -rf").await.is_err());
+}

@@ -136,6 +136,43 @@ export const tools: Record<string, string> = {
   'Too large to preview ({size})': 'Quá lớn để xem trước ({size})',
   Image: 'Ảnh',
 
+  // Maintenance
+  'Repository maintenance…': 'Bảo trì repository…',
+  'Repository maintenance': 'Bảo trì repository',
+  'Keep the object database small and fast, and check it for corruption.':
+    'Giữ kho object gọn nhẹ, nhanh và kiểm tra lỗi hỏng dữ liệu.',
+  Packed: 'Đã đóng gói',
+  Loose: 'Rời',
+  Garbage: 'Rác',
+  '{n} object(s) in {packs} pack(s)': '{n} object trong {packs} pack',
+  '{n} object(s)': '{n} object',
+  '{n} file(s), {p} prunable': '{n} file, {p} có thể dọn',
+  'Garbage collect': 'Thu gom rác',
+  'Pack loose objects and remove old unreachable ones (git gc).':
+    'Đóng gói object rời và xoá object cũ không còn tham chiếu (git gc).',
+  'Aggressive GC': 'GC triệt để',
+  'Recompress everything and drop all unreachable objects now. Slow on big repositories.':
+    'Nén lại toàn bộ và xoá ngay mọi object không còn tham chiếu. Chậm với repository lớn.',
+  Repack: 'Đóng gói lại',
+  'Put all objects into a single pack (git repack -a -d).':
+    'Gom mọi object vào một pack (git repack -a -d).',
+  Prune: 'Dọn object',
+  'Delete unreachable loose objects older than two weeks (git prune).':
+    'Xoá object rời không còn tham chiếu cũ hơn hai tuần (git prune).',
+  'Write commit-graph': 'Ghi commit-graph',
+  'Speeds up history, graph and blame on large repositories.':
+    'Tăng tốc lịch sử, đồ thị và blame với repository lớn.',
+  'Pack refs': 'Đóng gói ref',
+  'Store branch and tag refs in one file (git pack-refs --all).':
+    'Lưu ref của branch và tag trong một file (git pack-refs --all).',
+  'Check integrity': 'Kiểm tra toàn vẹn',
+  'Verify every object and report corruption or missing objects (git fsck --full).':
+    'Kiểm tra mọi object, báo object hỏng hoặc bị thiếu (git fsck --full).',
+  Run: 'Chạy',
+  '{task}: done': '{task}: xong',
+  '{task}: failed': '{task}: lỗi',
+  '(no output)': '(không có output)',
+
   // External merge / diff tools
   'Merge tool': 'Merge tool',
   'Diff tool': 'Diff tool',

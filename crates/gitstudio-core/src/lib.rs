@@ -445,6 +445,13 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
                 .await?;
             return done();
         }
+        "maintenance.stats" => serde_json::to_value(repo(a).await?.repo_stats().await?)?,
+        "maintenance.run" => serde_json::to_value(
+            repo(a)
+                .await?
+                .maintenance(&arg::<String>(a, "task")?)
+                .await?,
+        )?,
         "file.blob" => {
             let rev: Option<String> = opt(a, "rev")?;
             let max: Option<u64> = opt(a, "max")?;

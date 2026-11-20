@@ -14,6 +14,7 @@ import { CommitGraph } from '@/features/graph/CommitGraph';
 import { CommitPanel } from '@/features/panel/CommitPanel';
 import { ComparePanel } from '@/features/panel/ComparePanel';
 import { CleanDialog } from '@/features/panel/CleanDialog';
+import { MaintenanceDialog } from '@/features/maintenance/MaintenanceDialog';
 import { MultiCommitPanel } from '@/features/panel/MultiCommitPanel';
 import { WipPanel } from '@/features/panel/WipPanel';
 import { Preferences, type PrefSection } from '@/features/preferences/Preferences';
@@ -340,6 +341,7 @@ export function App() {
       <ScanDialog open={dialog === 'scanWorkspace'} onClose={() => openDialog(null)} />
       <RebaseDialog />
       <CleanDialog open={dialog === 'clean'} onClose={() => openDialog(null)} />
+      <MaintenanceDialog open={dialog === 'maintenance'} onClose={() => openDialog(null)} />
       <PromptDialog />
       <Toasts />
     </div>

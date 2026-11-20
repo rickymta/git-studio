@@ -135,6 +135,8 @@ export function Toolbar() {
           .openEditor(info.path)
           .catch((e) => toast('error', t('Could not open editor'), (e as Error).message)),
     },
+    { label: t('Repository maintenance…'), onSelect: () => openDialog('maintenance') },
+    'sep',
     { label: t('Close tab'), onSelect: close },
   ];
 

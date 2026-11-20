@@ -588,3 +588,18 @@ export interface FileBlob {
   /** Base64; `null` when over the size limit. */
   data: string | null;
 }
+
+/** `git count-objects -v`, sizes in bytes. */
+export interface RepoStats {
+  looseObjects: number;
+  looseSize: number;
+  packedObjects: number;
+  packs: number;
+  packSize: number;
+  prunePackable: number;
+  garbage: number;
+  garbageSize: number;
+}
+
+export type MaintenanceTask =
+  'gc' | 'gc-aggressive' | 'prune' | 'repack' | 'commit-graph' | 'pack-refs' | 'fsck';
