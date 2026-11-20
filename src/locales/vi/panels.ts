@@ -222,4 +222,13 @@ export const panels: Record<string, string> = {
   optional: 'không bắt buộc',
   'push:': 'push:',
   tracking: 'đang theo dõi',
+
+  // Reflog
+  'HEAD history (reflog)': 'Lịch sử HEAD (reflog)',
+  'No HEAD history yet.': 'Chưa có lịch sử HEAD.',
+  'On no branch or tag: create a branch to keep it.':
+    'Không thuộc nhánh hay tag nào: tạo nhánh để giữ lại.',
+  lost: 'mất',
+  'Show older entries': 'Xem các mục cũ hơn',
+  'Copy {selector}': 'Copy {selector}',
 };

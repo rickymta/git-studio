@@ -70,6 +70,24 @@ pub struct Stash {
     pub base: Option<String>,
 }
 
+/// One move of HEAD, newest first (`git log -g HEAD`).
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReflogEntry {
+    /// `HEAD@{n}`.
+    pub selector: String,
+    /// Commit HEAD pointed at after the move.
+    pub hash: String,
+    /// What moved HEAD: `checkout: moving from a to b`, `commit: …`, `reset: …`.
+    pub action: String,
+    /// Subject of that commit.
+    pub subject: String,
+    /// When HEAD moved (unix seconds).
+    pub time: i64,
+    /// No branch, tag or remote branch contains the commit: only the reflog still finds it.
+    pub unreferenced: bool,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Remote {

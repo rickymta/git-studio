@@ -54,6 +54,20 @@ export interface Stash {
   base: string | null;
 }
 
+/** One move of HEAD, newest first (`git log -g HEAD`). */
+export interface ReflogEntry {
+  /** `HEAD@{n}`. */
+  selector: string;
+  hash: string;
+  /** What moved HEAD: `checkout: moving from a to b`, `commit: …`, `reset: …`. */
+  action: string;
+  /** Subject of the commit HEAD moved to. */
+  subject: string;
+  time: number;
+  /** No branch, tag or remote branch contains the commit any more. */
+  unreferenced: boolean;
+}
+
 export interface GitHubSlug {
   owner: string;
   repo: string;

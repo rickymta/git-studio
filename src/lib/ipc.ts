@@ -157,6 +157,9 @@ export const api = {
   log: (repo: string, limit: number, skip = 0, view?: { solo: string[]; hidden: string[] }) =>
     call<T.Commit[]>('repo.log', { repo, limit, skip, view }),
   refs: (repo: string) => call<T.Refs>('repo.refs', { repo }),
+  /** Where HEAD has been, newest first. */
+  reflog: (repo: string, limit = 100, skip = 0) =>
+    call<T.ReflogEntry[]>('repo.reflog', { repo, limit, skip }),
   commit: (repo: string, hash: string) => call<T.CommitDetail>('repo.commit', { repo, hash }),
   diff: (repo: string, request: T.DiffRequest) => call<string>('repo.diff', { repo, request }),
   identity: (repo: string) => call<T.Identity>('repo.identity', { repo }),

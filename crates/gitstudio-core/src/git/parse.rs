@@ -105,6 +105,36 @@ fn parse_track(s: &str) -> (u32, u32, bool) {
     (a, b, false)
 }
 
+/// `git log -g --date=unix` format matching [`parse_reflog`]; `%gd` is then `HEAD@{<time>}`.
+pub const REFLOG_FORMAT: &str = "--format=%gd%x1f%H%x1f%gs%x1f%s";
+
+/// Reflog lines, newest first. Selectors are renumbered `HEAD@{0}`, `HEAD@{1}`…
+/// (`skip` = index of the first line) and the time is read from the date selector.
+pub fn parse_reflog(text: &str, skip: usize) -> Vec<ReflogEntry> {
+    text.lines()
+        .filter(|l| !l.is_empty())
+        .enumerate()
+        .filter_map(|(i, line)| {
+            let f: Vec<&str> = line.split(US).collect();
+            if f.len() < 4 {
+                return None;
+            }
+            let time = f[0]
+                .rsplit_once("@{")
+                .and_then(|(_, t)| t.trim_end_matches('}').parse().ok())
+                .unwrap_or(0);
+            Some(ReflogEntry {
+                selector: format!("HEAD@{{{}}}", skip + i),
+                hash: f[1].to_string(),
+                action: f[2].to_string(),
+                subject: f[3].to_string(),
+                time,
+                unreferenced: false,
+            })
+        })
+        .collect()
+}
+
 pub const STASH_FORMAT: &str = "--format=%gd%x1f%H%x1f%gs%x1f%ct%x1f%P";
 
 pub fn parse_stashes(text: &str) -> Vec<Stash> {
@@ -332,6 +362,19 @@ u UU N... 100644 100644 100644 100644 a b c conflict.rs\0\
         assert_eq!(st.unstaged[0].path, "my file.txt");
         assert_eq!(st.unstaged[1].status, '?');
         assert_eq!(st.conflicted[0].path, "conflict.rs");
+    }
+
+    #[test]
+    fn reflog_lines() {
+        let text = "HEAD@{1700000100}\u{1f}bbb\u{1f}commit: second\u{1f}second\n\
+HEAD@{1700000000}\u{1f}aaa\u{1f}checkout: moving from main to aaa\u{1f}first\n";
+        let e = parse_reflog(text, 5);
+        assert_eq!(e.len(), 2);
+        assert_eq!(e[0].selector, "HEAD@{5}");
+        assert_eq!(e[0].time, 1_700_000_100);
+        assert_eq!(e[1].hash, "aaa");
+        assert_eq!(e[1].action, "checkout: moving from main to aaa");
+        assert_eq!(e[1].subject, "first");
     }
 
     #[test]

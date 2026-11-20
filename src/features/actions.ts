@@ -601,6 +601,19 @@ export async function cherryPick(c: Commit) {
   );
 }
 
+/** Cherry-pick a commit known only by its hash (e.g. one from the reflog, not in the graph). */
+export async function cherryPickHash(hash: string) {
+  const path = repo().path;
+  if (!path) return;
+  const c =
+    repo().commits.find((x) => x.hash === hash) ??
+    (await api.commit(path, hash).catch((e: Error) => {
+      toast('error', t('Could not load commit'), e.message);
+      return null;
+    }));
+  if (c) await cherryPick(c);
+}
+
 export async function revertCommit(c: Commit) {
   await run(
     'Revert',
