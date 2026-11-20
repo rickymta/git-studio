@@ -25,17 +25,31 @@ async fn call(Json(body): Json<Value>) -> Response {
     }
 }
 
+/// The Vite dev server on any local port (1420 is often taken by another project's dev server).
+fn local_origin(origin: Option<&HeaderValue>) -> HeaderValue {
+    origin
+        .filter(|o| {
+            o.to_str().is_ok_and(|s| {
+                ["http://localhost:", "http://127.0.0.1:"].iter().any(|p| {
+                    s.strip_prefix(p)
+                        .is_some_and(|port| port.parse::<u16>().is_ok())
+                })
+            })
+        })
+        .cloned()
+        .unwrap_or_else(|| HeaderValue::from_static("http://localhost:1420"))
+}
+
 async fn cors(req: axum::extract::Request, next: axum::middleware::Next) -> Response {
+    let origin = local_origin(req.headers().get(header::ORIGIN));
     let mut res = if req.method() == Method::OPTIONS {
         StatusCode::NO_CONTENT.into_response()
     } else {
         next.run(req).await
     };
     let h = res.headers_mut();
-    h.insert(
-        header::ACCESS_CONTROL_ALLOW_ORIGIN,
-        HeaderValue::from_static("http://localhost:1420"),
-    );
+    h.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin);
+    h.insert(header::VARY, HeaderValue::from_static("origin"));
     h.insert(
         header::ACCESS_CONTROL_ALLOW_HEADERS,
         HeaderValue::from_static("content-type"),

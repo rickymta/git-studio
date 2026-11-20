@@ -17,6 +17,8 @@ import { openDiffTool } from '../repoTools';
 import { FileList, FilesSection, SortButton, ViewToggle } from './FileList';
 import { sortFiles, useFileSort, useViewMode } from './fileListPrefs';
 
+import { Checkbox } from '@/components/controls';
+
 /** "11/17/2026 @ 12:12 AM" */
 function authoredAt(unix: number): string {
   const d = new Date(unix * 1000);
@@ -427,12 +429,7 @@ export function CommitPanel({ hash }: { hash: string }) {
           <div className="flex-1" />
           <ViewToggle mode={mode} onChange={setMode} />
           <label className="ml-2 flex items-center gap-1.5 text-[13px] text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={allFiles}
-              onChange={(e) => setAllFiles(e.target.checked)}
-              className="accent-[var(--accent)]"
-            />
+            <Checkbox checked={allFiles} onChange={(v) => setAllFiles(v)} />
             {t('View all files')}
           </label>
         </div>

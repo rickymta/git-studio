@@ -6,6 +6,8 @@ import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import { useRepo } from '@/stores/repo';
 
+import { Checkbox } from '@/components/controls';
+
 interface Preview {
   key: string;
   paths: string[] | null;
@@ -74,12 +76,7 @@ export function CleanDialog({ open, onClose }: { open: boolean; onClose: () => v
       )}
     >
       <label className="mb-2 flex items-center gap-2">
-        <input
-          type="checkbox"
-          checked={ignored}
-          onChange={(e) => setIgnored(e.target.checked)}
-          className="accent-[var(--accent)]"
-        />
+        <Checkbox checked={ignored} onChange={(v) => setIgnored(v)} />
         {t('Also delete ignored files (build output, dependencies…)')}
       </label>
       <div className="max-h-[45vh] min-h-24 overflow-auto rounded-md border border-border py-1">
@@ -94,12 +91,7 @@ export function CleanDialog({ open, onClose }: { open: boolean; onClose: () => v
         ) : (
           paths.map((p) => (
             <label key={p} className="flex items-center gap-2 px-3 py-0.5 hover:bg-surface-hover">
-              <input
-                type="checkbox"
-                checked={!skip.has(p)}
-                onChange={() => toggle(p)}
-                className="accent-[var(--accent)]"
-              />
+              <Checkbox checked={!skip.has(p)} onChange={() => toggle(p)} />
               {p.endsWith('/') ? (
                 <Folder className="size-3.5 shrink-0 text-muted-foreground" />
               ) : (

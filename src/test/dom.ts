@@ -58,3 +58,40 @@ export function button(text: string, root: ParentNode = document.body): HTMLButt
 export function text(root: ParentNode = document.body): string {
   return (root.textContent ?? '').replace(/\s+/g, ' ');
 }
+
+// ---- GitStudio's Select (components/controls.tsx, Radix) ------------------------------------------
+
+/** jsdom lacks a few element methods Radix's popper and pointer handling call. */
+function polyfillRadix() {
+  const p = Element.prototype as unknown as Record<string, unknown>;
+  p.scrollIntoView ??= () => {};
+  p.hasPointerCapture ??= () => false;
+  p.releasePointerCapture ??= () => {};
+}
+
+function key(el: Element, k: string) {
+  el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
+}
+
+/** Open a Select from its trigger (as the keyboard does) and return its options. */
+export async function openSelect(trigger: Element | null | undefined): Promise<HTMLElement[]> {
+  if (!trigger) throw new Error('openSelect: no trigger');
+  polyfillRadix();
+  await act(async () => {
+    (trigger as HTMLElement).focus();
+    key(trigger, 'Enter');
+  });
+  await settle();
+  return [...document.querySelectorAll<HTMLElement>('[role="option"]')];
+}
+
+/** Choose the option whose value is `value` in a Select. */
+export async function pick(trigger: Element | null | undefined, value: string) {
+  const option = (await openSelect(trigger)).find((o) => o.dataset.value === value);
+  if (!option) throw new Error(`pick: no option "${value}"`);
+  await act(async () => key(option, 'Enter'));
+  await settle();
+}
+
+/** The current value of a Select trigger. */
+export const selectValue = (trigger: Element) => trigger.getAttribute('data-value') ?? '';

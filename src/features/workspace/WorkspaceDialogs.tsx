@@ -10,6 +10,8 @@ import { useRepo } from '@/stores/repo';
 import { toast } from '@/stores/ui';
 import { WORKSPACE_COLORS, samePath, useWorkspaces } from '@/stores/workspace';
 
+import { Checkbox } from '@/components/controls';
+
 export function ColorSwatches({
   value,
   onChange,
@@ -128,12 +130,10 @@ function ScanPicker({
                   already && 'opacity-50',
                 )}
               >
-                <input
-                  type="checkbox"
+                <Checkbox
                   disabled={already}
                   checked={already || selected.includes(p)}
                   onChange={() => toggle(p)}
-                  className="accent-[var(--accent)]"
                 />
                 <span className="font-medium">{p.split(/[\\/]/).pop()}</span>
                 <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{p}</span>

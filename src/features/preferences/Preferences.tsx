@@ -55,6 +55,8 @@ import { MergeToolPrefs } from './MergeToolPrefs';
 import { useRepo } from '@/stores/repo';
 import { confirm, toast, useUi } from '@/stores/ui';
 
+import { Checkbox, Radio, Select as UiSelect } from '@/components/controls';
+
 export type PrefSection =
   | 'general'
   | 'profile'
@@ -239,12 +241,7 @@ function Toggle({
 }) {
   return (
     <label className="flex items-center gap-2 pt-1.5">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-        className="size-4 accent-[var(--accent)]"
-      />
+      <Checkbox checked={checked} onChange={(v) => onChange(v)} />
       {label && <span className="text-xs text-muted-foreground">{label}</span>}
     </label>
   );
@@ -260,17 +257,12 @@ function Select<T extends string>({
   options: { value: T; label: string }[];
 }) {
   return (
-    <select
+    <UiSelect
       value={value}
-      onChange={(e) => onChange(e.target.value as T)}
-      className="h-9 w-80 rounded-md border border-border bg-background px-2"
-    >
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
+      onChange={(v) => onChange(v as T)}
+      className="h-9 w-80"
+      options={options}
+    />
   );
 }
 
@@ -760,11 +752,10 @@ function Ssh() {
       >
         <div className="flex flex-col gap-2 pt-1">
           <label className="flex items-start gap-2">
-            <input
-              type="radio"
+            <Radio
               checked={s.mode === 'system'}
               onChange={() => save({ mode: 'system' })}
-              className="mt-0.5 accent-[var(--accent)]"
+              className="mt-0.5"
             />
             <span>
               {t('Use local SSH setup')}
@@ -776,11 +767,10 @@ function Ssh() {
             </span>
           </label>
           <label className="flex items-start gap-2">
-            <input
-              type="radio"
+            <Radio
               checked={s.mode === 'key'}
               onChange={() => save({ mode: 'key' })}
-              className="mt-0.5 accent-[var(--accent)]"
+              className="mt-0.5"
             />
             <span>
               {t('Use a specific key')}

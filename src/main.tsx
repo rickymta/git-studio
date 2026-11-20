@@ -7,11 +7,12 @@ import { hydrateUiState } from './lib/persist';
 // ui-state.json is restored into localStorage before the app (and its stores) load.
 async function start() {
   await hydrateUiState();
-  const [{ App }, { t }, { toast }, { loadActivity }] = await Promise.all([
+  const [{ App }, { t }, { toast }, { loadActivity }, { TextContextMenu }] = await Promise.all([
     import('./app/App'),
     import('./lib/i18n'),
     import('./stores/ui'),
     import('./stores/activity'),
+    import('./components/TextContextMenu'),
   ]);
   void loadActivity().then((stats) => {
     if (stats && stats.level !== 'ok')
@@ -32,6 +33,8 @@ async function start() {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <App />
+      {/* The webview's own right-click menu replaced by one in GitStudio's style. */}
+      <TextContextMenu />
     </StrictMode>,
   );
 }

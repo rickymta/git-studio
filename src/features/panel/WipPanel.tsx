@@ -27,6 +27,8 @@ import { EmptyFiles, FILES_DRAG, FileList, SortButton, ViewToggle } from './File
 import { sortFiles, useFileSort, useViewMode } from './fileListPrefs';
 import { SUMMARY_MAX } from './commitMessage';
 
+import { Checkbox } from '@/components/controls';
+
 type ListId = 'unstaged' | 'staged';
 
 function usePersisted<T>(key: string, initial: T): [T, (v: T) => void] {
@@ -599,12 +601,7 @@ export function WipPanel() {
               </div>
             )}
             <label className="mb-2 flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={amend}
-                onChange={(e) => toggleAmend(e.target.checked)}
-                className="accent-[var(--accent)]"
-              />
+              <Checkbox checked={amend} onChange={(v) => toggleAmend(v)} />
               {t('Amend previous commit')}
             </label>
             <div className="flex min-h-0 flex-1 flex-col rounded-md bg-background">
@@ -656,12 +653,7 @@ export function WipPanel() {
             </button>
             {optionsOpen && (
               <label className="mt-1.5 ml-1 flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={pushAfter}
-                  onChange={(e) => setPushAfter(e.target.checked)}
-                  className="accent-[var(--accent)]"
-                />
+                <Checkbox checked={pushAfter} onChange={(v) => setPushAfter(v)} />
                 {t('Push after committing')}
                 {!st.upstream && pushAfter && (
                   <span className="text-xs text-muted-foreground">

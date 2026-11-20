@@ -14,6 +14,8 @@ import { useRemotePanel, type RemoteSource } from '@/stores/remotePanel';
 import { useRepo } from '@/stores/repo';
 import { toast } from '@/stores/ui';
 
+import { Radio } from '@/components/controls';
+
 /** GitKraken-style "Add Remote" / "Edit Remote" panel that slides over the graph. */
 export function RemotePanel({ onSignIn }: { onSignIn: () => void }) {
   const target = useRemotePanel((s) => s.target);
@@ -268,9 +270,7 @@ function AddForm({
                   <div className="mb-2 flex gap-4 text-[13px]">
                     {(['https', 'ssh'] as const).map((k) => (
                       <label key={k} className="flex cursor-pointer items-center gap-1.5">
-                        <input
-                          type="radio"
-                          className="accent-[var(--accent)]"
+                        <Radio
                           checked={(k === 'ssh') === ssh}
                           onChange={() => setSsh(k === 'ssh')}
                         />

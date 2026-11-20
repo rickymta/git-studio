@@ -16,6 +16,8 @@ import { useRepo } from '@/stores/repo';
 import { toast } from '@/stores/ui';
 import { CodeView } from './CodeView';
 
+import { Checkbox } from '@/components/controls';
+
 type Conflict = Extract<ConflictPart, { type: 'conflict' }>;
 
 /**
@@ -176,11 +178,9 @@ export function ConflictView({ path, wrap }: { path: string; wrap: boolean }) {
               )}
             >
               <label className="flex cursor-pointer items-center gap-2 bg-surface-muted px-3 py-1 font-sans text-[12px]">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={!!choices[p.index]?.[which]}
-                  onChange={(e) => choose(p.index, which, e.target.checked)}
-                  className="accent-[var(--accent)]"
+                  onChange={(v) => choose(p.index, which, v)}
                 />
                 {t('Conflict {n}', { n: p.index + 1 })}
               </label>

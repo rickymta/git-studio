@@ -17,6 +17,8 @@ import {
   type SupportForm,
 } from './support';
 
+import { Checkbox, Select } from '@/components/controls';
+
 type Status =
   { kind: 'idle' } | { kind: 'sending' } | { kind: 'sent' } | { kind: 'error'; message: string };
 
@@ -182,25 +184,18 @@ export function HelpDialog({ open, onClose }: { open: boolean; onClose: () => vo
             </Field>
           </div>
           <Field label={t('What do you need help with?')} htmlFor="help-topic" error={errors.topic}>
-            <select
-              {...aria('topic')}
+            <Select
+              id="help-topic"
+              aria-invalid={!!errors.topic || undefined}
+              aria-describedby={errors.topic ? 'help-topic-error' : undefined}
+              disabled={sending}
+              invalid={!!errors.topic}
               value={form.topic}
-              onChange={(e) => set('topic', e.target.value as SupportForm['topic'])}
-              className={cn(
-                'h-8 rounded-md border border-border bg-background px-2 outline-none focus:border-accent',
-                errors.topic && 'border-danger focus:border-danger',
-                !form.topic && 'text-muted-foreground',
-              )}
-            >
-              <option value="" disabled>
-                {t('Choose a topic')}
-              </option>
-              {TOPICS.map((o) => (
-                <option key={o.value} value={o.value} className="text-foreground">
-                  {t(o.label)}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => set('topic', v as SupportForm['topic'])}
+              placeholder={t('Choose a topic')}
+              className="w-full"
+              options={TOPICS.map((o) => ({ value: o.value, label: t(o.label) }))}
+            />
           </Field>
           <Field label={t('Subject')} htmlFor="help-subject" error={errors.subject}>
             <Input
@@ -223,12 +218,11 @@ export function HelpDialog({ open, onClose }: { open: boolean; onClose: () => vo
             />
           </Field>
           <label className="flex items-start gap-2 text-xs text-muted-foreground">
-            <input
-              type="checkbox"
+            <Checkbox
               className="mt-0.5"
               checked={form.includeSystem}
               disabled={sending}
-              onChange={(e) => set('includeSystem', e.target.checked)}
+              onChange={(v) => set('includeSystem', v)}
             />
             <span>
               {t('Attach app version and operating system')}

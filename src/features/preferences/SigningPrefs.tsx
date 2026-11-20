@@ -8,6 +8,8 @@ import type { SigningConfig } from '@/lib/types';
 import { useRepo } from '@/stores/repo';
 import { toast } from '@/stores/ui';
 
+import { Checkbox, Select } from '@/components/controls';
+
 type Scope = 'local' | 'global';
 
 /**
@@ -110,37 +112,28 @@ export function SigningPrefs() {
             t('Sign'),
             <div className="flex flex-col gap-1.5 pt-1.5">
               <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={cfg.signCommits}
-                  onChange={(e) => set({ signCommits: e.target.checked })}
-                  className="size-4 accent-[var(--accent)]"
-                />
+                <Checkbox checked={cfg.signCommits} onChange={(v) => set({ signCommits: v })} />
                 {t('Sign every commit')}
               </label>
               <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={cfg.signTags}
-                  onChange={(e) => set({ signTags: e.target.checked })}
-                  className="size-4 accent-[var(--accent)]"
-                />
+                <Checkbox checked={cfg.signTags} onChange={(v) => set({ signTags: v })} />
                 {t('Sign annotated tags')}
               </label>
             </div>,
           )}
           {row(
             t('Signature type'),
-            <select
+            <Select
               value={cfg.format}
-              onChange={(e) => set({ format: e.target.value })}
-              className="h-8 rounded-md border border-border bg-background px-2"
-            >
-              <option value="">{t('Not set (GPG)')}</option>
-              <option value="openpgp">GPG (OpenPGP)</option>
-              <option value="ssh">{t('SSH key')}</option>
-              <option value="x509">X.509 (gpgsm)</option>
-            </select>,
+              onChange={(v) => set({ format: v })}
+              className="w-80"
+              options={[
+                { value: '', label: t('Not set (GPG)') },
+                { value: 'openpgp', label: 'GPG (OpenPGP)' },
+                { value: 'ssh', label: t('SSH key') },
+                { value: 'x509', label: 'X.509 (gpgsm)' },
+              ]}
+            />,
           )}
           {row(
             t('Signing key'),

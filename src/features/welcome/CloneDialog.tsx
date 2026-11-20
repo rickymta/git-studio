@@ -16,6 +16,8 @@ import { toast } from '@/stores/ui';
 import { useWorkspaces } from '@/stores/workspace';
 import { addToWorkspace } from '@/features/workspace/workspaceActions';
 
+import { Checkbox } from '@/components/controls';
+
 interface Props {
   open: boolean;
   onClose: () => void;
@@ -300,12 +302,7 @@ function CheckRow({
 }) {
   return (
     <label className="flex cursor-pointer items-start gap-2">
-      <input
-        type="checkbox"
-        className="mt-0.5 size-4 accent-accent"
-        checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
-      />
+      <Checkbox className="mt-0.5" checked={checked} onChange={(v) => onChange(v)} />
       <span>
         <span className="font-medium">{label}</span>
         <span className="block text-xs text-muted-foreground">{help}</span>

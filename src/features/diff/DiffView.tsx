@@ -33,6 +33,8 @@ import { FileHistory } from './FileHistory';
 import { imageMime } from './image';
 import { ImageDiff } from './ImageDiff';
 
+import { Checkbox, Select } from '@/components/controls';
+
 function usePersisted<T>(key: string, initial: T): [T, (v: T) => void] {
   const [v, setV] = useState<T>(() => {
     try {
@@ -458,45 +460,39 @@ export function DiffView() {
           )}
           {editing && saveFormat && (
             <div className="flex items-center gap-2 text-xs">
-              <select
+              <Select
                 value={saveFormat.encoding}
-                onChange={(e) => setSaveFormat({ ...saveFormat, encoding: e.target.value })}
+                onChange={(v) => setSaveFormat({ ...saveFormat, encoding: v })}
                 title={t('Save with encoding')}
-                className="h-6 rounded border border-border bg-background px-1"
-              >
-                {(encodings.length ? encodings : ['UTF-8'])
+                className="h-6 rounded px-1.5 text-xs"
+                options={(encodings.length ? encodings : ['UTF-8'])
                   .concat(
                     encodings.some((x) => x.toLowerCase() === saveFormat.encoding.toLowerCase())
                       ? []
                       : [saveFormat.encoding],
                   )
-                  .map((e) => (
-                    <option key={e} value={e}>
-                      {e}
-                    </option>
-                  ))}
-              </select>
+                  .map((e) => ({ value: e, label: e }))}
+              />
               <label className="flex items-center gap-1">
-                <input
-                  type="checkbox"
+                <Checkbox
                   checked={saveFormat.bom}
-                  onChange={(e) => setSaveFormat({ ...saveFormat, bom: e.target.checked })}
-                  className="accent-[var(--accent)]"
+                  onChange={(v) => setSaveFormat({ ...saveFormat, bom: v })}
                 />
                 BOM
               </label>
-              <select
+              <Select
                 value={saveFormat.eol}
-                onChange={(e) =>
-                  setSaveFormat({ ...saveFormat, eol: e.target.value as TextFormat['eol'] })
-                }
+                onChange={(v) => setSaveFormat({ ...saveFormat, eol: v as TextFormat['eol'] })}
                 title={t('Line endings')}
-                className="h-6 rounded border border-border bg-background px-1"
-              >
-                <option value="lf">LF</option>
-                <option value="crlf">CRLF</option>
-                {saveFormat.eol === 'mixed' && <option value="mixed">{t('Mixed (keep)')}</option>}
-              </select>
+                className="h-6 rounded px-1.5 text-xs"
+                options={[
+                  { value: 'lf', label: 'LF' },
+                  { value: 'crlf', label: 'CRLF' },
+                  ...(saveFormat.eol === 'mixed'
+                    ? [{ value: 'mixed', label: t('Mixed (keep)') }]
+                    : []),
+                ]}
+              />
               <Button size="sm" variant="ghost" title={t('Cancel')} onClick={stopEdit}>
                 {t('Cancel')}
               </Button>

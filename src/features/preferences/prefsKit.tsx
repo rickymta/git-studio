@@ -6,6 +6,8 @@ import { useState, type ReactNode } from 'react';
 import { Input } from '@/components/ui';
 import { cn } from '@/lib/cn';
 
+import { Checkbox, Select as UiSelect } from '@/components/controls';
+
 export const Title = ({ children }: { children: ReactNode }) => (
   <h1 className="mb-6 text-[26px] font-semibold">{children}</h1>
 );
@@ -46,13 +48,7 @@ export function Toggle({
 }) {
   return (
     <label className="flex items-center gap-2 pt-1.5">
-      <input
-        type="checkbox"
-        checked={checked}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.checked)}
-        className="size-4 accent-[var(--accent)]"
-      />
+      <Checkbox checked={checked} disabled={disabled} onChange={(v) => onChange(v)} />
       {label && <span className="text-xs text-muted-foreground">{label}</span>}
     </label>
   );
@@ -71,19 +67,7 @@ export function Select({
   const all = options.some((o) => o.value === value)
     ? options
     : [...options, { value, label: value }];
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="h-9 w-80 rounded-md border border-border bg-background px-2"
-    >
-      {all.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
-  );
+  return <UiSelect value={value} onChange={onChange} className="h-9 w-80" options={all} />;
 }
 
 /** Text field that saves on blur / Enter. */

@@ -10,6 +10,8 @@ import { useRepo } from '@/stores/repo';
 import { runRebase } from '../actions';
 import { isNoop, moveRow, rebaseProblem, toSteps, type RebaseRow } from './plan';
 
+import { Select } from '@/components/controls';
+
 const ACTIONS: { value: RebaseAction; label: () => string }[] = [
   { value: 'pick', label: () => t('Pick') },
   { value: 'reword', label: () => t('Reword') },
@@ -94,18 +96,13 @@ export function RebaseDialog() {
                     <ArrowDown className="size-3.5" />
                   </IconButton>
                 </div>
-                <select
+                <Select
                   aria-label={t('Action for {hash}', { hash: short(r.commit.hash) })}
                   value={r.action}
-                  onChange={(e) => void setAction(i, e.target.value as RebaseAction)}
-                  className="h-7 w-24 shrink-0 rounded-md border border-border bg-background px-1.5 text-xs"
-                >
-                  {ACTIONS.map((a) => (
-                    <option key={a.value} value={a.value}>
-                      {a.label()}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(v) => void setAction(i, v as RebaseAction)}
+                  className="h-7 w-24 shrink-0 px-1.5 text-xs"
+                  options={ACTIONS.map((a) => ({ value: a.value, label: a.label() }))}
+                />
                 {folded && <CornerLeftUp className="size-3.5 shrink-0 text-muted-foreground" />}
                 <span className="shrink-0 font-mono text-xs text-muted-foreground">
                   {short(r.commit.hash)}

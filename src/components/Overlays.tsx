@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { t } from '@/lib/i18n';
 import { useUi, type PromptValues } from '@/stores/ui';
 import { Button, Input, Modal, Textarea } from './ui';
+import { Checkbox, Select } from '@/components/controls';
 
 const TOAST_STYLE = {
   error: { color: 'var(--danger)', Icon: XCircle },
@@ -234,12 +235,7 @@ function PromptBody({ close }: { close: (v: PromptValues | null) => void }) {
           if (f.type === 'checkbox') {
             return (
               <label key={f.name} className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={values[f.name] === true}
-                  onChange={(e) => set(e.target.checked)}
-                  className="accent-[var(--accent)]"
-                />
+                <Checkbox checked={values[f.name] === true} onChange={(v) => set(v)} />
                 {f.label}
               </label>
             );
@@ -256,17 +252,12 @@ function PromptBody({ close }: { close: (v: PromptValues | null) => void }) {
                   onChange={(e) => set(e.target.value)}
                 />
               ) : f.type === 'select' ? (
-                <select
+                <Select
                   value={values[f.name] as string}
-                  onChange={(e) => set(e.target.value)}
-                  className="h-8 rounded-md border border-border bg-background px-2"
-                >
-                  {f.options?.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(v) => set(v)}
+                  options={f.options ?? []}
+                  className="w-full"
+                />
               ) : (
                 <Input
                   autoFocus={i === 0}

@@ -248,4 +248,8 @@ export const core: Record<string, string> = {
   'Could not open terminal': 'Không thể mở terminal',
   Search: 'Tìm kiếm',
   'Search commits (Ctrl+F)': 'Tìm commit (Ctrl+F)',
+  // Text field menu and path dialog.
+  'Absolute path': 'Đường dẫn tuyệt đối',
+  Cut: 'Cắt',
+  Paste: 'Dán',
 };

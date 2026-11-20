@@ -29,6 +29,8 @@ import { pickCommits } from './menuUtils';
 import { RefBadge } from './RefBadge';
 import { groupRefs } from './refGroups';
 
+import { Select } from '@/components/controls';
+
 // Proportions measured from GitKraken: 28px rows, 22px lanes, ~20px avatar nodes.
 const ROW = 28;
 const MAX_GRAPH = 220;
@@ -387,21 +389,16 @@ export function CommitGraph() {
         </div>
         {searchOpen ? (
           <div className="flex items-center gap-1 pr-2">
-            <select
+            <Select
               aria-label={t('Search in')}
               value={searchMode}
-              onChange={(e) => {
-                setSearchMode(e.target.value as SearchMode);
+              onChange={(v) => {
+                setSearchMode(v as SearchMode);
                 setMatchIdx(-1);
               }}
-              className="h-5 rounded border border-border bg-background px-1 text-[11px]"
-            >
-              {SEARCH_MODES.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label()}
-                </option>
-              ))}
-            </select>
+              className="h-5 rounded px-1.5 text-[11px]"
+              options={SEARCH_MODES.map((m) => ({ value: m.value, label: m.label() }))}
+            />
             <div className="relative">
               <Search className="absolute top-1.5 left-2 size-3.5 text-muted-foreground" />
               <Input

@@ -5,6 +5,8 @@ import { api } from '@/lib/ipc';
 import type { MergeTools } from '@/lib/types';
 import { toast } from '@/stores/ui';
 
+import { Select } from '@/components/controls';
+
 /** `merge.tool` / `diff.tool` (global git config): what "Open in merge / diff tool" starts. */
 export function MergeToolPrefs() {
   const [tools, setTools] = useState<MergeTools | null>(null);
@@ -29,32 +31,21 @@ export function MergeToolPrefs() {
     // A tool set by hand (e.g. a custom mergetool.<name>.cmd) is kept in the list.
     const known = [...tools.available, ...tools.other];
     return (
-      <select
+      <Select
         value={value}
-        onChange={(e) => void save(kind, e.target.value)}
-        className="h-8 rounded-md border border-border bg-background px-2"
-      >
-        <option value="">{t('Not set (git picks one)')}</option>
-        {value && !known.includes(value) && <option value={value}>{value}</option>}
-        {tools.available.length > 0 && (
-          <optgroup label={t('Found on this computer')}>
-            {tools.available.map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </optgroup>
-        )}
-        {tools.other.length > 0 && (
-          <optgroup label={t('Other tools git supports')}>
-            {tools.other.map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </optgroup>
-        )}
-      </select>
+        onChange={(v) => void save(kind, v)}
+        className="w-80"
+        options={[
+          { value: '', label: t('Not set (git picks one)') },
+          ...(value && !known.includes(value) ? [{ value, label: value }] : []),
+          ...tools.available.map((n) => ({
+            value: n,
+            label: n,
+            group: t('Found on this computer'),
+          })),
+          ...tools.other.map((n) => ({ value: n, label: n, group: t('Other tools git supports') })),
+        ]}
+      />
     );
   };
 
