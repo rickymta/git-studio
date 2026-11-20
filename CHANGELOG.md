@@ -2,6 +2,14 @@
 
 Các thay đổi đáng chú ý của GitStudio. File này do `pnpm release` cập nhật.
 
+## v0.3.0 - 2026-11-20
+
+Thay đổi từ v0.2.3.
+
+- test(patch): order the commits by their subject lines, not any "c1" in the patch (4dba24b)
+- fix(tabs): switch repository tabs at once and load them in steps (54f29ef)
+- feat(graph): act on several picked commits from the right-click menu (8a34f61)
+
 ## v0.2.3 - 2026-11-20
 
 Thay đổi từ v0.2.2.
