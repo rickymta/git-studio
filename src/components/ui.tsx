@@ -3,7 +3,9 @@ import { ChevronRight, Loader2, X } from 'lucide-react';
 import { useCallback, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
 
 import { hue, initials } from '@/lib/format';
+import { hasLoaded, markLoaded } from '@/lib/gravatar';
 import { t } from '@/lib/i18n';
+import { useGravatar } from './useGravatar';
 
 export const cn = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(' ');
 
@@ -58,13 +60,29 @@ export const Spinner = ({ className }: { className?: string }) => (
   <Loader2 className={cn('size-4 animate-spin', className)} />
 );
 
-export function Avatar({ name, url, size = 20 }: { name: string; url?: string; size?: number }) {
+/**
+ * A picture (`url`), else the Gravatar of `email` when it has one, else coloured initials.
+ * The initials stay underneath until the Gravatar has loaded, so nothing flashes.
+ */
+export function Avatar({
+  name,
+  url,
+  email,
+  size = 20,
+}: {
+  name: string;
+  url?: string;
+  email?: string;
+  size?: number;
+}) {
+  const g = useGravatar(url ? null : email, size);
+  const [, setShown] = useState(0);
   if (url) {
     return <img src={url} alt="" width={size} height={size} className="shrink-0 rounded-full" />;
   }
   return (
     <span
-      className="inline-flex shrink-0 items-center justify-center rounded-full font-semibold text-white"
+      className="relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full font-semibold text-white"
       style={{
         width: size,
         height: size,
@@ -73,6 +91,20 @@ export function Avatar({ name, url, size = 20 }: { name: string; url?: string; s
       }}
     >
       {initials(name)}
+      {g.url && (
+        <img
+          src={g.url}
+          alt=""
+          width={size}
+          height={size}
+          className={cn('absolute inset-0 size-full', !hasLoaded(g.url) && 'invisible')}
+          onLoad={() => {
+            markLoaded(g.url!);
+            setShown((n) => n + 1);
+          }}
+          onError={g.fail}
+        />
+      )}
     </span>
   );
 }

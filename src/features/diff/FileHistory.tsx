@@ -119,7 +119,7 @@ export function FileHistory({
                 i === picked ? 'bg-selection' : 'hover:bg-surface-hover',
               )}
             >
-              <Avatar name={e.authorName} size={28} />
+              <Avatar name={e.authorName} email={e.authorEmail} size={28} />
               <div className="min-w-0 flex-1">
                 <div className="flex gap-2">
                   <span className="min-w-0 flex-1 truncate font-medium">{e.subject}</span>

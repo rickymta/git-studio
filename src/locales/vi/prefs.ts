@@ -46,6 +46,9 @@ export const prefs: Record<string, string> = {
   'Remember Tabs': 'Nhớ các tab',
   'Reopen the repository tabs of your last session.':
     'Mở lại các tab repository của phiên làm việc trước.',
+  Gravatar: 'Gravatar',
+  "Show commit authors' pictures from gravatar.com. Only a hash of the author email is sent; authors without one keep their initials.":
+    'Hiển thị ảnh tác giả commit từ gravatar.com. Chỉ gửi mã băm của email tác giả; ai không có Gravatar vẫn hiện chữ viết tắt.',
   'Default Clone Folder': 'Thư mục clone mặc định',
   'Default clone folder': 'Thư mục clone mặc định',
   'Git Executable': 'Tệp thực thi Git',
