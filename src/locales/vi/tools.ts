@@ -101,4 +101,25 @@ export const tools: Record<string, string> = {
     'Đường dẫn tới public key (hoặc chính key). Để xác minh chữ ký SSH, git còn cần gpg.ssh.allowedSignersFile.',
   'Empty: GPG picks the key matching your commit email.':
     'Để trống: GPG tự chọn khoá khớp email commit của bạn.',
+
+  // Bisect
+  Bisect: 'Bisect',
+  'Start bisect: this commit is bad': 'Bắt đầu bisect: commit này lỗi',
+  'Start bisect: this commit is good': 'Bắt đầu bisect: commit này tốt',
+  'Mark as good': 'Đánh dấu tốt',
+  'Mark as bad': 'Đánh dấu lỗi',
+  'Skip this commit': 'Bỏ qua commit này',
+  'End bisect': 'Kết thúc bisect',
+  'Show commit': 'Xem commit',
+  Good: 'Tốt',
+  Bad: 'Lỗi',
+  Skip: 'Bỏ qua',
+  'Found it: {hash} "{subject}" is the first bad commit.':
+    'Đã tìm thấy: {hash} "{subject}" là commit lỗi đầu tiên.',
+  'Bisecting: mark a commit that works (good) to start the search.':
+    'Đang bisect: đánh dấu một commit chạy đúng (tốt) để bắt đầu tìm.',
+  'Bisecting: mark a commit that has the problem (bad) to start the search.':
+    'Đang bisect: đánh dấu một commit bị lỗi để bắt đầu tìm.',
+  'Bisecting: testing {hash}. About {n} revision(s) left (~{steps} step(s)).':
+    'Đang bisect: kiểm tra {hash}. Còn khoảng {n} commit (~{steps} bước).',
 };

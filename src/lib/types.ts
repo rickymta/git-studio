@@ -557,3 +557,17 @@ export interface SigningConfig {
   format: string;
   key: string;
 }
+
+export interface BisectState {
+  active: boolean;
+  bad: string | null;
+  good: string[];
+  skipped: string[];
+  /** Commit checked out for testing. */
+  current: string | null;
+  /** Revisions still to look through. */
+  remaining: number | null;
+  steps: number | null;
+  /** The commit that introduced the change, once found. */
+  firstBad: string | null;
+}

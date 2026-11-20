@@ -1,10 +1,12 @@
 // Actions for the less common repository features: submodules, LFS, bisect, merge tools,
 // maintenance. Kept apart from actions.ts, which holds the everyday ones.
 
+import type { MenuItem } from '@/components/ui';
 import { joinPath } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
-import type { Submodule } from '@/lib/types';
+import type { BisectState, Submodule } from '@/lib/types';
+import { useBisect } from '@/stores/bisect';
 import { useRepo } from '@/stores/repo';
 import { ask, confirm } from '@/stores/ui';
 
@@ -126,4 +128,60 @@ export async function lfsOp(op: 'pull' | 'fetch' | 'prune') {
         ? t('LFS objects fetched')
         : t('Old LFS objects pruned');
   await run(label, (p) => api.lfsOp(p, op), done);
+}
+
+// ---- bisect -------------------------------------------------------------------------------------
+
+/** Run a bisect command and keep the banner's state in step with its result. */
+async function bisectRun(label: string, fn: (p: string) => Promise<BisectState | null>) {
+  const path = repo().path;
+  if (!path) return;
+  await run(label, async (p) => {
+    const st = await fn(p);
+    useBisect.getState().set(path, st ?? (await api.bisectState(p)));
+  });
+}
+
+/** Start a bisect with `hash` as the first bad (or good) commit. */
+export async function bisectStart(hash: string, mark: 'good' | 'bad') {
+  await bisectRun('Start bisect', (p) =>
+    mark === 'bad' ? api.bisectStart(p, hash) : api.bisectStart(p, undefined, hash),
+  );
+}
+
+/** Mark `hash` (the checked-out commit when omitted). */
+export async function bisectMark(mark: 'good' | 'bad' | 'skip', hash?: string) {
+  const label = mark === 'good' ? 'Bisect good' : mark === 'bad' ? 'Bisect bad' : 'Bisect skip';
+  await bisectRun(label, (p) => api.bisectMark(p, mark, hash));
+}
+
+export async function bisectReset() {
+  await bisectRun('End bisect', async (p) => {
+    await api.bisectReset(p);
+    return null;
+  });
+}
+
+/** The commit menu's Bisect submenu. */
+export function bisectMenu(hash: string): MenuItem[] {
+  const st = useBisect.getState();
+  const active = st.path === repo().path && !!st.state?.active;
+  if (!active)
+    return [
+      {
+        label: t('Start bisect: this commit is bad'),
+        onSelect: () => bisectStart(hash, 'bad'),
+      },
+      {
+        label: t('Start bisect: this commit is good'),
+        onSelect: () => bisectStart(hash, 'good'),
+      },
+    ];
+  return [
+    { label: t('Mark as good'), onSelect: () => bisectMark('good', hash) },
+    { label: t('Mark as bad'), onSelect: () => bisectMark('bad', hash) },
+    { label: t('Skip this commit'), onSelect: () => bisectMark('skip', hash) },
+    'sep',
+    { label: t('End bisect'), onSelect: () => bisectReset() },
+  ];
 }

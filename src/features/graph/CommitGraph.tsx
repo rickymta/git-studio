@@ -21,6 +21,7 @@ import type { Commit, GitRef, Stash } from '@/lib/types';
 import { useGitHub } from '@/stores/github';
 import { useRepo } from '@/stores/repo';
 import * as A from '../actions';
+import { bisectMenu } from '../repoTools';
 import { ColumnSettingsMenu } from './ColumnSettingsMenu';
 import {
   COMPACT_WIDTHS,
@@ -191,6 +192,7 @@ function commitMenu(c: Commit): MenuItem[] {
     },
     'sep',
     { label: t('Create branch here'), onSelect: () => A.newBranch(c.hash) },
+    { label: t('Bisect'), items: bisectMenu(c.hash) },
     {
       label: t('Reset {branch} to this commit', { branch: cur ?? 'HEAD' }),
       items: [

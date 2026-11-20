@@ -1160,7 +1160,10 @@ async fn ssh_signed_commits_are_verified() {
     commit_file(&r, &dir, "signed").await;
     let head = r.status().await.unwrap().head.unwrap();
     // Signed, but git needs an allowed-signers file to check SSH signatures.
-    assert_eq!(r.commit_signature(&head).await.unwrap().status, S::Unverifiable);
+    assert_eq!(
+        r.commit_signature(&head).await.unwrap().status,
+        S::Unverifiable
+    );
     let pubkey = std::fs::read_to_string(&pub_path).unwrap();
     let allowed = tmp.path().join("allowed");
     std::fs::write(&allowed, format!("tester@example.com {pubkey}")).unwrap();
@@ -1187,4 +1190,58 @@ async fn ssh_signed_commits_are_verified() {
             .await
             .is_err()
     );
+}
+
+#[tokio::test]
+async fn bisect_finds_the_first_bad_commit() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("repo");
+    let r = new_repo(&dir).await;
+    for i in 0..8 {
+        // The bug ("bad" in the file) arrives with commit 5.
+        let text = if i >= 5 {
+            format!("bad {i}")
+        } else {
+            format!("ok {i}")
+        };
+        std::fs::write(dir.join("f"), text).unwrap();
+        r.stage(&[]).await.unwrap();
+        r.commit(&format!("c{i}"), false).await.unwrap();
+    }
+    let log = r.log(20, 0).await.unwrap();
+    let h = |s: &str| log.iter().find(|c| c.subject == s).unwrap().hash.clone();
+    assert!(!r.bisect_state().await.unwrap().active);
+
+    let mut st = r
+        .bisect_start(Some(&h("c7")), Some(&h("c0")))
+        .await
+        .unwrap();
+    assert!(st.active);
+    assert_eq!(st.bad.as_deref(), Some(h("c7").as_str()));
+    assert!(st.remaining.is_some_and(|n| n > 0));
+    let mut tests = 0;
+    while st.first_bad.is_none() {
+        tests += 1;
+        assert!(tests < 10, "{st:?}");
+        let bad = std::fs::read_to_string(dir.join("f"))
+            .unwrap()
+            .starts_with("bad");
+        st = r
+            .bisect_mark(if bad { "bad" } else { "good" }, None)
+            .await
+            .unwrap();
+    }
+    assert_eq!(st.first_bad.as_deref(), Some(h("c5").as_str()));
+    r.bisect_reset().await.unwrap();
+    assert!(!r.bisect_state().await.unwrap().active);
+    assert_eq!(r.status().await.unwrap().branch.as_deref(), Some("main"));
+
+    // Started without commits, then marked one by one.
+    let st = r.bisect_start(None, Some(&h("c2"))).await.unwrap();
+    assert_eq!(st.good.len(), 1);
+    assert!(st.bad.is_none());
+    let st = r.bisect_mark("bad", Some(&h("c6"))).await.unwrap();
+    assert!(st.remaining.is_some());
+    assert!(r.bisect_mark("maybe", None).await.is_err());
+    r.bisect_reset().await.unwrap();
 }

@@ -477,3 +477,124 @@ impl Repo {
         Ok(())
     }
 }
+
+// ---- bisect -----------------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BisectState {
+    pub active: bool,
+    pub bad: Option<String>,
+    pub good: Vec<String>,
+    pub skipped: Vec<String>,
+    /// Commit checked out for testing.
+    pub current: Option<String>,
+    /// Revisions still to look through, once a good and a bad commit are known.
+    pub remaining: Option<u32>,
+    /// Roughly how many more tests that takes.
+    pub steps: Option<u32>,
+    /// The search is over: this commit introduced the change.
+    pub first_bad: Option<String>,
+}
+
+impl Repo {
+    pub async fn bisect_state(&self) -> Result<BisectState> {
+        if !self.git_dir.join("BISECT_START").exists() {
+            return Ok(BisectState::default());
+        }
+        let refs = self
+            .git(&[
+                "for-each-ref",
+                "--format=%(refname)%09%(objectname)",
+                "refs/bisect/",
+            ])
+            .await?;
+        let mut st = BisectState {
+            active: true,
+            ..Default::default()
+        };
+        for line in refs.lines() {
+            let Some((name, hash)) = line.split_once('\t') else {
+                continue;
+            };
+            let name = name.trim_start_matches("refs/bisect/");
+            if name == "bad" {
+                st.bad = Some(hash.to_string());
+            } else if name.starts_with("good-") {
+                st.good.push(hash.to_string());
+            } else if name.starts_with("skip-") {
+                st.skipped.push(hash.to_string());
+            }
+        }
+        st.current = run::raw(
+            Some(&self.root),
+            &["rev-parse", "--verify", "-q", "HEAD"],
+            Opts::default(),
+        )
+        .await
+        .ok()
+        .filter(|o| o.code == 0)
+        .map(|o| o.text().trim().to_string());
+        // `git bisect` notes the answer in its log once it is found.
+        if let Ok(log) = std::fs::read_to_string(self.git_dir.join("BISECT_LOG")) {
+            st.first_bad = log.lines().rev().find_map(|l| {
+                l.strip_prefix("# first bad commit: [")
+                    .and_then(|r| r.split(']').next())
+                    .map(str::to_string)
+            });
+        }
+        if let (Some(bad), false, None) = (&st.bad, st.good.is_empty(), &st.first_bad) {
+            let mut a = vec!["rev-list", "--bisect-vars", bad.as_str(), "--not"];
+            a.extend(st.good.iter().map(String::as_str));
+            if let Ok(vars) = self.git(&a).await {
+                for l in vars.lines() {
+                    if let Some(v) = l.strip_prefix("bisect_nr=") {
+                        st.remaining = v.trim().parse().ok();
+                    } else if let Some(v) = l.strip_prefix("bisect_steps=") {
+                        st.steps = v.trim().parse().ok();
+                    }
+                }
+            }
+        }
+        Ok(st)
+    }
+
+    /// Start bisecting; `bad` / `good` may be given now or marked later.
+    pub async fn bisect_start(&self, bad: Option<&str>, good: Option<&str>) -> Result<BisectState> {
+        let mut a = vec!["bisect", "start"];
+        if let Some(b) = bad {
+            check_rev(b)?;
+            a.push(b);
+            if let Some(g) = good {
+                check_rev(g)?;
+                a.push(g);
+            }
+        }
+        a.push("--");
+        self.git(&a).await?;
+        if let (None, Some(g)) = (bad, good) {
+            self.bisect_mark("good", Some(g)).await?;
+        }
+        self.bisect_state().await
+    }
+
+    /// Mark `rev` (HEAD when none) as `good`, `bad` or `skip`; git checks out the next commit.
+    pub async fn bisect_mark(&self, mark: &str, rev: Option<&str>) -> Result<BisectState> {
+        let verb = match mark {
+            "good" | "bad" | "skip" => mark,
+            _ => return Err(Error::Invalid(format!("Unknown bisect mark {mark}"))),
+        };
+        let mut a = vec!["bisect", verb];
+        if let Some(r) = rev {
+            check_rev(r)?;
+            a.push(r);
+        }
+        self.git(&a).await?;
+        self.bisect_state().await
+    }
+
+    /// End the bisect and go back to where it started.
+    pub async fn bisect_reset(&self) -> Result<()> {
+        self.git(&["bisect", "reset"]).await.map(drop)
+    }
+}

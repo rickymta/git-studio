@@ -93,6 +93,13 @@ export const api = {
     call<string[]>('history.remotesContaining', { repo, hash }),
   dropCommit: (repo: string, hash: string) => call<null>('history.drop', { repo, hash }),
   /** Commits of every ref matching `query`, found by git (not only the loaded ones). */
+  bisectState: (repo: string) => call<T.BisectState>('bisect.state', { repo }),
+  bisectStart: (repo: string, bad?: string, good?: string) =>
+    call<T.BisectState>('bisect.start', { repo, bad, good }),
+  /** Mark `rev` (HEAD when omitted); git checks out the next commit to test. */
+  bisectMark: (repo: string, mark: 'good' | 'bad' | 'skip', rev?: string) =>
+    call<T.BisectState>('bisect.mark', { repo, mark, rev }),
+  bisectReset: (repo: string) => call<null>('bisect.reset', { repo }),
   commitSignature: (repo: string, hash: string) =>
     call<T.CommitSignature>('signing.commit', { repo, hash }),
   signingConfig: (repo: string, scope: 'effective' | 'local' | 'global' = 'effective') =>

@@ -420,6 +420,30 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
                 .remotes_containing(&arg::<String>(a, "hash")?)
                 .await?
         ),
+        "bisect.state" => serde_json::to_value(repo(a).await?.bisect_state().await?)?,
+        "bisect.start" => {
+            let bad: Option<String> = opt(a, "bad")?;
+            let good: Option<String> = opt(a, "good")?;
+            serde_json::to_value(
+                repo(a)
+                    .await?
+                    .bisect_start(bad.as_deref(), good.as_deref())
+                    .await?,
+            )?
+        }
+        "bisect.mark" => {
+            let rev: Option<String> = opt(a, "rev")?;
+            serde_json::to_value(
+                repo(a)
+                    .await?
+                    .bisect_mark(&arg::<String>(a, "mark")?, rev.as_deref())
+                    .await?,
+            )?
+        }
+        "bisect.reset" => {
+            repo(a).await?.bisect_reset().await?;
+            return done();
+        }
         "signing.commit" => serde_json::to_value(
             repo(a)
                 .await?

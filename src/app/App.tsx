@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { PromptDialog, Toasts } from '@/components/Overlays';
 import { Button, ResizeHandle, Spinner, usePersistentWidth } from '@/components/ui';
 import * as A from '@/features/actions';
+import { BisectBanner } from '@/features/bisect/BisectBanner';
 import { DiffView } from '@/features/diff/DiffView';
 import { GitHubSignIn } from '@/features/github/GitHubSignIn';
 import { ensureOverlaySetup } from '@/features/preferences/overlaySetup';
@@ -264,6 +265,7 @@ export function App() {
             </Button>
           </div>
         )}
+        <BisectBanner />
         <div className="flex min-h-0 flex-1">
           <aside
             className="relative shrink-0 border-r border-border bg-surface"
