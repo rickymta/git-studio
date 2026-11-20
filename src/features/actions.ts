@@ -3,12 +3,13 @@
 import { short } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
+import type { MenuItem } from '@/components/ui';
 import { copyText, pickFile, pickFolder } from '@/lib/native';
 import type { Commit, GitRef, Remote, Stash, Worktree } from '@/lib/types';
 import { useCompare } from '@/stores/compare';
 import { useGitHub } from '@/stores/github';
 import { useRemotePanel } from '@/stores/remotePanel';
-import { useRepo } from '@/stores/repo';
+import { useRepo, type CompareSide } from '@/stores/repo';
 import { ask, confirm, toast, type Field } from '@/stores/ui';
 import { reaches } from './graph/menuUtils';
 
@@ -1398,6 +1399,63 @@ export const copyBranchLink = (ref: GitRef) => copyLink(branchUrl(ref));
 export async function compareWithWorkingDirectory(hash: string) {
   await repo().select({ type: 'commit', hash });
   await useCompare.getState().start(hash);
+}
+
+/** A commit as one end of a comparison. */
+export const commitSide = (hash: string): CompareSide => ({ rev: hash, label: short(hash), hash });
+
+/** A branch or tag as one end of a comparison (compared by name, so it follows the ref). */
+export const refSide = (ref: GitRef): CompareSide => ({
+  rev: ref.fullName,
+  label: ref.name,
+  hash: ref.target,
+});
+
+/** HEAD as one end: the current branch by name, or the detached commit. */
+export function headSide(): CompareSide | null {
+  const st = repo().info?.status;
+  if (!st?.head) return null;
+  return st.branch ? { rev: 'HEAD', label: st.branch, hash: st.head } : commitSide(st.head);
+}
+
+/** Show what changes from `base` to `target` in the right panel. */
+export async function compareCommits(base: CompareSide, target: CompareSide) {
+  await repo().select({ type: 'compare', base, target });
+}
+
+/** Remember `side` as the start of the next "Compare … with this" from a commit or ref menu. */
+export function markCompareBase(side: CompareSide) {
+  useCompare.getState().markBase(side);
+  toast(
+    'info',
+    t('{name} marked as compare base', { name: side.label }),
+    t('Right-click another commit or branch and choose Compare.'),
+  );
+}
+
+/** Compare entries for a commit or ref menu: with HEAD, with the marked base, mark as base. */
+export function compareMenu(side: CompareSide): MenuItem[] {
+  const head = headSide();
+  const base = useCompare.getState().base;
+  return [
+    ...(head && head.hash !== side.hash
+      ? [
+          {
+            label: t('Compare {base} → {target}', { base: head.label, target: side.label }),
+            onSelect: () => compareCommits(head, side),
+          },
+        ]
+      : []),
+    ...(base && base.rev !== side.rev
+      ? [
+          {
+            label: t('Compare {base} → {target}', { base: base.label, target: side.label }),
+            onSelect: () => compareCommits(base, side),
+          },
+        ]
+      : []),
+    { label: t('Mark as compare base'), onSelect: () => markCompareBase(side) },
+  ];
 }
 
 // ---- worktrees ----------------------------------------------------------------------------------

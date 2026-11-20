@@ -278,4 +278,17 @@ export const history: Record<string, string> = {
   'Commits on {local} that are not on {remote} will be left only in the reflog. Uncommitted changes are kept.':
     'Các commit của {local} không có trên {remote} sẽ chỉ còn trong reflog. Thay đổi chưa commit được giữ nguyên.',
   'Reset and check out': 'Reset và checkout',
+
+  // Compare two commits / branches
+  Compare: 'So sánh',
+  'Compare {base} → {target}': 'So sánh {base} → {target}',
+  'Mark as compare base': 'Đánh dấu làm mốc so sánh',
+  '{name} marked as compare base': 'Đã đánh dấu {name} làm mốc so sánh',
+  'Right-click another commit or branch and choose Compare.':
+    'Nhấn chuột phải vào commit hoặc nhánh khác rồi chọn So sánh.',
+  'Swap sides': 'Đổi chiều',
+  '{ahead} commit(s) only on {target}, {behind} only on {base}':
+    '{ahead} commit chỉ có ở {target}, {behind} chỉ có ở {base}',
+  '{n} files changed': '{n} file thay đổi',
+  'Both sides have the same files.': 'Hai bên có nội dung file giống nhau.',
 };

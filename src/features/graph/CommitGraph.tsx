@@ -284,6 +284,7 @@ function commitMenu(c: Commit): MenuItem[] {
       label: t('Compare commit against working directory'),
       onSelect: () => A.compareWithWorkingDirectory(c.hash),
     },
+    ...A.compareMenu(A.commitSide(c.hash)),
     'sep',
     { label: t('Create tag here'), onSelect: () => A.createTag(c.hash) },
     { label: t('Create annotated tag here'), onSelect: () => A.createAnnotatedTag(c.hash) },
@@ -713,7 +714,10 @@ export function CommitGraph() {
               );
             }
             const c = commits[i]!;
-            const selected = selection?.type === 'commit' && selection.hash === c.hash;
+            const selected =
+              (selection?.type === 'commit' && selection.hash === c.hash) ||
+              (selection?.type === 'compare' &&
+                (selection.base.hash === c.hash || selection.target.hash === c.hash));
             return (
               <CommitRow
                 key={c.hash}

@@ -622,6 +622,46 @@ impl Repo {
         .await?;
         Ok(super::parse::parse_name_status(&out.stdout))
     }
+
+    /// What changes from `base` to `target` (two commits, branches or tags): the files that
+    /// differ between their trees, and how many commits each has that the other lacks.
+    pub async fn compare_commits(&self, base: &str, target: &str) -> Result<Comparison> {
+        check_rev(base)?;
+        check_rev(target)?;
+        let out = run::ok(
+            &self.root,
+            &["diff", "--name-status", "-z", "-M", base, target, "--"],
+            Opts::default(),
+        )
+        .await?;
+        let range = format!("{base}...{target}");
+        let counts = run::ok(
+            &self.root,
+            &["rev-list", "--left-right", "--count", &range, "--"],
+            Opts::default(),
+        )
+        .await?
+        .text();
+        let mut it = counts.split_whitespace().map(|n| n.parse().unwrap_or(0));
+        let behind = it.next().unwrap_or(0);
+        let ahead = it.next().unwrap_or(0);
+        Ok(Comparison {
+            files: super::parse::parse_name_status(&out.stdout),
+            ahead,
+            behind,
+        })
+    }
+}
+
+/// Result of [`Repo::compare_commits`].
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Comparison {
+    pub files: Vec<FileChange>,
+    /// Commits on `target` that `base` does not have.
+    pub ahead: u32,
+    /// Commits on `base` that `target` does not have.
+    pub behind: u32,
 }
 
 impl Repo {

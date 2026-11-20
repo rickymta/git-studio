@@ -30,7 +30,19 @@ export function lastRepoOfScope(): string | null {
   }
 }
 
-export type Selection = { type: 'wip' } | { type: 'commit'; hash: string };
+/** One end of a comparison: what git resolves (`rev`, a hash or ref name) and how to name it. */
+export interface CompareSide {
+  rev: string;
+  label: string;
+  /** Commit the side points at, to highlight its row in the graph. */
+  hash: string;
+}
+
+export type Selection =
+  | { type: 'wip' }
+  | { type: 'commit'; hash: string }
+  /** Two commits / branches side by side: what changes from `base` to `target`. */
+  | { type: 'compare'; base: CompareSide; target: CompareSide };
 
 export interface OpenDiff {
   request: DiffRequest;

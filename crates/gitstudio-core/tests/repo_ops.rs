@@ -529,6 +529,30 @@ async fn reflog_lists_head_moves_and_flags_lost_commits() {
 }
 
 #[tokio::test]
+async fn compare_two_branches() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("repo");
+    let r = new_repo(&dir).await;
+    commit_file(&r, &dir, "a").await;
+    r.create_branch("topic", None, true).await.unwrap();
+    commit_file(&r, &dir, "t1").await;
+    commit_file(&r, &dir, "t2").await;
+    r.checkout("main", CheckoutKind::Branch).await.unwrap();
+    commit_file(&r, &dir, "m1").await;
+
+    let c = r.compare_commits("main", "topic").await.unwrap();
+    assert_eq!((c.ahead, c.behind), (2, 1));
+    let mut files: Vec<(char, &str)> = c
+        .files
+        .iter()
+        .map(|f| (f.status, f.path.as_str()))
+        .collect();
+    files.sort();
+    assert_eq!(files, vec![('A', "t1"), ('A', "t2"), ('D', "m1")]);
+    assert!(r.compare_commits("--output=x", "main").await.is_err());
+}
+
+#[tokio::test]
 async fn fast_forward_branches_without_checking_them_out() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().join("repo");

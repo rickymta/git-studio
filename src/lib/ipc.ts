@@ -69,6 +69,9 @@ export const api = {
   stateSet: (changes: Record<string, string | null>) => call<null>('state.set', { changes }),
   compareWithWorktree: (repo: string, hash: string) =>
     call<T.FileChange[]>('repo.compare', { repo, hash }),
+  /** Files and commit counts from `base` to `target` (commits, branches or tags). */
+  compareCommits: (repo: string, base: string, target: string) =>
+    call<T.Comparison>('repo.compareCommits', { repo, base, target }),
   reword: (repo: string, hash: string, message: string) =>
     call<null>('history.reword', { repo, hash, message }),
   /** Replace the message of HEAD (which must still be `hash`); returns the new HEAD. */
