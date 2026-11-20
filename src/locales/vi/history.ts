@@ -291,4 +291,44 @@ export const history: Record<string, string> = {
     '{ahead} commit chỉ có ở {target}, {behind} chỉ có ở {base}',
   '{n} files changed': '{n} file thay đổi',
   'Both sides have the same files.': 'Hai bên có nội dung file giống nhau.',
+
+  // Interactive rebase / several commits
+  'Interactive rebase': 'Rebase tương tác',
+  'Interactive rebase from here…': 'Rebase tương tác từ đây…',
+  'Interactive rebase…': 'Rebase tương tác…',
+  'Oldest commit at the top. Squash and fixup fold a commit into the one above it; squash keeps both messages, fixup only the one above.':
+    'Commit cũ nhất ở trên cùng. Squash và fixup gộp commit vào commit phía trên; squash giữ cả hai nội dung, fixup chỉ giữ nội dung commit phía trên.',
+  Pick: 'Giữ',
+  Reword: 'Sửa nội dung',
+  Squash: 'Squash',
+  Fixup: 'Fixup',
+  'Move up': 'Lên trên',
+  'Move down': 'Xuống dưới',
+  'Action for {hash}': 'Thao tác cho {hash}',
+  'Start rebase': 'Bắt đầu rebase',
+  '{n} commit(s); uncommitted changes are stashed and restored.':
+    '{n} commit; thay đổi chưa commit được stash rồi khôi phục lại.',
+  'Keep at least one commit, or reset the branch instead.':
+    'Hãy giữ lại ít nhất một commit, hoặc reset nhánh.',
+  'The first kept commit has no earlier commit to squash into.':
+    'Commit đầu tiên được giữ không có commit nào phía trước để gộp vào.',
+  'A reworded commit needs a message.': 'Commit được sửa nội dung cần có nội dung.',
+  'Nothing to rebase': 'Không có gì để rebase',
+  'Cannot rebase from here': 'Không thể rebase từ đây',
+  'Rebased {n} commit(s)': 'Đã rebase {n} commit',
+  'Cherry-picked {n} commit(s)': 'Đã cherry-pick {n} commit',
+  'Only commits of the current branch line can be dropped together.':
+    'Chỉ có thể bỏ cùng lúc các commit nằm trên đường chính của nhánh hiện tại.',
+  'Cannot drop these commits': 'Không thể bỏ các commit này',
+  'Drop {n} commits': 'Bỏ {n} commit',
+  'Remove the {n} selected commits from the branch? This rewrites history: the commits after them are recreated and the changes they made are discarded from the branch.':
+    'Bỏ {n} commit đã chọn khỏi nhánh? Thao tác này viết lại lịch sử: các commit phía sau được tạo lại và thay đổi của các commit bị bỏ sẽ mất khỏi nhánh.',
+  'Drop commits': 'Bỏ commit',
+  '{n} commits selected': 'Đã chọn {n} commit',
+  'Clear selection': 'Bỏ chọn',
+  'Ctrl + click adds or removes a commit, Shift + click selects a range.':
+    'Ctrl + click để thêm/bớt commit, Shift + click để chọn một dải.',
+  'Cherry-pick {n} commits': 'Cherry-pick {n} commit',
+  'Squash {n} commits': 'Squash {n} commit',
+  'Copy commit shas': 'Sao chép sha các commit',
 };

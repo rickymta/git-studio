@@ -80,6 +80,12 @@ export const api = {
   remotesContaining: (repo: string, hash: string) =>
     call<string[]>('history.remotesContaining', { repo, hash }),
   dropCommit: (repo: string, hash: string) => call<null>('history.drop', { repo, hash }),
+  /** Commits an interactive rebase from `from` rewrites: `from` up to HEAD, oldest first. */
+  rebasePlan: (repo: string, from: string) =>
+    call<T.Commit[]>('history.rebasePlan', { repo, from }),
+  /** Interactive rebase from `from`: every commit of the plan once, in the order given. */
+  rebaseSteps: (repo: string, from: string, steps: T.RebaseStep[]) =>
+    call<null>('history.rebaseSteps', { repo, from, steps }),
   moveCommit: (repo: string, hash: string, down: boolean) =>
     call<null>('history.move', { repo, hash, down }),
   createPatch: (repo: string, hash: string, dest: string) =>

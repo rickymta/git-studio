@@ -42,7 +42,9 @@ export type Selection =
   | { type: 'wip' }
   | { type: 'commit'; hash: string }
   /** Two commits / branches side by side: what changes from `base` to `target`. */
-  | { type: 'compare'; base: CompareSide; target: CompareSide };
+  | { type: 'compare'; base: CompareSide; target: CompareSide }
+  /** Several commits (Ctrl / Shift + click), newest first as in the graph. */
+  | { type: 'commits'; hashes: string[] };
 
 export interface OpenDiff {
   request: DiffRequest;
