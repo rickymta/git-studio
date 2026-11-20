@@ -555,6 +555,11 @@ impl Repo {
                     }
                 }
             }
+            // Not every git version writes that log line; with nothing left between the good
+            // commits and the bad one, the bad one is the answer.
+            if st.remaining == Some(0) {
+                st.first_bad = st.bad.clone();
+            }
         }
         Ok(st)
     }

@@ -1232,6 +1232,17 @@ async fn bisect_finds_the_first_bad_commit() {
             .unwrap();
     }
     assert_eq!(st.first_bad.as_deref(), Some(h("c5").as_str()));
+    // Some git versions do not note the answer in BISECT_LOG; it is still found.
+    let log_path = dir.join(".git/BISECT_LOG");
+    let log = std::fs::read_to_string(&log_path).unwrap();
+    let stripped: String = log
+        .lines()
+        .filter(|l| !l.starts_with("# first bad commit"))
+        .map(|l| format!("{l}\n"))
+        .collect();
+    std::fs::write(&log_path, stripped).unwrap();
+    let st = r.bisect_state().await.unwrap();
+    assert_eq!(st.first_bad.as_deref(), Some(h("c5").as_str()), "{st:?}");
     r.bisect_reset().await.unwrap();
     assert!(!r.bisect_state().await.unwrap().active);
     assert_eq!(r.status().await.unwrap().branch.as_deref(), Some("main"));
