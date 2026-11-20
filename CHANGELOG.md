@@ -2,6 +2,12 @@
 
 Các thay đổi đáng chú ý của GitStudio. File này do `pnpm release` cập nhật.
 
+## v0.2.2 - 2026-11-20
+
+Thay đổi từ v0.2.1.
+
+- fix(head): show HEAD only when it is detached off a local branch tip (ce43b8c)
+
 ## v0.2.1 - 2026-11-20
 
 Thay đổi từ v0.1.4. Bản v0.2.0 không được phát hành (test bisect lỗi trên CI), nên bản này gồm
