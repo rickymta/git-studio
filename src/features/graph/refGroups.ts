@@ -12,10 +12,27 @@ export interface BadgeGroup {
   kind: 'branch' | 'tag' | 'head';
 }
 
-/** `detachedHead`: this commit is a detached HEAD, shown as a HEAD badge before the others. */
+/**
+ * HEAD is shown on its own (graph badge, sidebar row, branch menu) only when it is detached at a
+ * commit that is not the tip of a local branch. Remote branches don't count: a local branch
+ * behind its remote still ends at HEAD.
+ */
+export function headOffBranch(
+  branch: string | null | undefined,
+  head: string | null | undefined,
+  refs: GitRef[] | undefined,
+): boolean {
+  return !branch && !!head && !(refs ?? []).some((r) => r.kind === 'local' && r.target === head);
+}
+
+/**
+ * `detachedHead`: this commit is a detached HEAD. It gets a HEAD badge before the others unless a
+ * local branch ends here (see `headOffBranch`).
+ */
 export function groupRefs(refs: GitRef[], detachedHead = false): BadgeGroup[] {
   const groups: BadgeGroup[] = [];
-  if (detachedHead) groups.push({ key: 'HEAD', label: 'HEAD', refs: [], head: true, kind: 'head' });
+  if (detachedHead && !refs.some((r) => r.kind === 'local'))
+    groups.push({ key: 'HEAD', label: 'HEAD', refs: [], head: true, kind: 'head' });
   const locals = refs.filter((r) => r.kind === 'local');
   const remotes = refs.filter((r) => r.kind === 'remote');
   const used = new Set<string>();

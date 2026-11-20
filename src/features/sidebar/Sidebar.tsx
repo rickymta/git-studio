@@ -37,7 +37,7 @@ import * as A from '../actions';
 import { ExtraSections } from './ExtraSections';
 import { Section } from './Section';
 import { headMenu, refMenu } from '../graph/refMenu';
-import { worktreeOf } from '../graph/refGroups';
+import { headOffBranch, worktreeOf } from '../graph/refGroups';
 
 function scrollToCommit(hash: string | null | undefined) {
   if (hash) void useRepo.getState().reveal(hash);
@@ -265,7 +265,7 @@ export function Sidebar() {
             </IconButton>
           }
         >
-          {info?.status.branch === null && info.status.head && (
+          {info?.status.head && headOffBranch(info.status.branch, info.status.head, refs?.refs) && (
             <ContextMenuWrap items={headMenu}>
               <div
                 onClick={() => void A.goToHead()}

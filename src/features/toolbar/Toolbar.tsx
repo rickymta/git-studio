@@ -23,6 +23,7 @@ import { pickFolder, revealPath } from '@/lib/native';
 import { openSession, toggleTerminal } from '@/features/terminal/runtime';
 import { useGitHub } from '@/stores/github';
 import { useRepo } from '@/stores/repo';
+import { headOffBranch } from '../graph/refGroups';
 import { openDialog, toast } from '@/stores/ui';
 import { samePath, useWorkspaces } from '@/stores/workspace';
 import * as A from '../actions';
@@ -143,7 +144,7 @@ export function Toolbar() {
 
   const branchMenu: MenuItem[] = [
     // Detached: HEAD is what is checked out, so it carries the tick.
-    ...(!st.branch && st.head
+    ...(st.head && headOffBranch(st.branch, st.head, refs?.refs)
       ? [
           {
             label: t('HEAD (detached) at {hash}', { hash: st.head.slice(0, 7) }),

@@ -2,7 +2,7 @@ import type { MenuItem } from '@/components/ui';
 import type { Commit, GitRef, RepoInfo, Refs } from '@/lib/types';
 import { useRepo } from '@/stores/repo';
 import { compareWithRemote } from '../actions';
-import { groupRefs } from './refGroups';
+import { groupRefs, headOffBranch } from './refGroups';
 import { headMenu } from './refMenu';
 
 const commit = (hash: string, ...parents: string[]): Commit => ({
@@ -48,12 +48,36 @@ beforeEach(() => {
 
 describe('HEAD badge', () => {
   it('puts a detached HEAD first, ticked, before the refs at that commit', () => {
-    const groups = groupRefs([remote('origin/main', 'b'), ref('topic', 'b')], true);
+    const groups = groupRefs([remote('origin/main', 'b'), ref('v1', 'b', { kind: 'tag' })], true);
     expect(groups.map((g) => [g.kind, g.label, g.head])).toEqual([
       ['head', 'HEAD', true],
-      ['branch', 'topic', false],
       ['branch', 'origin/main', false],
+      ['tag', 'v1', false],
     ]);
+  });
+
+  it('has no HEAD badge when HEAD is detached at the tip of a local branch', () => {
+    const groups = groupRefs([remote('origin/main', 'b'), ref('topic', 'b')], true);
+    expect(groups.map((g) => [g.kind, g.label])).toEqual([
+      ['branch', 'topic'],
+      ['branch', 'origin/main'],
+    ]);
+  });
+
+  it('shows HEAD on its own only when detached off every local branch tip', () => {
+    const refs = [
+      ref('main', 'b', { isHead: true }),
+      ref('topic', 'c'),
+      remote('origin/main', 'd'),
+    ];
+    // On a branch, even one behind its remote.
+    expect(headOffBranch('main', 'b', refs)).toBe(false);
+    // Detached at a local branch tip.
+    expect(headOffBranch(null, 'c', refs)).toBe(false);
+    // Detached at a commit only a remote branch ends at, or none.
+    expect(headOffBranch(null, 'd', refs)).toBe(true);
+    expect(headOffBranch(null, 'a', refs)).toBe(true);
+    expect(headOffBranch(null, null, refs)).toBe(false);
   });
 
   it('has no HEAD badge when HEAD is on a branch', () => {
