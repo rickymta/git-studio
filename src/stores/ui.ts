@@ -58,7 +58,7 @@ interface PromptState extends PromptSpec {
 
 /** App-level dialogs any part of the UI can open: Clone, and Scan a folder into the active
  *  workspace. */
-export type AppDialog = 'clone' | 'scanWorkspace';
+export type AppDialog = 'clone' | 'scanWorkspace' | 'clean';
 
 interface UiStore {
   toasts: Toast[];

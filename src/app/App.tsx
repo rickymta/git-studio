@@ -10,6 +10,7 @@ import { RemotePanel } from '@/features/remotes/RemotePanel';
 import { CommitGraph } from '@/features/graph/CommitGraph';
 import { CommitPanel } from '@/features/panel/CommitPanel';
 import { ComparePanel } from '@/features/panel/ComparePanel';
+import { CleanDialog } from '@/features/panel/CleanDialog';
 import { MultiCommitPanel } from '@/features/panel/MultiCommitPanel';
 import { WipPanel } from '@/features/panel/WipPanel';
 import { Preferences, type PrefSection } from '@/features/preferences/Preferences';
@@ -328,6 +329,7 @@ export function App() {
       <NewWorkspaceDialog open={newWs} onClose={() => setNewWs(false)} />
       <ScanDialog open={dialog === 'scanWorkspace'} onClose={() => openDialog(null)} />
       <RebaseDialog />
+      <CleanDialog open={dialog === 'clean'} onClose={() => openDialog(null)} />
       <PromptDialog />
       <Toasts />
     </div>

@@ -839,6 +839,70 @@ impl Repo {
             .map(str::to_string)
             .collect())
     }
+
+    /// Add `pattern` to the repository's top-level `.gitignore` (created when missing), in the
+    /// file's own line endings. Returns false when the pattern is already listed.
+    pub async fn add_to_gitignore(&self, pattern: &str) -> Result<bool> {
+        let pattern = pattern.trim();
+        if pattern.is_empty() || pattern.contains(['\n', '\r', '\0']) {
+            return Err(Error::Invalid(format!(
+                "Invalid ignore pattern {pattern:?}"
+            )));
+        }
+        let file = self.root.join(".gitignore");
+        let mut text = match std::fs::read(&file) {
+            Ok(b) => String::from_utf8_lossy(&b).into_owned(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(e) => return Err(e.into()),
+        };
+        if text.lines().any(|l| l.trim() == pattern) {
+            return Ok(false);
+        }
+        let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
+        if !text.is_empty() && !text.ends_with('\n') {
+            text.push_str(eol);
+        }
+        text.push_str(pattern);
+        text.push_str(eol);
+        std::fs::write(&file, text)?;
+        Ok(true)
+    }
+
+    /// What `git clean` would delete: untracked files and folders, ignored ones too with
+    /// `ignored`. Folders end with `/`.
+    pub async fn clean_preview(&self, ignored: bool) -> Result<Vec<String>> {
+        let mut a = vec!["-c", "core.quotePath=false", "clean", "-n", "-d"];
+        if ignored {
+            a.push("-x");
+        }
+        let out = run::ok(&self.root, &a, Opts::default()).await?;
+        Ok(out
+            .text()
+            .lines()
+            .filter_map(|l| l.strip_prefix("Would remove "))
+            .map(|p| {
+                // Paths with quotes or control characters come back C-quoted.
+                p.strip_prefix('"')
+                    .and_then(|p| p.strip_suffix('"'))
+                    .unwrap_or(p)
+                    .to_string()
+            })
+            .collect())
+    }
+
+    /// Delete these untracked (or, with `ignored`, ignored) files and folders: `git clean`.
+    pub async fn clean_paths(&self, paths: &[String], ignored: bool) -> Result<()> {
+        if paths.is_empty() {
+            return Ok(());
+        }
+        let mut a = vec!["clean", "-f", "-d", "-q"];
+        if ignored {
+            a.push("-x");
+        }
+        a.push("--");
+        a.extend(super::checked_paths(paths)?);
+        run::ok(&self.root, &a, Opts::default()).await.map(drop)
+    }
 }
 
 #[cfg(test)]

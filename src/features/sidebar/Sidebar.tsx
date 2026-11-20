@@ -500,6 +500,7 @@ export function Sidebar() {
                 { label: t('Apply stash'), onSelect: () => A.stashOp(s, 'apply') },
                 { label: t('Pop stash'), onSelect: () => A.stashOp(s, 'pop') },
                 'sep',
+                { label: t('Create branch from stash…'), onSelect: () => A.stashToBranch(s) },
                 { label: t('Delete stash'), danger: true, onSelect: () => A.stashOp(s, 'drop') },
               ]}
             >
