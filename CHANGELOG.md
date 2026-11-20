@@ -2,6 +2,13 @@
 
 Các thay đổi đáng chú ý của GitStudio. File này do `pnpm release` cập nhật.
 
+## v0.3.1 - 2026-11-20
+
+Thay đổi từ v0.3.0.
+
+- feat(ui): themed select, checkbox, radio and context menu instead of webview defaults (9036562)
+- feat(overlay): badges on every tracked file and folder inside a repository (9f4ca86)
+
 ## v0.3.0 - 2026-11-20
 
 Thay đổi từ v0.2.3.
