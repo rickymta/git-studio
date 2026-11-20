@@ -2,6 +2,12 @@
 
 Các thay đổi đáng chú ý của GitStudio. File này do `pnpm release` cập nhật.
 
+## v0.3.2 - 2026-11-20
+
+Thay đổi từ v0.3.1.
+
+- fix(undo): undo/redo for merge, pull, cherry-pick, revert, drop, reword, rename and tags (1a7e7d2)
+
 ## v0.3.1 - 2026-11-20
 
 Thay đổi từ v0.3.0.
