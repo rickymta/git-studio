@@ -21,6 +21,7 @@ export const panels: Record<string, string> = {
   'Reset columns to compact layout': 'Đặt lại cột về bố cục thu gọn',
   'No commits yet. Add files to the folder and make the first commit.':
     'Chưa có commit nào. Hãy thêm tệp vào thư mục và tạo commit đầu tiên.',
+  'Loading commits…': 'Đang tải commit…',
   'Load more commits…': 'Tải thêm commit…',
 
   // ---- graph: commit context menu ----

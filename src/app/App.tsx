@@ -157,10 +157,13 @@ export function App() {
 
   // Pick up changes made outside the app: on focus and every few seconds while visible.
   useEffect(() => {
+    // Only the focused window polls: with several windows open, each one running git status
+    // every few seconds slows them all. Focusing a window catches it up.
     const tick = () => {
-      if (document.visibilityState === 'visible') void useRepo.getState().refreshStatus();
+      if (document.visibilityState === 'visible' && document.hasFocus())
+        void useRepo.getState().refreshStatus();
     };
-    const onFocus = () => void useRepo.getState().refresh();
+    const onFocus = () => void useRepo.getState().refreshOnFocus();
     window.addEventListener('focus', onFocus);
     const id = setInterval(tick, 4000);
     return () => {

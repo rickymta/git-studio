@@ -17,6 +17,17 @@ import { toast } from './ui';
 
 /** Commits per graph page: Preferences → General → Initial commits. */
 const page = () => useRepo.getState().settings?.initialCommits ?? 2000;
+/**
+ * Commits drawn first when a repository opens, so the tab is usable at once; the rest of the
+ * page loads right after, in the background.
+ */
+export const FIRST_PAGE = 300;
+/** Tab switches: only the latest one lands, a slower earlier one is dropped. */
+let openSeq = 0;
+/** The refresh in flight. Overlapping calls share it instead of starting more git processes. */
+let pending: { path: string; again: boolean; done: Promise<void> } | null = null;
+/** When the open repository was last fully loaded (ms). */
+let loadedAt = 0;
 /** Each workspace keeps its own open tabs; '' is "no workspace". */
 let scope = '';
 const tabsKey = () => (scope ? `gitstudio.tabs.${scope}` : 'gitstudio.tabs');
@@ -113,7 +124,10 @@ interface RepoStore {
   /** Add tabs without opening them (e.g. imported from GitKraken). */
   addTabs: (tabs: RepoTab[]) => void;
   close: () => void;
-  refresh: () => Promise<void>;
+  /** Reload the repository. `first`: right after opening, a short first page and no status. */
+  refresh: (opts?: { first?: boolean }) => Promise<void>;
+  /** On window focus: a full refresh, or only the status when the last one is recent. */
+  refreshOnFocus: () => Promise<void>;
   refreshStatus: () => Promise<void>;
   loadMore: () => Promise<void>;
   select: (s: Selection | null) => Promise<void>;
@@ -226,6 +240,74 @@ const emptyRepo = {
   redoStack: [],
 };
 
+/** Re-focusing a window within this long of a full load only re-reads the status. */
+const FOCUS_REFRESH_MS = 10_000;
+
+/**
+ * Load the repository at `path` into the store: status, refs, worktrees and the graph's
+ * commits (all loaded ones again, at least a page; `first`: a short first page and the status
+ * `open` just read).
+ */
+async function loadRepo(path: string, first: boolean) {
+  try {
+    const loaded = useRepo.getState().commits.filter((c) => !c.stash).length;
+    const limit = first ? Math.min(page(), FIRST_PAGE) : Math.max(page(), loaded);
+    const view = loadView(path);
+    const [info, commits, refs, worktrees] = await Promise.all([
+      first ? Promise.resolve(useRepo.getState().info!) : api.info(path),
+      api.log(path, limit, 0, logView(view)),
+      api.refs(path),
+      api.worktrees(path).catch((): Worktree[] => []),
+    ]);
+    if (useRepo.getState().path !== path) return;
+    const rows = withStashes(commits, shownStashes(view, refs));
+    useRepo.setState({
+      info,
+      commits: rows,
+      view,
+      graph: layoutGraph(rows, pinnedTips(view, refs)),
+      refs,
+      worktrees,
+      hasMore: commits.length >= limit,
+    });
+    const sel = useRepo.getState().selection;
+    if (sel?.type === 'commit') {
+      if (commits.some((c) => c.hash === sel.hash)) {
+        if (!useRepo.getState().detail || useRepo.getState().detail?.hash !== sel.hash)
+          void useRepo.getState().select(sel);
+      } else {
+        void useRepo.getState().select({ type: 'wip' });
+      }
+    }
+    if (useRepo.getState().diff) void useRepo.getState().reloadDiff();
+  } catch (e) {
+    toast('error', t('Refresh failed'), (e as Error).message);
+  }
+  loadedAt = Date.now();
+}
+
+/** After the first page: load the rest of the page in the background. */
+async function topUp(path: string) {
+  const { commits, view, refs, hasMore } = useRepo.getState();
+  const real = commits.filter((c) => !c.stash);
+  const want = page() - real.length;
+  if (!hasMore || want <= 0) return;
+  try {
+    const more = await api.log(path, want, real.length, logView(view));
+    const now = useRepo.getState();
+    // A refresh meanwhile (it reloads at least a page) or another repository: nothing to add.
+    if (now.path !== path || now.commits !== commits) return;
+    const all = withStashes([...real, ...more], shownStashes(view, refs));
+    useRepo.setState({
+      commits: all,
+      graph: layoutGraph(all, pinnedTips(view, refs)),
+      hasMore: more.length >= want,
+    });
+  } catch {
+    /* the "Load more" row stays; clicking it tries again */
+  }
+}
+
 export const useRepo = create<RepoStore>((set, get) => ({
   scope: '',
   setScope: async (id) => {
@@ -264,14 +346,21 @@ export const useRepo = create<RepoStore>((set, get) => ({
 
   open: async (path) => {
     if (get().path && samePath(get().path!, path)) return true;
-    set({ loading: true });
+    const seq = ++openSeq;
+    const prev = get().path;
+    // Switch at once: the new tab shows a spinner instead of the previous repository staying
+    // on screen (and seemingly frozen) until the new one has loaded.
+    set({ ...emptyRepo, path, loading: true });
     try {
       const info = await api.open(path);
+      if (seq !== openSeq) return true;
       await get().adopt(info);
       return true;
     } catch (e) {
+      if (seq !== openSeq) return false;
       toast('error', t('Could not open repository'), (e as Error).message);
-      set({ loading: false });
+      set({ ...emptyRepo, loading: false });
+      if (prev && !samePath(prev, path)) void get().open(prev);
       return false;
     }
   },
@@ -297,9 +386,12 @@ export const useRepo = create<RepoStore>((set, get) => ({
       selection: { type: 'wip' },
       loading: true,
     });
-    await get().refresh();
-    set({ loading: false });
+    // Toolbar, sidebar and WIP show now; the graph fills in as its commits arrive.
+    await get().refresh({ first: true });
+    if (get().path !== info.path) return;
     void get().loadSettings();
+    await topUp(info.path);
+    if (get().path === info.path) set({ loading: false });
   },
 
   newTab: () => {
@@ -343,46 +435,39 @@ export const useRepo = create<RepoStore>((set, get) => ({
     if (p) get().closeTab(p);
   },
 
-  refresh: async () => {
+  refresh: (opts) => {
     const path = get().path;
-    if (!path) return;
-    try {
-      const limit = Math.max(page(), get().commits.filter((c) => !c.stash).length);
-      const view = loadView(path);
-      const [info, commits, refs, worktrees] = await Promise.all([
-        api.info(path),
-        api.log(path, limit, 0, logView(view)),
-        api.refs(path),
-        api.worktrees(path).catch((): Worktree[] => []),
-      ]);
-      if (get().path !== path) return;
-      const rows = withStashes(commits, shownStashes(view, refs));
-      set({
-        info,
-        commits: rows,
-        view,
-        graph: layoutGraph(rows, pinnedTips(view, refs)),
-        refs,
-        worktrees,
-        hasMore: commits.length >= limit,
-      });
-      const sel = get().selection;
-      if (sel?.type === 'commit') {
-        if (commits.some((c) => c.hash === sel.hash)) {
-          if (!get().detail || get().detail?.hash !== sel.hash) void get().select(sel);
-        } else {
-          void get().select({ type: 'wip' });
-        }
-      }
-      if (get().diff) void get().reloadDiff();
-    } catch (e) {
-      toast('error', t('Refresh failed'), (e as Error).message);
+    // No info yet: the repository is still opening, and that load brings everything.
+    if (!path || !get().info) return Promise.resolve();
+    if (pending && samePath(pending.path, path)) {
+      pending.again = true;
+      return pending.done;
     }
+    const entry = { path, again: false, done: Promise.resolve() };
+    entry.done = (async () => {
+      let first = !!opts?.first;
+      do {
+        entry.again = false;
+        await loadRepo(path, first);
+        first = false;
+      } while (entry.again && get().path === path);
+    })().finally(() => {
+      if (pending === entry) pending = null;
+    });
+    pending = entry;
+    return entry.done;
+  },
+
+  refreshOnFocus: async () => {
+    if (Date.now() - loadedAt < FOCUS_REFRESH_MS) await get().refreshStatus();
+    else await get().refresh();
   },
 
   refreshStatus: async () => {
     const path = get().path;
-    if (!path || get().busy) return;
+    if (!path || get().busy || !get().info) return;
+    // A refresh in flight reads the status too.
+    if (pending && samePath(pending.path, path)) return;
     try {
       const info = await api.info(path);
       if (get().path !== path) return;
