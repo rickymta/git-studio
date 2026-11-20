@@ -9,6 +9,8 @@ import { joinMessage, splitMessage } from './panel/commitMessage';
 const api = vi.hoisted(() => ({
   amendMessage: vi.fn(async () => 'new'),
   reset: vi.fn(async () => null),
+  // What git says HEAD is before the operation: the state setup() put in the store.
+  info: vi.fn(async () => useRepo.getState().info!),
 }));
 vi.mock('@/lib/ipc', () => ({ api, isTauri: false }));
 

@@ -166,8 +166,22 @@ function saveTabs(tabs: RepoTab[], current: string | null) {
   }
 }
 
-const samePath = (a: string, b: string) =>
-  a.replace(/\\/g, '/').toLowerCase() === b.replace(/\\/g, '/').toLowerCase();
+const pathKey = (p: string) => p.replace(/\\/g, '/').toLowerCase();
+const samePath = (a: string, b: string) => pathKey(a) === pathKey(b);
+
+/**
+ * Undo / Redo history of the repositories not on screen, so switching tabs and back keeps it
+ * (for this session; it is not saved).
+ */
+const journals = new Map<string, { undoStack: JournalEntry[]; redoStack: JournalEntry[] }>();
+
+/** Put the shown repository's Undo / Redo history aside before another one replaces it. */
+function keepJournal() {
+  const { path, undoStack, redoStack } = useRepo.getState();
+  if (path) journals.set(pathKey(path), { undoStack, redoStack });
+}
+
+const journalOf = (path: string) => journals.get(pathKey(path)) ?? { undoStack: [], redoStack: [] };
 
 /** Graph filters from the branch / commit menus (full ref names), kept per repository. */
 export interface GraphView {
@@ -312,6 +326,7 @@ export const useRepo = create<RepoStore>((set, get) => ({
   scope: '',
   setScope: async (id) => {
     scope = id;
+    keepJournal();
     set({ ...emptyRepo, scope: id, tabs: loadTabs() });
     const last = lastRepoOfScope();
     const target = last ?? get().tabs[0]?.path;
@@ -348,6 +363,7 @@ export const useRepo = create<RepoStore>((set, get) => ({
     if (get().path && samePath(get().path!, path)) return true;
     const seq = ++openSeq;
     const prev = get().path;
+    keepJournal();
     // Switch at once: the new tab shows a spinner instead of the previous repository staying
     // on screen (and seemingly frozen) until the new one has loaded.
     set({ ...emptyRepo, path, loading: true });
@@ -378,8 +394,11 @@ export const useRepo = create<RepoStore>((set, get) => ({
     else tabs.push({ path: info.path, name: info.name });
     saveTabs(tabs, info.path);
     if (i < 0 && !opts?.keepOutOfWorkspace) onTabOpened?.(info.path, info.name);
+    // Called by open() (which already put the previous history aside) or directly.
+    if (get().path && !samePath(get().path!, info.path)) keepJournal();
     set({
       ...emptyRepo,
+      ...journalOf(info.path),
       tabs,
       path: info.path,
       info,
@@ -396,6 +415,7 @@ export const useRepo = create<RepoStore>((set, get) => ({
 
   newTab: () => {
     saveTabs(get().tabs, null);
+    keepJournal();
     set({ ...emptyRepo });
     void get().loadSettings();
   },
@@ -407,6 +427,8 @@ export const useRepo = create<RepoStore>((set, get) => ({
     const wasCurrent = !!get().path && samePath(get().path!, path);
     saveTabs(rest, wasCurrent ? null : get().path);
     set({ tabs: rest });
+    // A closed repository's history goes with its tab.
+    journals.delete(pathKey(path));
     if (!wasCurrent) return;
     const next = rest[Math.min(idx, rest.length - 1)];
     set({ ...emptyRepo });

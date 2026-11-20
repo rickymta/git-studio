@@ -41,12 +41,42 @@ async function journaled(
   ) => { undo: (p: string) => Promise<unknown>; redo: (p: string) => Promise<unknown> } | null,
   success?: string,
 ) {
-  const before = headState();
+  // Read from git, not the last refresh: after a commit made outside GitStudio, the shown HEAD
+  // is out of date, and Undo would move the branch back past that commit.
+  const path = repo().path;
+  const before = path
+    ? await api
+        .info(path)
+        .then((i) => ({ branch: i.status.branch, head: i.status.head }))
+        .catch(() => headState())
+    : headState();
   const ok = await run(label, fn, success);
   if (!ok) return false;
+  // run() refreshed after the operation, so the shown HEAD is current here.
   const e = inverse(before, headState());
   if (e) repo().record({ label: label.toLowerCase(), ...e });
   return true;
+}
+
+/**
+ * For operations that add or rewrite commits on the current branch (merge, pull, cherry-pick,
+ * revert, drop, reword…): Undo / Redo move the branch between the two tips with `reset --keep`,
+ * which refuses rather than overwrite uncommitted changes. Nothing is recorded when the branch
+ * did not move (conflicts, already up to date) or another branch got checked out.
+ */
+function journaledHead(label: string, fn: (p: string) => Promise<unknown>, success?: string) {
+  return journaled(
+    label,
+    fn,
+    (b, a) =>
+      b.head && a.head && b.head !== a.head && b.branch === a.branch
+        ? {
+            undo: (p) => api.reset(p, b.head!, 'keep'),
+            redo: (p) => api.reset(p, a.head!, 'keep'),
+          }
+        : null,
+    success,
+  );
 }
 
 export async function commitChanges(message: string, amend: boolean) {
@@ -78,7 +108,7 @@ export async function fetchAll() {
 /** `remote`: pull from that remote instead of the branch's upstream. */
 export async function pull(opts: { mode?: string; remote?: string } = {}) {
   const mode = opts.mode ?? repo().settings?.pullMode ?? 'merge';
-  await run(
+  await journaledHead(
     'Pull',
     (p) => api.pull(p, mode, opts.remote),
     opts.remote ? t('Pulled from {name}', { name: opts.remote }) : t('Pulled'),
@@ -437,8 +467,16 @@ export async function renameBranch(ref: GitRef) {
     fields: [{ name: 'name', label: t('New name'), initial: ref.name, required: true }],
     confirmLabel: t('Rename'),
   });
-  if (v)
-    await run('Rename branch', (p) => api.renameBranch(p, ref.name, (v.name as string).trim()));
+  if (!v) return;
+  const name = (v.name as string).trim();
+  if (name === ref.name) return;
+  const ok = await run('Rename branch', (p) => api.renameBranch(p, ref.name, name));
+  if (ok)
+    repo().record({
+      label: 'rename branch',
+      undo: (p) => api.renameBranch(p, name, ref.name),
+      redo: (p) => api.renameBranch(p, ref.name, name),
+    });
 }
 
 export async function setUpstream(ref: GitRef) {
@@ -487,7 +525,7 @@ export async function mergeInto(target: string) {
     await squashMerge(target);
     return;
   }
-  const ok = await run(
+  const ok = await journaledHead(
     'Merge',
     (p) => api.merge(p, target, v.how === 'noFf'),
     t('Merged {name}', { name: target }),
@@ -616,7 +654,7 @@ export async function rebaseOnto(target: string) {
 }
 
 export async function cherryPick(c: Commit) {
-  await run(
+  await journaledHead(
     'Cherry-pick',
     (p) => api.cherryPick(p, c.hash, c.parents.length > 1),
     t('Cherry-picked {hash}', { hash: short(c.hash) }),
@@ -637,7 +675,7 @@ export async function cherryPickHash(hash: string) {
 }
 
 export async function revertCommit(c: Commit) {
-  await run(
+  await journaledHead(
     'Revert',
     (p) => api.revert(p, c.hash, c.parents.length > 1),
     t('Reverted {hash}', { hash: short(c.hash) }),
@@ -714,11 +752,19 @@ export async function createTag(target: string, label?: string, annotated = fals
   });
   if (!v) return;
   const name = (v.name as string).trim();
+  const message = v.message as string;
   const ok = await run(
     'Create tag',
-    (p) => api.createTag(p, name, target, v.message as string),
+    (p) => api.createTag(p, name, target, message),
     t('Tagged {name}', { name }),
   );
+  // Only while the tag is local: Undo would not reach a copy that was pushed too.
+  if (ok && !v.push)
+    repo().record({
+      label: 'create tag',
+      undo: (p) => api.deleteTag(p, name),
+      redo: (p) => api.createTag(p, name, target, message),
+    });
   if (ok && v.push)
     await run('Push tag', (p) => api.push(p, { tag: name }), t('Pushed {name}', { name }));
 }
@@ -1170,7 +1216,11 @@ export async function editCommitMessage(hash: string) {
   if (!v) return;
   const next = (v.message as string).trim();
   if (next === message.trim()) return;
-  await run('Edit commit message', (p) => api.reword(p, hash, next), t('Commit message updated'));
+  await journaledHead(
+    'Edit commit message',
+    (p) => api.reword(p, hash, next),
+    t('Commit message updated'),
+  );
 }
 
 /**
@@ -1256,7 +1306,7 @@ export async function dropCommit(c: Commit) {
     true,
   );
   if (ok)
-    await run(
+    await journaledHead(
       'Drop commit',
       (p) => api.dropCommit(p, c.hash),
       t('Dropped {hash}', { hash: short(c.hash) }),
@@ -1326,7 +1376,7 @@ export function commitsOf(hashes: string[]): Commit[] {
 /** Cherry-pick several commits onto HEAD, oldest first; a conflict stops at that commit. */
 export async function cherryPickMany(commits: Commit[]) {
   const list = [...commits].reverse();
-  await run(
+  await journaledHead(
     'Cherry-pick',
     async (p) => {
       for (const c of list) await api.cherryPick(p, c.hash, c.parents.length > 1);
