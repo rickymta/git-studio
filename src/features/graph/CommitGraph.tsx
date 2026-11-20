@@ -2,7 +2,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronDown, ChevronUp, LocateFixed, Search, X } from 'lucide-react';
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 
-import { Avatar, ContextMenuWrap, IconButton, Input, ResizeHandle } from '@/components/ui';
+import { Avatar, ContextMenuWrap, IconButton, Input, ResizeHandle, Spinner } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { usePersistentWidth } from '@/components/usePersistentWidth';
 import { useGravatar } from '@/components/useGravatar';
@@ -98,6 +98,7 @@ export function CommitGraph() {
   const select = useRepo((s) => s.select);
   const hasMore = useRepo((s) => s.hasMore);
   const loadMore = useRepo((s) => s.loadMore);
+  const loading = useRepo((s) => s.loading);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -206,7 +207,7 @@ export function CommitGraph() {
     [],
   );
 
-  const count = commits.length + offset + (hasMore ? 1 : 0);
+  const count = commits.length + offset + (hasMore || loading ? 1 : 0);
   // TanStack Virtual returns new functions on every render, so the React Compiler skips this
   // component on purpose; nothing memoized depends on `virt`.
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -530,13 +531,20 @@ export function CommitGraph() {
             if (i >= commits.length) {
               return (
                 <div key="more" style={style} className="flex items-center justify-center">
-                  <button
-                    type="button"
-                    className="text-accent hover:underline"
-                    onClick={() => loadMore()}
-                  >
-                    {t('Load more commits…')}
-                  </button>
+                  {loading ? (
+                    <span className="flex items-center gap-2 text-muted-foreground">
+                      <Spinner className="size-3.5" />
+                      {t('Loading commits…')}
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="text-accent hover:underline"
+                      onClick={() => loadMore()}
+                    >
+                      {t('Load more commits…')}
+                    </button>
+                  )}
                 </div>
               );
             }
