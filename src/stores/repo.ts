@@ -22,6 +22,16 @@ let scope = '';
 const tabsKey = () => (scope ? `gitstudio.tabs.${scope}` : 'gitstudio.tabs');
 const lastKey = () => (scope ? `gitstudio.lastRepo.${scope}` : 'gitstudio.lastRepo');
 
+/**
+ * Told when a repository opens in a new tab. The workspace store sets it so a repository opened
+ * while a workspace is active joins that workspace (repo.ts can't import the workspace store,
+ * which imports this one).
+ */
+let onTabOpened: ((path: string, name: string) => void) | null = null;
+export function setTabOpenedHandler(fn: typeof onTabOpened) {
+  onTabOpened = fn;
+}
+
 export function lastRepoOfScope(): string | null {
   try {
     return localStorage.getItem(lastKey());
@@ -93,7 +103,9 @@ interface RepoStore {
   loadSettings: () => Promise<void>;
   setSettings: (s: Settings) => void;
   open: (path: string) => Promise<boolean>;
-  adopt: (info: RepoInfo) => Promise<void>;
+  /** Show `info` in its tab (a new one if needed). `keepOutOfWorkspace`: a new tab does not
+   *  join the active workspace. */
+  adopt: (info: RepoInfo, opts?: { keepOutOfWorkspace?: boolean }) => Promise<void>;
   /** Show the start page in a new tab (current repository tab stays open). */
   newTab: () => void;
   closeTab: (path: string) => void;
@@ -264,7 +276,7 @@ export const useRepo = create<RepoStore>((set, get) => ({
     }
   },
 
-  adopt: async (info) => {
+  adopt: async (info, opts) => {
     logActivity({
       repo: null,
       label: 'Opened repository {name}',
@@ -276,6 +288,7 @@ export const useRepo = create<RepoStore>((set, get) => ({
     if (i >= 0) tabs[i] = { path: info.path, name: info.name };
     else tabs.push({ path: info.path, name: info.name });
     saveTabs(tabs, info.path);
+    if (i < 0 && !opts?.keepOutOfWorkspace) onTabOpened?.(info.path, info.name);
     set({
       ...emptyRepo,
       tabs,

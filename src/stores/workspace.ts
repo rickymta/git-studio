@@ -3,7 +3,7 @@ import { create } from 'zustand';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import type { RepoSummary, Workspace, Workspaces } from '@/lib/types';
-import { useRepo } from './repo';
+import { setTabOpenedHandler, useRepo } from './repo';
 import { toast } from './ui';
 
 export const WORKSPACE_COLORS = [
@@ -212,3 +212,14 @@ function dedupe(paths: string[]): string[] {
 }
 
 export const summaryKey = norm;
+
+// A repository opened in a new tab while a workspace is active joins that workspace, so the
+// workspace's overview lists every repository open in it.
+setTabOpenedHandler((path, name) => {
+  const store = useWorkspaces.getState();
+  const ws = store.active();
+  if (!ws || ws.repos.some((r) => samePath(r, path))) return;
+  void store.addRepos(ws.id, [path]).then((n) => {
+    if (n) toast('success', t('Added {name} to {workspace}', { name, workspace: ws.name }));
+  });
+});

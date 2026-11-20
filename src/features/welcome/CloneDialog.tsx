@@ -82,7 +82,7 @@ function CloneBody({ open, onClose, onSignIn }: Props) {
       toast('success', t('Cloned {name}', { name: info.name }));
       onClose();
       if (ws && toWorkspace) await addToWorkspace([info.path], info.name);
-      await adopt(info);
+      await adopt(info, { keepOutOfWorkspace: !toWorkspace });
     } catch (e) {
       toast('error', t('Clone failed'), (e as Error).message);
     } finally {
