@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath, URL } from 'node:url';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 
 // `pnpm release` keeps package.json in step with tauri.conf.json and Cargo.toml.
 const { version } = JSON.parse(
@@ -23,5 +23,10 @@ export default defineConfig({
     watch: { ignored: ['**/src-tauri/**', '**/crates/**', '**/target/**'] },
   },
   build: { target: 'es2022', sourcemap: false },
-  test: { globals: true, environment: 'node' },
+  test: {
+    globals: true,
+    environment: 'node',
+    // Agent worktrees under .claude/ are full checkouts: their tests are not this tree's.
+    exclude: [...configDefaults.exclude, '.claude/**', 'target/**'],
+  },
 });
