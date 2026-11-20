@@ -50,6 +50,7 @@ import { CredentialsPrefs } from './Credentials';
 import { OverlayPrefs } from './OverlayPrefs';
 import { RepoPrefs } from './RepoPrefs';
 import { SigningPrefs } from './SigningPrefs';
+import { MergeToolPrefs } from './MergeToolPrefs';
 import { useRepo } from '@/stores/repo';
 import { confirm, toast, useUi } from '@/stores/ui';
 
@@ -1582,6 +1583,7 @@ function Tools() {
           ]}
         />
       </Row>
+      <MergeToolPrefs />
     </>
   );
 }

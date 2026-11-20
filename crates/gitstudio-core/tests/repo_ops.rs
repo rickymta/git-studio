@@ -1245,3 +1245,55 @@ async fn bisect_finds_the_first_bad_commit() {
     assert!(r.bisect_mark("maybe", None).await.is_err());
     r.bisect_reset().await.unwrap();
 }
+
+#[test]
+fn tool_help_lists_found_and_known_tools() {
+    use gitstudio_core::git::extras::parse_tool_help;
+    let text = "'git mergetool --tool=<tool>' may be set to one of the following:\n\t\tvimdiff          Use Vim\n\t\tvscode           Use Visual Studio Code\n\nThe following tools are valid, but not currently available:\n\t\tbc               Use Beyond Compare\n\t\tmeld             Use Meld\n\nSome of the tools listed above only work in a windowed\nenvironment. If run in a terminal-only session, they will fail.\n";
+    let (found, other) = parse_tool_help(text);
+    assert_eq!(found, ["vimdiff", "vscode"]);
+    assert_eq!(other, ["bc", "meld"]);
+}
+
+#[tokio::test]
+async fn mergetool_resolves_a_conflict_with_a_custom_tool() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("repo");
+    let r = new_repo(&dir).await;
+    std::fs::write(dir.join("f"), "base\n").unwrap();
+    r.stage(&[]).await.unwrap();
+    r.commit("base", false).await.unwrap();
+    sh(&dir, &["switch", "-q", "-c", "other"]);
+    std::fs::write(dir.join("f"), "theirs\n").unwrap();
+    r.stage(&[]).await.unwrap();
+    r.commit("theirs", false).await.unwrap();
+    sh(&dir, &["switch", "-q", "main"]);
+    std::fs::write(dir.join("f"), "ours\n").unwrap();
+    r.stage(&[]).await.unwrap();
+    r.commit("ours", false).await.unwrap();
+    assert!(r.merge("other", false).await.is_err());
+    assert_eq!(r.status().await.unwrap().conflicted.len(), 1);
+    // A "tool" that takes the incoming side.
+    sh(&dir, &["config", "merge.tool", "takeremote"]);
+    sh(
+        &dir,
+        &[
+            "config",
+            "mergetool.takeremote.cmd",
+            "cp \"$REMOTE\" \"$MERGED\"",
+        ],
+    );
+    sh(
+        &dir,
+        &["config", "mergetool.takeremote.trustExitCode", "true"],
+    );
+    r.run_mergetool("f").await.unwrap();
+    let st = r.status().await.unwrap();
+    assert!(st.conflicted.is_empty());
+    // (core.autocrlf may turn the temp copy's line ending into CRLF.)
+    assert_eq!(
+        std::fs::read_to_string(dir.join("f")).unwrap().trim_end(),
+        "theirs"
+    );
+    assert!(!dir.join("f.orig").exists());
+}

@@ -122,4 +122,19 @@ export const tools: Record<string, string> = {
     'Đang bisect: đánh dấu một commit bị lỗi để bắt đầu tìm.',
   'Bisecting: testing {hash}. About {n} revision(s) left (~{steps} step(s)).':
     'Đang bisect: kiểm tra {hash}. Còn khoảng {n} commit (~{steps} bước).',
+
+  // External merge / diff tools
+  'Merge tool': 'Merge tool',
+  'Diff tool': 'Diff tool',
+  'Open in merge tool': 'Mở trong merge tool',
+  'Open in diff tool': 'Mở trong diff tool',
+  '{path} resolved': 'Đã giải quyết {path}',
+  'Could not save the tool': 'Không lưu được tool',
+  'Not set (git picks one)': 'Chưa đặt (git tự chọn)',
+  'Found on this computer': 'Có trên máy này',
+  'Other tools git supports': 'Các tool khác git hỗ trợ',
+  'Opened by “Open in merge tool” on a conflicted file (git config merge.tool).':
+    'Được mở bằng “Mở trong merge tool” trên file xung đột (git config merge.tool).',
+  'Opened by “Open in diff tool” on a changed file (git config diff.tool).':
+    'Được mở bằng “Mở trong diff tool” trên file thay đổi (git config diff.tool).',
 };

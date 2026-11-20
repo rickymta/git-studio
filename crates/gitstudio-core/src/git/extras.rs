@@ -598,3 +598,138 @@ impl Repo {
         self.git(&["bisect", "reset"]).await.map(drop)
     }
 }
+
+// ---- external merge / diff tools --------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeTools {
+    /// `merge.tool` from the global config (empty: not set).
+    pub merge_tool: String,
+    /// `diff.tool` from the global config (empty: not set).
+    pub diff_tool: String,
+    /// Tools git knows and found on this computer.
+    pub available: Vec<String>,
+    /// Tools git knows but did not find.
+    pub other: Vec<String>,
+}
+
+/// The two lists of `git mergetool --tool-help`: tools found here, and the others git knows.
+pub fn parse_tool_help(text: &str) -> (Vec<String>, Vec<String>) {
+    let (mut found, mut other) = (Vec::new(), Vec::new());
+    let mut into_other = false;
+    for line in text.lines() {
+        if line.starts_with("The following tools are valid, but not") {
+            into_other = true;
+            continue;
+        }
+        if line.starts_with("Some of the tools listed above") {
+            break;
+        }
+        if !line.starts_with(['\t', ' ']) {
+            continue;
+        }
+        if let Some(name) = line.split_whitespace().next() {
+            if into_other {
+                other.push(name.to_string());
+            } else {
+                found.push(name.to_string());
+            }
+        }
+    }
+    (found, other)
+}
+
+fn check_tool_name(name: &str) -> Result<()> {
+    if name.starts_with('-')
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c))
+    {
+        return Err(Error::Invalid(format!("Invalid tool name {name:?}")));
+    }
+    Ok(())
+}
+
+async fn global_get(key: &str) -> String {
+    run::raw(None, &["config", "--global", "--get", key], Opts::default())
+        .await
+        .ok()
+        .filter(|o| o.code == 0)
+        .map(|o| o.text().trim().to_string())
+        .unwrap_or_default()
+}
+
+/// The chosen merge and diff tools, and the tools git can drive.
+pub async fn merge_tools() -> Result<MergeTools> {
+    let help = run::raw(None, &["mergetool", "--tool-help"], Opts::default()).await?;
+    let (available, other) = parse_tool_help(&help.text());
+    Ok(MergeTools {
+        merge_tool: global_get("merge.tool").await,
+        diff_tool: global_get("diff.tool").await,
+        available,
+        other,
+    })
+}
+
+/// Set (or with an empty name, unset) `merge.tool` / `diff.tool` in the global config.
+pub async fn set_tool(kind: &str, name: &str) -> Result<()> {
+    let key = match kind {
+        "merge" => "merge.tool",
+        "diff" => "diff.tool",
+        _ => return Err(Error::Invalid(format!("Unknown tool kind {kind}"))),
+    };
+    let name = name.trim();
+    if name.is_empty() {
+        run::raw(
+            None,
+            &["config", "--global", "--unset", key],
+            Opts::default(),
+        )
+        .await?;
+        return Ok(());
+    }
+    check_tool_name(name)?;
+    run::ok(
+        &std::env::temp_dir(),
+        &["config", "--global", key, name],
+        Opts::default(),
+    )
+    .await
+    .map(drop)
+}
+
+impl Repo {
+    /// Resolve a conflicted file in the external merge tool; returns when the tool closes. git
+    /// stages the file when the tool reports success.
+    pub async fn run_mergetool(&self, path: &str) -> Result<()> {
+        check_path(path)?;
+        self.git(&[
+            "-c",
+            "mergetool.keepBackup=false",
+            "mergetool",
+            "--no-prompt",
+            "--",
+            path,
+        ])
+        .await
+        .map(drop)
+    }
+
+    /// Show a file's changes in the external diff tool: unstaged ones, `staged` ones, or those of
+    /// `commit`.
+    pub async fn run_difftool(&self, path: &str, staged: bool, commit: Option<&str>) -> Result<()> {
+        check_path(path)?;
+        let range;
+        let mut a = vec!["difftool", "--no-prompt"];
+        if let Some(c) = commit {
+            check_rev(c)?;
+            range = format!("{c}^!");
+            a.push(&range);
+        } else if staged {
+            a.push("--cached");
+        }
+        a.extend(["--", path]);
+        self.git(&a).await.map(drop)
+    }
+}

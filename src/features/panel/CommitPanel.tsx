@@ -12,6 +12,7 @@ import { useRepo } from '@/stores/repo';
 import { amendHeadMessage, canAmendMessage, headIsPushed } from '../actions';
 import { SUMMARY_MAX, joinMessage, splitMessage } from './commitMessage';
 import { SignatureBadge } from './SignatureBadge';
+import { openDiffTool } from '../repoTools';
 import {
   FileList,
   FilesSection,
@@ -472,7 +473,14 @@ export function CommitPanel({ hash }: { hash: string }) {
             mode={mode}
             isActive={isActive}
             onOpen={open}
-            menu={(f) => [{ label: t('Copy file path'), onSelect: () => copyText(f.path) }]}
+            menu={(f) => [
+              {
+                label: t('Open in diff tool'),
+                disabled: d.parents.length === 0,
+                onSelect: () => openDiffTool(f.path, false, d.hash),
+              },
+              { label: t('Copy file path'), onSelect: () => copyText(f.path) },
+            ]}
           />
         )}
       </div>

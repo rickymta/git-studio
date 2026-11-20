@@ -93,6 +93,14 @@ export const api = {
     call<string[]>('history.remotesContaining', { repo, hash }),
   dropCommit: (repo: string, hash: string) => call<null>('history.drop', { repo, hash }),
   /** Commits of every ref matching `query`, found by git (not only the loaded ones). */
+  mergeTools: () => call<T.MergeTools>('tools.list', {}),
+  /** Set (empty: unset) the global merge.tool / diff.tool. */
+  setTool: (kind: 'merge' | 'diff', name: string) => call<null>('tools.set', { kind, name }),
+  /** Open a conflicted file in the merge tool; resolves when the tool closes. */
+  mergeTool: (repo: string, path: string) => call<null>('tools.merge', { repo, path }),
+  /** Show a file's unstaged, `staged` or `commit` changes in the diff tool. */
+  diffTool: (repo: string, path: string, staged = false, commit?: string) =>
+    call<null>('tools.diff', { repo, path, staged, commit }),
   bisectState: (repo: string) => call<T.BisectState>('bisect.state', { repo }),
   bisectStart: (repo: string, bad?: string, good?: string) =>
     call<T.BisectState>('bisect.start', { repo, bad, good }),

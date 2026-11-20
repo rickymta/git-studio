@@ -420,6 +420,31 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
                 .remotes_containing(&arg::<String>(a, "hash")?)
                 .await?
         ),
+        "tools.list" => serde_json::to_value(git::extras::merge_tools().await?)?,
+        "tools.set" => {
+            git::extras::set_tool(&arg::<String>(a, "kind")?, &arg::<String>(a, "name")?).await?;
+            return done();
+        }
+        "tools.merge" => {
+            repo(a)
+                .await?
+                .run_mergetool(&arg::<String>(a, "path")?)
+                .await?;
+            return done();
+        }
+        "tools.diff" => {
+            let staged: Option<bool> = opt(a, "staged")?;
+            let commit: Option<String> = opt(a, "commit")?;
+            repo(a)
+                .await?
+                .run_difftool(
+                    &arg::<String>(a, "path")?,
+                    staged.unwrap_or(false),
+                    commit.as_deref(),
+                )
+                .await?;
+            return done();
+        }
         "bisect.state" => serde_json::to_value(repo(a).await?.bisect_state().await?)?,
         "bisect.start" => {
             let bad: Option<String> = opt(a, "bad")?;

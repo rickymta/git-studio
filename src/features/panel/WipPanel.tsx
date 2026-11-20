@@ -21,7 +21,7 @@ import type { FileChange } from '@/lib/types';
 import { useRepo } from '@/stores/repo';
 import { confirm, openDialog, toast } from '@/stores/ui';
 import { commitChanges, ignoreFile, push, stashFiles, stashStaged } from '../actions';
-import { lfsPatternFor, lfsTrack } from '../repoTools';
+import { lfsPatternFor, lfsTrack, openDiffTool, openMergeTool } from '../repoTools';
 import {
   EmptyFiles,
   FILES_DRAG,
@@ -282,6 +282,14 @@ export function WipPanel() {
           ? [{ label: t('Track with LFS…'), onSelect: () => lfsTrack(lfsPatternFor(f.path)) }]
           : []),
         'sep' as const,
+        ...(f.status !== '?' && !many
+          ? [
+              {
+                label: t('Open in diff tool'),
+                onSelect: () => openDiffTool(f.path, l === 'staged'),
+              },
+            ]
+          : []),
         {
           label: t('Open in editor'),
           onSelect: () =>
@@ -368,6 +376,8 @@ export function WipPanel() {
                 onSelect: () => run(t('Resolve'), (p) => api.resolve(p, [f.path], 'theirs')),
               },
               { label: t('Mark as resolved'), onSelect: () => stage([f.path]) },
+              'sep',
+              { label: t('Open in merge tool'), onSelect: () => openMergeTool(f.path) },
             ]}
             actions={(f) => (
               <PillButton tone="success" small onClick={() => stage([f.path])}>

@@ -185,3 +185,15 @@ export function bisectMenu(hash: string): MenuItem[] {
     { label: t('End bisect'), onSelect: () => bisectReset() },
   ];
 }
+
+// ---- external merge / diff tools ----------------------------------------------------------------
+
+/** Resolve a conflicted file in the external merge tool (busy until the tool closes). */
+export async function openMergeTool(path: string) {
+  await run(t('Merge tool'), (p) => api.mergeTool(p, path), t('{path} resolved', { path }));
+}
+
+/** Show a file's changes in the external diff tool. */
+export async function openDiffTool(path: string, staged = false, commit?: string) {
+  await run(t('Diff tool'), (p) => api.diffTool(p, path, staged, commit));
+}

@@ -571,3 +571,13 @@ export interface BisectState {
   /** The commit that introduced the change, once found. */
   firstBad: string | null;
 }
+
+export interface MergeTools {
+  /** `merge.tool` (global); empty = not set. */
+  mergeTool: string;
+  diffTool: string;
+  /** Tools git found on this computer. */
+  available: string[];
+  /** Tools git supports but did not find. */
+  other: string[];
+}
