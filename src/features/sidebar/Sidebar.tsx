@@ -10,6 +10,7 @@ import {
   GitCommitHorizontal,
   GitPullRequest,
   GitPullRequestDraft,
+  History,
   House,
   Laptop,
   Lock,
@@ -28,7 +29,7 @@ import { relativeTime, short } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import { copyText, openUrl, revealPath } from '@/lib/native';
-import type { GitRef, PullRequest, Worktree } from '@/lib/types';
+import type { GitRef, PullRequest, ReflogEntry, Worktree } from '@/lib/types';
 import { useGitHub } from '@/stores/github';
 import { useRepo } from '@/stores/repo';
 import * as A from '../actions';
@@ -384,6 +385,8 @@ export function Sidebar() {
 
         <WorktreesSection />
 
+        <ReflogSection />
+
         {ghRemote?.github && (
           <Section
             id="prs"
@@ -649,6 +652,146 @@ function worktreeMenu(w: Worktree): MenuItem[] {
       onSelect: () => A.removeWorktree(w),
     },
   ];
+}
+
+const REFLOG_PAGE = 50;
+
+/** Kind of HEAD move, from the start of the reflog message (`checkout: …`, `commit (amend): …`). */
+function reflogKind(action: string) {
+  return action.split(/[:(\s]/, 1)[0] ?? '';
+}
+
+function reflogMenu(e: ReflogEntry): MenuItem[] {
+  const cur = useRepo.getState().info?.status.branch ?? null;
+  const head = useRepo.getState().info?.status.head ?? null;
+  return [
+    { label: t('Create branch here'), onSelect: () => A.newBranch(e.hash, e.selector) },
+    ...(e.hash !== head
+      ? [
+          {
+            label: t('Checkout this commit'),
+            onSelect: () => A.checkoutCommit(e.hash, e.selector),
+          },
+          { label: t('Cherry pick commit'), onSelect: () => A.cherryPickHash(e.hash) },
+          {
+            label: t('Reset {branch} to this commit', { branch: cur ?? 'HEAD' }),
+            items: [
+              {
+                label: t('Soft - keep all changes'),
+                onSelect: () => A.resetWithMode(e.hash, 'soft'),
+              },
+              {
+                label: t('Mixed - keep working copy but reset index'),
+                onSelect: () => A.resetWithMode(e.hash, 'mixed'),
+              },
+              {
+                label: t('Hard - discard all changes'),
+                danger: true,
+                onSelect: () => A.resetWithMode(e.hash, 'hard'),
+              },
+            ],
+          },
+        ]
+      : []),
+    'sep',
+    { label: t('Copy commit sha'), onSelect: () => copyText(e.hash) },
+    { label: t('Copy {selector}', { selector: e.selector }), onSelect: () => copyText(e.selector) },
+  ];
+}
+
+/**
+ * Where HEAD has been (`git reflog`): every checkout, commit, reset, merge or rebase, so work
+ * dropped from every branch can be found and kept again. Loaded only while the section is open.
+ */
+function ReflogSection() {
+  return (
+    <Section id="reflog" title={t('HEAD history (reflog)')} icon={<History className="size-3.5" />}>
+      <ReflogList />
+    </Section>
+  );
+}
+
+function ReflogList() {
+  const path = useRepo((s) => s.path);
+  const head = useRepo((s) => s.info?.status.head ?? null);
+  // A new refs object means the repository changed (commit, checkout, branch deleted…).
+  const refs = useRepo((s) => s.refs);
+  const selection = useRepo((s) => s.selection);
+  const [entries, setEntries] = useState<ReflogEntry[] | null>(null);
+  const [limit, setLimit] = useState(REFLOG_PAGE);
+  const [more, setMore] = useState(false);
+
+  useEffect(() => {
+    if (!path) return;
+    let live = true;
+    api
+      .reflog(path, limit + 1)
+      .then((list) => {
+        if (!live) return;
+        setMore(list.length > limit);
+        setEntries(list.slice(0, limit));
+      })
+      .catch(() => live && setEntries([]));
+    return () => {
+      live = false;
+    };
+  }, [path, head, refs, limit]);
+
+  if (!entries) return <div className="h-7 pl-6 text-xs leading-7 text-muted-foreground">…</div>;
+  if (entries.length === 0)
+    return (
+      <div className="h-7 pl-6 text-xs leading-7 text-muted-foreground">
+        {t('No HEAD history yet.')}
+      </div>
+    );
+  return (
+    <>
+      {entries.map((e) => {
+        const picked = selection?.type === 'commit' && selection.hash === e.hash;
+        return (
+          <ContextMenuWrap key={e.selector} items={() => reflogMenu(e)}>
+            <div
+              title={`${e.selector} · ${short(e.hash)}\n${e.action}\n${e.subject}${
+                e.unreferenced ? `\n${t('On no branch or tag: create a branch to keep it.')}` : ''
+              }`}
+              // A lost commit is not in the graph: show its details without paging through it.
+              onClick={() =>
+                void (e.unreferenced
+                  ? useRepo.getState().select({ type: 'commit', hash: e.hash })
+                  : useRepo.getState().reveal(e.hash))
+              }
+              className={cn(
+                'flex h-7 cursor-default items-center gap-1.5 pr-2 pl-6 hover:bg-surface-hover',
+                picked && 'bg-selection/45',
+              )}
+            >
+              <span className="w-14 shrink-0 truncate text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
+                {reflogKind(e.action)}
+              </span>
+              <span className={cn('min-w-0 flex-1 truncate', e.unreferenced && 'italic')}>
+                {e.subject || e.action}
+              </span>
+              {e.unreferenced && (
+                <span className="shrink-0 rounded border border-warning/60 px-1 text-[10px] leading-4 text-warning">
+                  {t('lost')}
+                </span>
+              )}
+              <span className="shrink-0 text-xs text-muted-foreground">{relativeTime(e.time)}</span>
+            </div>
+          </ContextMenuWrap>
+        );
+      })}
+      {more && (
+        <button
+          type="button"
+          onClick={() => setLimit((n) => n + REFLOG_PAGE)}
+          className="h-7 w-full pl-6 text-left text-xs text-accent hover:underline"
+        >
+          {t('Show older entries')}
+        </button>
+      )}
+    </>
+  );
 }
 
 function WorktreesSection() {

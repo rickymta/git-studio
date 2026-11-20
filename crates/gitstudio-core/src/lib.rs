@@ -266,6 +266,16 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
             )?
         }
         "repo.refs" => serde_json::to_value(repo(a).await?.refs().await?)?,
+        "repo.reflog" => {
+            let limit: Option<u32> = opt(a, "limit")?;
+            let skip: Option<u32> = opt(a, "skip")?;
+            serde_json::to_value(
+                repo(a)
+                    .await?
+                    .reflog(limit.unwrap_or(100).min(1000), skip.unwrap_or(0))
+                    .await?,
+            )?
+        }
         "repo.commit" => serde_json::to_value(
             repo(a)
                 .await?

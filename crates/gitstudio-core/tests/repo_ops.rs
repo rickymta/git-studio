@@ -489,6 +489,46 @@ async fn checkout_remote_reset_and_unreferenced_commits() {
 }
 
 #[tokio::test]
+async fn reflog_lists_head_moves_and_flags_lost_commits() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("repo");
+    let r = new_repo(&dir).await;
+    assert!(
+        r.reflog(10, 0).await.unwrap().is_empty(),
+        "unborn HEAD has no reflog"
+    );
+    commit_file(&r, &dir, "a").await;
+    commit_file(&r, &dir, "b").await;
+    let b = r.log(1, 0).await.unwrap()[0].hash.clone();
+    // Drop b from main: only the reflog still knows it.
+    r.reset("HEAD~1", "hard").await.unwrap();
+
+    let log = r.reflog(10, 0).await.unwrap();
+    assert_eq!(log[0].selector, "HEAD@{0}");
+    assert!(log[0].action.starts_with("reset:"), "{:?}", log[0]);
+    assert!(!log[0].unreferenced);
+    let lost = log.iter().find(|e| e.hash == b).unwrap();
+    assert!(lost.unreferenced);
+    assert_eq!(lost.subject, "b");
+    assert!(lost.time > 0);
+
+    // Paging continues the numbering.
+    let page = r.reflog(1, 1).await.unwrap();
+    assert_eq!(page[0].selector, "HEAD@{1}");
+    assert_eq!(page[0].hash, b);
+
+    // A branch at the lost commit recovers it.
+    r.create_branch("rescued", Some(&b), false).await.unwrap();
+    assert!(
+        r.reflog(10, 0)
+            .await
+            .unwrap()
+            .iter()
+            .all(|e| !e.unreferenced)
+    );
+}
+
+#[tokio::test]
 async fn fast_forward_branches_without_checking_them_out() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().join("repo");

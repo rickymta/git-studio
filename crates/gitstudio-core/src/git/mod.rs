@@ -692,6 +692,48 @@ impl Repo {
         }
     }
 
+    /// Where HEAD has been, newest first, `limit` entries after `skip`. Entries whose commit no
+    /// branch, tag or remote branch contains are flagged (`unreferenced`): lost work to recover.
+    /// Empty for a repository without a reflog (unborn HEAD).
+    pub async fn reflog(&self, limit: u32, skip: u32) -> Result<Vec<ReflogEntry>> {
+        let n = format!("-n{limit}");
+        let s = format!("--skip={skip}");
+        let out = run::raw(
+            Some(&self.root),
+            &[
+                "log",
+                "-g",
+                "--date=unix",
+                parse::REFLOG_FORMAT,
+                &n,
+                &s,
+                "HEAD",
+            ],
+            Opts::default(),
+        )
+        .await?;
+        if out.code != 0 {
+            return Ok(Vec::new());
+        }
+        let mut entries = parse::parse_reflog(&out.text(), skip as usize);
+        let mut tips: Vec<&str> = entries.iter().map(|e| e.hash.as_str()).collect();
+        tips.sort_unstable();
+        tips.dedup();
+        if tips.is_empty() {
+            return Ok(entries);
+        }
+        // One walk for all entries: commits reachable from them but from no ref.
+        let mut a = vec!["rev-list"];
+        a.extend(tips.iter().copied());
+        a.extend(["--not", "--branches", "--tags", "--remotes"]);
+        let lost: std::collections::HashSet<String> =
+            self.git(&a).await?.lines().map(str::to_string).collect();
+        for e in &mut entries {
+            e.unreferenced = lost.contains(&e.hash);
+        }
+        Ok(entries)
+    }
+
     /// Commits reachable from `rev` but from no branch, tag or remote branch: what would be hard
     /// to find again once HEAD leaves a detached `rev`.
     pub async fn unreferenced_commits(&self, rev: &str) -> Result<u32> {
