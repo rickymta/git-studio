@@ -43,6 +43,7 @@ export const SHORTCUTS: ShortcutGroup[] = [
       { label: 'Select Next Item', keys: [['↓'], ['J']] },
       { label: 'Close diff / dialog', keys: [['Esc']] },
       { label: 'Search commits', keys: [['Ctrl', 'F']] },
+      { label: 'Go to HEAD', keys: [['Ctrl', 'Shift', 'H']] },
       { label: 'Filter branches and repositories', keys: [['Ctrl', 'Alt', 'F']] },
     ],
   },

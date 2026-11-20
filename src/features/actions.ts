@@ -10,6 +10,7 @@ import { useGitHub } from '@/stores/github';
 import { useRemotePanel } from '@/stores/remotePanel';
 import { useRepo } from '@/stores/repo';
 import { ask, confirm, toast, type Field } from '@/stores/ui';
+import { reaches } from './graph/menuUtils';
 
 const repo = () => useRepo.getState();
 const run = (...a: Parameters<ReturnType<typeof repo>['run']>) => repo().run(...a);
@@ -121,7 +122,13 @@ export async function push(opts: { branch?: string; remote?: string } = {}) {
   }
 }
 
-export async function newBranch(start?: string, startLabel?: string) {
+/** `checkoutInitial`: whether "Check out after creating" starts ticked. Resolves to whether
+ *  the branch was created. */
+export async function newBranch(
+  start?: string,
+  startLabel?: string,
+  checkoutInitial = true,
+): Promise<boolean> {
   const v = await ask({
     title: t('Create branch'),
     description: start
@@ -129,14 +136,19 @@ export async function newBranch(start?: string, startLabel?: string) {
       : t('Starting at HEAD'),
     fields: [
       { name: 'name', label: t('Branch name'), placeholder: 'feature/my-change', required: true },
-      { name: 'checkout', label: t('Check out after creating'), type: 'checkbox', initial: true },
+      {
+        name: 'checkout',
+        label: t('Check out after creating'),
+        type: 'checkbox',
+        initial: checkoutInitial,
+      },
     ],
     confirmLabel: t('Create'),
   });
-  if (!v) return;
+  if (!v) return false;
   const name = (v.name as string).trim();
   const checkout = v.checkout as boolean;
-  await journaled(
+  return journaled(
     'Create branch',
     (p) => api.createBranch(p, name, start, checkout),
     (b) => {
@@ -154,9 +166,53 @@ export async function newBranch(start?: string, startLabel?: string) {
   );
 }
 
+/** Select the checked-out commit in the graph (loading older pages when needed). */
+export async function goToHead() {
+  const head = repo().info?.status.head;
+  if (head) await repo().reveal(head);
+}
+
+/**
+ * Before HEAD leaves a detached commit: commits made there that no branch, tag or remote
+ * branch holds would be left only in the reflog. Offers to create a branch first.
+ * Resolves to `false` when the user cancels the checkout.
+ */
+async function leaveDetachedHead(): Promise<boolean> {
+  const { branch, head } = headState();
+  const path = repo().path;
+  if (branch || !head || !path) return true;
+  // A failed check must not block the checkout itself.
+  const n = await api.unreferenced(path, head).catch(() => 0);
+  if (n === 0) return true;
+  const v = await ask({
+    title: t('Commits not on any branch'),
+    description: t(
+      'HEAD is detached at {hash} and {n} commit(s) there are on no branch or tag. Once you switch away they can only be found in the reflog.',
+      { hash: short(head), n },
+    ),
+    fields: [
+      {
+        name: 'action',
+        label: t('Before switching'),
+        type: 'select',
+        initial: 'branch',
+        options: [
+          { value: 'branch', label: t('Create a branch at HEAD to keep them') },
+          { value: 'leave', label: t('Switch anyway') },
+        ],
+      },
+    ],
+    confirmLabel: t('Continue'),
+  });
+  if (!v) return false;
+  if (v.action === 'branch') return newBranch(head, 'HEAD', false);
+  return true;
+}
+
 export async function checkoutRef(ref: GitRef) {
+  if (ref.kind === 'local' && ref.isHead) return;
+  if (!(await leaveDetachedHead())) return;
   if (ref.kind === 'local') {
-    if (ref.isHead) return;
     await journaled(
       'Checkout',
       (p) => api.checkout(p, ref.name, 'branch'),
@@ -164,17 +220,133 @@ export async function checkoutRef(ref: GitRef) {
       t('Switched to {name}', { name: ref.name }),
     );
   } else if (ref.kind === 'remote') {
-    await journaled(
-      'Checkout',
-      (p) => api.checkout(p, ref.name, 'remote'),
-      (b, a) => ({ undo: backTo(b), redo: backTo(a) }),
-    );
+    await checkoutRemote(ref);
   } else {
-    await checkoutCommit(ref.target, ref.name);
+    await checkoutCommit(ref.target, ref.name, false);
   }
 }
 
-export async function checkoutCommit(hash: string, label?: string) {
+/**
+ * How a local branch relates to the remote branch of the same name: from its ahead/behind
+ * counts when it tracks that branch, otherwise from the loaded graph (`unknown` when the
+ * commits are not loaded).
+ */
+export function compareWithRemote(
+  local: GitRef,
+  remote: GitRef,
+): 'same' | 'behind' | 'ahead' | 'diverged' | 'unknown' {
+  if (local.target === remote.target) return 'same';
+  if (local.upstream === remote.name) {
+    if (local.behind > 0 && local.ahead === 0) return 'behind';
+    if (local.ahead > 0 && local.behind === 0) return 'ahead';
+    if (local.ahead > 0 && local.behind > 0) return 'diverged';
+  }
+  if (reaches(remote.target, local.target)) return 'behind';
+  if (reaches(local.target, remote.target)) return 'ahead';
+  const loaded = new Set(repo().commits.map((c) => c.hash));
+  return loaded.has(local.target) && loaded.has(remote.target) ? 'diverged' : 'unknown';
+}
+
+/**
+ * Check out a remote branch: as a new tracking branch, or as its local namesake. When the local
+ * branch points elsewhere, ask what to do with it instead of quietly landing on another commit.
+ */
+async function checkoutRemote(ref: GitRef) {
+  const name = ref.name.slice((ref.remote?.length ?? 0) + 1);
+  const local = repo().refs?.refs.find((r) => r.kind === 'local' && r.name === name);
+  const switchBack = (b: ReturnType<typeof headState>, a: ReturnType<typeof headState>) => ({
+    undo: backTo(b),
+    redo: backTo(a),
+  });
+  const rel = local ? compareWithRemote(local, ref) : 'same';
+  if (rel === 'same' || rel === 'ahead') {
+    const ok = await journaled(
+      'Checkout',
+      (p) => api.checkout(p, ref.name, 'remote'),
+      switchBack,
+      t('Switched to {name}', { name }),
+    );
+    if (ok && rel === 'ahead')
+      toast(
+        'info',
+        t('{local} has commits that {remote} does not have yet', { local: name, remote: ref.name }),
+      );
+    return;
+  }
+
+  const vars = { local: name, remote: ref.name };
+  const v = await ask({
+    title: t('Check out {name}', { name: ref.name }),
+    description:
+      rel === 'behind'
+        ? t('The local branch {local} is behind {remote}.', vars)
+        : rel === 'diverged'
+          ? t('The local branch {local} and {remote} have diverged.', vars)
+          : t('The local branch {local} points to a different commit than {remote}.', vars),
+    fields: [
+      {
+        name: 'mode',
+        label: t('Local branch {local}', vars),
+        type: 'select',
+        initial: rel === 'behind' ? 'ff' : 'keep',
+        options: [
+          ...(rel === 'behind'
+            ? [{ value: 'ff', label: t('Fast-forward {local} to {remote}', vars) }]
+            : []),
+          { value: 'keep', label: t('Check out {local} as it is', vars) },
+          ...(rel !== 'behind'
+            ? [
+                {
+                  value: 'reset',
+                  label: t('Reset {local} to {remote} (drops its own commits)', vars),
+                },
+              ]
+            : []),
+        ],
+      },
+    ],
+    confirmLabel: t('Check out'),
+  });
+  if (!v) return;
+  if (v.mode === 'keep') {
+    await journaled(
+      'Checkout',
+      (p) => api.checkout(p, name, 'branch'),
+      switchBack,
+      t('Switched to {name}', { name }),
+    );
+  } else if (v.mode === 'ff') {
+    // The branch itself moves, which switching back cannot undo: no Undo entry.
+    await run(
+      'Checkout',
+      async (p) => {
+        await api.fastForward(p, name, ref.name);
+        await api.checkout(p, name, 'branch');
+      },
+      t('Fast-forwarded {branch} to {target}', { branch: name, target: ref.name }),
+    );
+  } else {
+    const ok = await confirm(
+      t('Reset {local} to {remote}', vars),
+      t(
+        'Commits on {local} that are not on {remote} will be left only in the reflog. Uncommitted changes are kept.',
+        vars,
+      ),
+      t('Reset and check out'),
+      true,
+    );
+    if (ok)
+      await run(
+        'Checkout',
+        (p) => api.checkout(p, ref.name, 'remoteReset'),
+        t('Reset {local} to {remote}', vars),
+      );
+  }
+}
+
+/** `guard`: first warn about commits a detached HEAD would leave behind (callers that already
+ *  did so pass `false`). */
+export async function checkoutCommit(hash: string, label?: string, guard = true) {
   const ok = await confirm(
     t('Check out commit'),
     t(
@@ -183,12 +355,13 @@ export async function checkoutCommit(hash: string, label?: string) {
     ),
     t('Check out'),
   );
-  if (ok)
-    await journaled(
-      'Checkout',
-      (p) => api.checkout(p, hash, 'detached'),
-      (b, a) => ({ undo: backTo(b), redo: backTo(a) }),
-    );
+  if (!ok) return;
+  if (guard && !(await leaveDetachedHead())) return;
+  await journaled(
+    'Checkout',
+    (p) => api.checkout(p, hash, 'detached'),
+    (b, a) => ({ undo: backTo(b), redo: backTo(a) }),
+  );
 }
 
 export async function deleteBranch(ref: GitRef, confirmFirst = true) {

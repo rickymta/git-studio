@@ -2,6 +2,7 @@ import { Check, Cloud, FolderGit2, Laptop, Tag } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import { ContextMenuWrap, cn, type MenuItem } from '@/components/ui';
+import { short } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { copyText } from '@/lib/native';
 import type { GitRef, Worktree } from '@/lib/types';
@@ -239,17 +240,44 @@ export function refMenu(ref: GitRef): MenuItem[] {
   ]);
 }
 
-/** A local branch and its matching remote branch at the same commit render as one badge. */
+/**
+ * Context-menu items for a detached HEAD (its graph badge and the sidebar row): keep the commit
+ * on a branch, switch to a branch already pointing here, copy.
+ */
+export function headMenu(): MenuItem[] {
+  const { info, refs } = useRepo.getState();
+  const head = info?.status.head;
+  if (!head) return [];
+  const here = (refs?.refs ?? []).filter((r) => r.kind === 'local' && r.target === head);
+  return tidy([
+    { label: t('Create branch here'), onSelect: () => A.newBranch(head, 'HEAD') },
+    ...here.map((r) => ({
+      label: t('Check out {name}', { name: r.name }),
+      onSelect: () => A.checkoutRef(r),
+    })),
+    'sep',
+    ...commitCopyItems(head),
+    'sep',
+    ...tagItems(head, 'HEAD'),
+  ]);
+}
+
+/**
+ * A local branch and its matching remote branch at the same commit render as one badge.
+ * `kind: 'head'` is the detached HEAD, which has no ref of its own.
+ */
 export interface BadgeGroup {
   key: string;
   label: string;
   refs: GitRef[];
   head: boolean;
-  kind: 'branch' | 'tag';
+  kind: 'branch' | 'tag' | 'head';
 }
 
-export function groupRefs(refs: GitRef[]): BadgeGroup[] {
+/** `detachedHead`: this commit is a detached HEAD, shown as a HEAD badge before the others. */
+export function groupRefs(refs: GitRef[], detachedHead = false): BadgeGroup[] {
   const groups: BadgeGroup[] = [];
+  if (detachedHead) groups.push({ key: 'HEAD', label: 'HEAD', refs: [], head: true, kind: 'head' });
   const locals = refs.filter((r) => r.kind === 'local');
   const remotes = refs.filter((r) => r.kind === 'remote');
   const used = new Set<string>();
@@ -293,7 +321,10 @@ export function RefBadge({
   /** Pointer entered / left the badge (the graph highlights the branch's commits meanwhile). */
   onHoverChange?: (hovered: boolean) => void;
 }) {
-  const primary = group.refs[0]!;
+  // The detached HEAD badge has no ref behind it.
+  const primary = group.refs[0];
+  const isHeadBadge = group.kind === 'head';
+  const headHash = useRepo((s) => s.info?.status.head);
   const hasLocal = group.refs.some((r) => r.kind === 'local');
   const hasRemote = group.refs.some((r) => r.kind === 'remote');
   const worktrees = useRepo((s) => s.worktrees);
@@ -325,6 +356,12 @@ export function RefBadge({
       }}
     >
       {group.head && <Check className="size-[15.4px] shrink-0" strokeWidth={2.4} />}
+      {/* The checked-out branch also says HEAD, like `git log --decorate`'s "HEAD -> main". */}
+      {group.head && group.kind === 'branch' && (
+        <span className="shrink-0 rounded-sm bg-foreground/15 px-1 text-[9px] leading-[14px] font-bold tracking-wide">
+          HEAD
+        </span>
+      )}
       {group.kind === 'tag' && <Tag className="size-[15.4px] shrink-0" strokeWidth={2.4} />}
       <span className="truncate">{group.label}</span>
       {hasLocal && <Laptop className="size-[15.4px] shrink-0" strokeWidth={2.4} />}
@@ -334,18 +371,25 @@ export function RefBadge({
   );
 
   return (
-    <ContextMenuWrap items={() => refMenu(primary)} onOpenChange={onMenuOpenChange}>
+    <ContextMenuWrap
+      items={() => (isHeadBadge ? headMenu() : refMenu(primary!))}
+      onOpenChange={onMenuOpenChange}
+    >
       <span
         onDoubleClick={(e) => {
           e.stopPropagation();
-          void A.checkoutRef(primary);
+          if (primary) void A.checkoutRef(primary);
         }}
         onMouseEnter={() => hover(true)}
         onMouseLeave={() => hover(false)}
         title={
-          worktree
-            ? `${names}\n${t('Checked out in worktree {name}', { name: A.baseName(worktree.path) })}`
-            : names
+          isHeadBadge
+            ? t('HEAD (detached) at {hash}', { hash: short(headHash ?? '') })
+            : worktree
+              ? `${names}\n${t('Checked out in worktree {name}', { name: A.baseName(worktree.path) })}`
+              : group.head
+                ? `${names}\n${t('Checked out (HEAD)')}`
+                : names
         }
         className="relative inline-flex max-w-[176px] min-w-0"
       >

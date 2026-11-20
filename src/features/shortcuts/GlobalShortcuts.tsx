@@ -73,6 +73,11 @@ export function GlobalShortcuts({
         setTimeout(() => document.getElementById('commit-summary')?.focus(), 0);
         return;
       }
+      if (ctrl && e.shiftKey && key === 'h') {
+        e.preventDefault();
+        void A.goToHead();
+        return;
+      }
       if (ctrl && e.shiftKey && key === 's') {
         e.preventDefault();
         void r.run('Stage', (p) => api.stage(p, []));

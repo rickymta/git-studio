@@ -24,7 +24,7 @@ import {
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import { Avatar, ContextMenuWrap, Dropdown, IconButton, cn, type MenuItem } from '@/components/ui';
-import { relativeTime } from '@/lib/format';
+import { relativeTime, short } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import { copyText, openUrl, revealPath } from '@/lib/native';
@@ -32,7 +32,7 @@ import type { GitRef, PullRequest, Worktree } from '@/lib/types';
 import { useGitHub } from '@/stores/github';
 import { useRepo } from '@/stores/repo';
 import * as A from '../actions';
-import { refMenu, worktreeOf } from '../graph/RefBadge';
+import { headMenu, refMenu, worktreeOf } from '../graph/RefBadge';
 
 /**
  * Sections the user opened or closed since the app started. Every launch starts from
@@ -316,9 +316,20 @@ export function Sidebar() {
           }
         >
           {info?.status.branch === null && info.status.head && (
-            <div className="flex h-7 items-center gap-1.5 pl-6 font-semibold text-accent">
-              <GitCommitHorizontal className="size-3.5" /> {t('HEAD (detached)')}
-            </div>
+            <ContextMenuWrap items={headMenu}>
+              <div
+                onClick={() => void A.goToHead()}
+                title={t('HEAD (detached) at {hash}', { hash: short(info.status.head) })}
+                className="flex h-7 cursor-default items-center gap-1.5 pr-2 pl-6 font-semibold text-accent hover:bg-surface-hover"
+              >
+                <Check className="size-3.5 shrink-0" strokeWidth={2.4} />
+                <GitCommitHorizontal className="size-3.5 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">{t('HEAD (detached)')}</span>
+                <span className="shrink-0 font-mono text-xs font-normal text-muted-foreground">
+                  {short(info.status.head)}
+                </span>
+              </div>
+            </ContextMenuWrap>
           )}
           <RefTree refs={locals} />
         </Section>

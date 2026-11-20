@@ -1,5 +1,5 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ChevronDown, ChevronUp, Search, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, LocateFixed, Search, X } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -627,6 +627,13 @@ export function CommitGraph() {
             <Search className="size-3.5" />
           </IconButton>
         )}
+        <IconButton
+          label={t('Go to HEAD (Ctrl+Shift+H)')}
+          disabled={!st?.head}
+          onClick={() => void A.goToHead()}
+        >
+          <LocateFixed className="size-3.5" />
+        </IconButton>
         <ColumnSettingsMenu onReset={resetWidths} />
       </div>
 
@@ -718,6 +725,7 @@ export function CommitGraph() {
                 show={show}
                 selected={selected}
                 isHead={c.hash === st?.head}
+                detached={!st?.branch}
                 match={matchSet.has(i)}
                 dim={(matches.length > 0 && !matchSet.has(i)) || (!!related && !related.has(i))}
                 faded={!!lit && !lit.has(i) && !selected}
@@ -839,6 +847,7 @@ const CommitRow = memo(function CommitRow({
   show,
   selected,
   isHead,
+  detached,
   match,
   dim,
   faded,
@@ -854,6 +863,8 @@ const CommitRow = memo(function CommitRow({
   show: Set<Column>;
   selected: boolean;
   isHead: boolean;
+  /** HEAD is not on a branch: the HEAD commit gets a HEAD badge of its own. */
+  detached: boolean;
   match: boolean;
   dim: boolean;
   /** Another branch's badge is hovered: fade this row's band and text. */
@@ -861,7 +872,7 @@ const CommitRow = memo(function CommitRow({
   onRefHover: (hash: string, on: boolean) => void;
   onSelect: () => void;
 }) {
-  const groups = refs ? groupRefs(refs) : [];
+  const groups = groupRefs(refs ?? [], isHead && detached);
   const color = laneColor(row.color);
   const cx = laneX(row.lane, geom);
   // With the graph hidden, the branch band starts right after the Branch / Tag column.
@@ -1167,6 +1178,20 @@ function GraphCell({
             {initials(name)}
           </text>
         </g>
+      )}
+      {/* The checked-out commit: a ring in the text colour around the node, so HEAD stands out
+          in both themes even without a branch badge. */}
+      {head && !stash && (
+        <circle
+          cx={cx}
+          cy={cy}
+          r={(merge ? (geom.compact ? 4 : 6) : R) + (geom.compact || merge ? 2.5 : 1.25)}
+          fill="none"
+          stroke="var(--foreground)"
+          strokeWidth={1.5}
+        >
+          <title>HEAD</title>
+        </circle>
       )}
     </svg>
   );

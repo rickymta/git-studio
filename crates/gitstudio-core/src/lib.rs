@@ -529,6 +529,12 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
                 .await?;
             return done();
         }
+        "branch.unreferenced" => json!(
+            repo(a)
+                .await?
+                .unreferenced_commits(&arg::<String>(a, "rev")?)
+                .await?
+        ),
         "branch.fastForward" => {
             repo(a)
                 .await?

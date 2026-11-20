@@ -138,6 +138,16 @@ export function Toolbar() {
   ];
 
   const branchMenu: MenuItem[] = [
+    // Detached: HEAD is what is checked out, so it carries the tick.
+    ...(!st.branch && st.head
+      ? [
+          {
+            label: t('HEAD (detached) at {hash}', { hash: st.head.slice(0, 7) }),
+            icon: '✓',
+            onSelect: () => void A.goToHead(),
+          },
+        ]
+      : []),
     ...(refs?.refs ?? [])
       .filter((r) => r.kind === 'local')
       .map((r) => ({

@@ -443,6 +443,52 @@ fn target_of(refs: &git::model::Refs, name: &str) -> String {
 }
 
 #[tokio::test]
+async fn checkout_remote_reset_and_unreferenced_commits() {
+    let tmp = tempfile::tempdir().unwrap();
+    let up = tmp.path().join("up.git");
+    std::fs::create_dir_all(&up).unwrap();
+    sh(&up, &["init", "--bare", "-b", "main"]);
+    let dir = tmp.path().join("repo");
+    let r = new_repo(&dir).await;
+    r.add_remote("origin", up.to_str().unwrap()).await.unwrap();
+    commit_file(&r, &dir, "a").await;
+    sh(&dir, &["push", "-q", "origin", "main"]);
+    r.fetch(Some("origin"), None).await.unwrap();
+    let remote_tip = target_of(&r.refs().await.unwrap(), "origin/main");
+
+    // Local main gets a commit the remote does not have; HEAD then goes elsewhere.
+    commit_file(&r, &dir, "local-only").await;
+    r.create_branch("other", Some(&remote_tip), true)
+        .await
+        .unwrap();
+
+    // Plain remote checkout keeps the diverged local branch as it is...
+    r.checkout("origin/main", CheckoutKind::Remote)
+        .await
+        .unwrap();
+    assert_ne!(target_of(&r.refs().await.unwrap(), "main"), remote_tip);
+    // ...RemoteReset moves it onto the remote branch.
+    r.checkout("other", CheckoutKind::Branch).await.unwrap();
+    r.checkout("origin/main", CheckoutKind::RemoteReset)
+        .await
+        .unwrap();
+    let st = r.status().await.unwrap();
+    assert_eq!(st.branch.as_deref(), Some("main"));
+    assert_eq!(target_of(&r.refs().await.unwrap(), "main"), remote_tip);
+    assert_eq!(st.upstream.as_deref(), Some("origin/main"));
+
+    // A commit made on a detached HEAD belongs to no ref until a branch points at it.
+    r.checkout(&remote_tip, CheckoutKind::Detached)
+        .await
+        .unwrap();
+    assert_eq!(r.unreferenced_commits("HEAD").await.unwrap(), 0);
+    commit_file(&r, &dir, "detached").await;
+    assert_eq!(r.unreferenced_commits("HEAD").await.unwrap(), 1);
+    r.create_branch("keep", None, false).await.unwrap();
+    assert_eq!(r.unreferenced_commits("HEAD").await.unwrap(), 0);
+}
+
+#[tokio::test]
 async fn fast_forward_branches_without_checking_them_out() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().join("repo");
