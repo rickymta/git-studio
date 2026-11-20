@@ -2,6 +2,12 @@
 
 Các thay đổi đáng chú ý của GitStudio. File này do `pnpm release` cập nhật.
 
+## v0.3.3 - 2026-11-20
+
+Thay đổi từ v0.3.2.
+
+- fix(overlay): update Explorer's overlay DLL on start-up without admin (5bda70b)
+
 ## v0.3.2 - 2026-11-20
 
 Thay đổi từ v0.3.1.
