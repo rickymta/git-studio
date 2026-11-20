@@ -838,3 +838,64 @@ async fn amend_message_of_a_merge_commit() {
     assert_eq!(head.subject, "Merge side into main");
     assert_eq!(head.parents, old.parents);
 }
+
+#[tokio::test]
+async fn search_finds_commits_by_message_author_content_and_path() {
+    use gitstudio_core::git::CommitSearch;
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("repo");
+    let r = new_repo(&dir).await;
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    std::fs::write(dir.join("src/lib.rs"), "fn alpha() {}\n").unwrap();
+    r.stage(&[]).await.unwrap();
+    r.commit("Add Alpha parser", false).await.unwrap();
+    // Another author, on a side branch the graph might not have loaded.
+    sh(&dir, &["switch", "-q", "-c", "side"]);
+    std::fs::write(dir.join("notes.txt"), "beta\n").unwrap();
+    r.stage(&[]).await.unwrap();
+    sh(
+        &dir,
+        &[
+            "-c",
+            "user.name=Other Person",
+            "-c",
+            "user.email=other@example.com",
+            "commit",
+            "-q",
+            "-m",
+            "Write notes",
+        ],
+    );
+    sh(&dir, &["switch", "-q", "main"]);
+
+    let find = |q: CommitSearch| {
+        let r = &r;
+        async move {
+            r.search_commits(&q, 50)
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|c| c.subject)
+                .collect::<Vec<_>>()
+        }
+    };
+    let q = |m: &str, a: &str, c: &str, p: &str| CommitSearch {
+        message: m.into(),
+        author: a.into(),
+        content: c.into(),
+        path: p.into(),
+    };
+    // Message, without regard to case; literal text, not a regex.
+    assert_eq!(find(q("alpha", "", "", "")).await, ["Add Alpha parser"]);
+    assert!(find(q("Al.ha", "", "", "")).await.is_empty());
+    // Author on another branch.
+    assert_eq!(find(q("", "other@", "", "")).await, ["Write notes"]);
+    // Both have to match.
+    assert!(find(q("alpha", "other", "", "")).await.is_empty());
+    // Pickaxe and path.
+    assert_eq!(find(q("", "", "fn alpha", "")).await, ["Add Alpha parser"]);
+    assert_eq!(find(q("", "", "", "notes.txt")).await, ["Write notes"]);
+    assert_eq!(find(q("", "", "", "src")).await, ["Add Alpha parser"]);
+    // Nothing to look for.
+    assert!(r.search_commits(&q(" ", "", "", ""), 50).await.is_err());
+}

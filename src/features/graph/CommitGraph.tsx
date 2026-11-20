@@ -31,6 +31,8 @@ import {
   type Column,
 } from './columnSettings';
 import { branchRows, rowIndex } from './branchFocus';
+import { SearchResults } from './HistorySearch';
+import { SEARCH_MODES, useGitSearch, type SearchMode } from './gitSearch';
 import { onCurrentBranch, pickCommits, tidy } from './menuUtils';
 import { RefBadge, groupRefs } from './RefBadge';
 
@@ -346,6 +348,10 @@ export function CommitGraph() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
+  const [searchMode, setSearchMode] = useState<SearchMode>('loaded');
+  const found = useGitSearch(searchOpen ? searchMode : 'loaded', query);
+  // The list of commits git found folds away once one is picked; typing or focusing reopens it.
+  const [resultsOpen, setResultsOpen] = useState(true);
   const [matchIdx, setMatchIdx] = useState(0);
   const { visible, compactGraph, smartBranches } = useColumnSettings();
   const show = useMemo(() => new Set<Column>(visible), [visible]);
@@ -409,6 +415,12 @@ export function CommitGraph() {
     const q = query.trim().toLowerCase();
     if (!q) return [];
     const out: number[] = [];
+    // Searching the whole history: the loaded rows git found.
+    if (found) {
+      const hit = new Set((found.commits ?? []).map((c) => c.hash));
+      commits.forEach((c, i) => hit.has(c.hash) && out.push(i));
+      return out;
+    }
     commits.forEach((c, i) => {
       if (
         c.subject.toLowerCase().includes(q) ||
@@ -419,7 +431,7 @@ export function CommitGraph() {
         out.push(i);
     });
     return out;
-  }, [commits, query]);
+  }, [commits, query, found]);
   const matchSet = useMemo(() => new Set(matches), [matches]);
   // Smart Branch Visibility: rows off the checked-out branch, its upstream and the base branches.
   const related = useMemo(
@@ -529,7 +541,7 @@ export function CommitGraph() {
   return (
     <div className="flex h-full min-h-0 flex-col" style={vars}>
       <ViewBar />
-      <div className="flex h-[22px] shrink-0 items-center border-b border-border bg-surface">
+      <div className="relative flex h-[22px] shrink-0 items-center border-b border-border bg-surface">
         {/* The column titles clip when the pane is narrow; search and the gear stay put. */}
         <div className="flex h-full min-w-0 flex-1 items-center overflow-hidden">
           {show.has('refs') && (
@@ -618,16 +630,39 @@ export function CommitGraph() {
         </div>
         {searchOpen ? (
           <div className="flex items-center gap-1 pr-2">
+            <select
+              aria-label={t('Search in')}
+              value={searchMode}
+              onChange={(e) => {
+                setSearchMode(e.target.value as SearchMode);
+                setMatchIdx(-1);
+              }}
+              className="h-5 rounded border border-border bg-background px-1 text-[11px]"
+            >
+              {SEARCH_MODES.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label()}
+                </option>
+              ))}
+            </select>
             <div className="relative">
               <Search className="absolute top-1.5 left-2 size-3.5 text-muted-foreground" />
               <Input
                 autoFocus
                 className="h-6 w-60 pl-7 text-xs"
-                placeholder={t('Search message, author or sha')}
+                placeholder={
+                  searchMode === 'loaded'
+                    ? t('Search message, author or sha')
+                    : searchMode === 'path'
+                      ? t('Path, e.g. src/app')
+                      : t('Text to find')
+                }
                 value={query}
+                onFocus={() => setResultsOpen(true)}
                 onChange={(e) => {
                   setQuery(e.target.value);
                   setMatchIdx(-1);
+                  setResultsOpen(true);
                 }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') jump(e.shiftKey ? -1 : 1);
@@ -670,6 +705,9 @@ export function CommitGraph() {
           <LocateFixed className="size-3.5" />
         </IconButton>
         <ColumnSettingsMenu onReset={resetWidths} />
+        {searchOpen && found && resultsOpen && (
+          <SearchResults result={found} onPick={() => setResultsOpen(false)} />
+        )}
       </div>
 
       <div

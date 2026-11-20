@@ -331,4 +331,18 @@ export const history: Record<string, string> = {
   'Cherry-pick {n} commits': 'Cherry-pick {n} commit',
   'Squash {n} commits': 'Squash {n} commit',
   'Copy commit shas': 'Sao chép sha các commit',
+
+  // Search the whole history
+  'Search in': 'Tìm trong',
+  'Loaded commits': 'Commit đã tải',
+  'Message (all history)': 'Nội dung commit (toàn bộ lịch sử)',
+  'Author (all history)': 'Tác giả (toàn bộ lịch sử)',
+  'Changed text (all history)': 'Đoạn code thay đổi (toàn bộ lịch sử)',
+  'File or folder (all history)': 'File hoặc thư mục (toàn bộ lịch sử)',
+  'Path, e.g. src/app': 'Đường dẫn, vd src/app',
+  'Text to find': 'Nội dung cần tìm',
+  'No commits found': 'Không tìm thấy commit nào',
+  'First {n} commits found': '{n} commit đầu tiên tìm thấy',
+  '{n} commit(s) found': 'Tìm thấy {n} commit',
+  'Not loaded in the graph yet': 'Chưa được tải trong đồ thị',
 };

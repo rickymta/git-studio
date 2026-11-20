@@ -281,6 +281,66 @@ impl Repo {
         })
     }
 
+    /// Commits of every branch, tag and remote branch (and HEAD) matching `q`, newest first.
+    /// Unlike the graph's quick filter this asks git, so commits not loaded yet are found too.
+    pub async fn search_commits(&self, q: &CommitSearch, limit: u32) -> Result<Vec<Commit>> {
+        let (message, author, content, path) = (
+            q.message.trim(),
+            q.author.trim(),
+            q.content.trim(),
+            q.path.trim(),
+        );
+        if [message, author, content, path]
+            .iter()
+            .all(|s| s.is_empty())
+        {
+            return Err(Error::Invalid("Nothing to search for".into()));
+        }
+        if [message, author, content, path]
+            .iter()
+            .any(|s| s.contains(['\0', '\n']))
+        {
+            return Err(Error::Invalid("Search text must be a single line".into()));
+        }
+        let mut a: Vec<String> = vec![
+            "log".into(),
+            "--date-order".into(),
+            format!("-n{limit}"),
+            parse::LOG_FORMAT.into(),
+            "--regexp-ignore-case".into(),
+            "--fixed-strings".into(),
+            // `--grep` and `--author` both have to match (not either).
+            "--all-match".into(),
+        ];
+        if !message.is_empty() {
+            a.push(format!("--grep={message}"));
+        }
+        if !author.is_empty() {
+            a.push(format!("--author={author}"));
+        }
+        if !content.is_empty() {
+            a.push(format!("-S{content}"));
+        }
+        a.extend(["--exclude=refs/stash".into(), "--all".into()]);
+        if self.has_head().await {
+            a.push("HEAD".into());
+        }
+        a.push("--".into());
+        if !path.is_empty() {
+            check_path(path)?;
+            a.push(path.replace('\\', "/"));
+        }
+        let args: Vec<&str> = a.iter().map(String::as_str).collect();
+        let out = run::raw(Some(&self.root), &args, Opts::default()).await?;
+        if out.code != 0 {
+            if !self.has_head().await && out.text().trim().is_empty() {
+                return Ok(Vec::new());
+            }
+            return Err(run::failure(&out));
+        }
+        Ok(parse::parse_log(&out.text()))
+    }
+
     pub async fn commit_detail(&self, hash: &str) -> Result<CommitDetail> {
         check_rev(hash)?;
         let fmt = "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%cn%x1f%ct%x1f%s%x1f%ce%x1f%B";
@@ -1504,6 +1564,25 @@ pub enum CheckoutKind {
     /// commits not on the remote are left only in the reflog.
     RemoteReset,
     Detached,
+}
+
+/// What to look for in the whole history (`history.search`). Every non-empty field must match;
+/// text is matched literally and without regard to case.
+#[derive(Debug, Default, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitSearch {
+    /// In the commit message (`--grep`).
+    #[serde(default)]
+    pub message: String,
+    /// In the author's name or email (`--author`).
+    #[serde(default)]
+    pub author: String,
+    /// Added or removed by the commit's changes (`-S`, the "pickaxe").
+    #[serde(default)]
+    pub content: String,
+    /// Commits touching this path (file or folder, relative to the repository root).
+    #[serde(default)]
+    pub path: String,
 }
 
 /// Graph filters ("Solo" / "Hide" in the commit and branch menus); full ref names.
