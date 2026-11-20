@@ -4,6 +4,11 @@
 //! started at login) refreshes `overlay-status.json` in the config folder every few seconds, and
 //! each platform's extension only reads that file. Repositories covered: the recent list, the
 //! workspaces, and any other repository next to them (siblings in the same parent folder).
+//!
+//! Inside a repository every tracked file and folder gets a badge too, like TortoiseGit: for each
+//! repository `overlay/<id>.json` lists the changed / conflicted paths and `overlay/<id>.files`
+//! the tracked files (`git ls-files`, rewritten only when the index changes). Ignored and
+//! untracked files get no badge.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -42,6 +47,36 @@ pub struct StatusFile {
     /// GitStudio's program, for the Linux file-manager menu ("Open with GitStudio" …).
     #[serde(default)]
     pub exe: Option<String>,
+    /// Normalised repository path → id of its detail files in `overlay/` (see `RepoDetail`).
+    #[serde(default)]
+    pub details: BTreeMap<String, String>,
+}
+
+/// `overlay/<id>.json`: what is inside one repository.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoDetail {
+    pub root: String,
+    /// Changed (`changed`) or conflicted (`danger`) paths, relative with `/`. Folders above them
+    /// take the most serious level of their contents.
+    pub dirty: BTreeMap<String, Level>,
+    /// Modification time (ms) of the index when `<id>.files` was written.
+    pub index_mtime: i64,
+}
+
+/// Folder holding the per-repository detail files.
+pub fn details_dir() -> PathBuf {
+    settings::dir().join("overlay")
+}
+
+/// Stable id of a repository's detail files (FNV-1a of its key).
+pub fn detail_id(key: &str) -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in key.as_bytes() {
+        h ^= u64::from(*b);
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    format!("{h:016x}")
 }
 
 pub fn status_file() -> PathBuf {
@@ -134,8 +169,87 @@ pub fn parse_level(porcelain: &str, in_progress: bool) -> Level {
     }
 }
 
+/// Records of `git status --porcelain=v2 -z`: the repository's level and its changed paths.
+pub fn parse_status_z(out: &[u8], in_progress: bool) -> (Level, BTreeMap<String, Level>) {
+    let text = String::from_utf8_lossy(out);
+    let mut records = text.split('\0').filter(|r| !r.is_empty());
+    let mut lines = Vec::new();
+    let mut dirty = BTreeMap::new();
+    while let Some(r) = records.next() {
+        lines.push(r.to_string());
+        let (path, level) = if r.starts_with("1 ") {
+            (r.splitn(9, ' ').nth(8), Level::Changed)
+        } else if r.starts_with("2 ") {
+            // A rename / copy: the original path follows as its own record.
+            records.next();
+            (r.splitn(10, ' ').nth(9), Level::Changed)
+        } else if r.starts_with("u ") {
+            (r.splitn(11, ' ').nth(10), Level::Danger)
+        } else {
+            (None, Level::Clean)
+        };
+        if let Some(p) = path {
+            dirty.insert(p.to_string(), level);
+        }
+    }
+    (parse_level(&lines.join("\n"), in_progress), dirty)
+}
+
+fn mtime_ms(p: &Path) -> i64 {
+    fs::metadata(p)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// Write `<id>.json` (only when it changed) and `<id>.files` (only when the index changed).
+fn write_detail(
+    dir: &Path,
+    root: &Path,
+    gd: &Path,
+    dirty: BTreeMap<String, Level>,
+) -> Option<String> {
+    let k = key(root);
+    let id = detail_id(&k);
+    fs::create_dir_all(dir).ok()?;
+    let json = dir.join(format!("{id}.json"));
+    let files = dir.join(format!("{id}.files"));
+    let index_mtime = mtime_ms(&gd.join("index"));
+    let previous: Option<RepoDetail> = fs::read(&json)
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok());
+    if previous.as_ref().map(|p| p.index_mtime) != Some(index_mtime) || !files.exists() {
+        let out = git(root).args(["ls-files", "-z"]).output().ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        let list = String::from_utf8_lossy(&out.stdout).replace('\0', "\n");
+        let tmp = files.with_extension(format!("{}.tmp", std::process::id()));
+        fs::write(&tmp, list).ok()?;
+        fs::rename(&tmp, &files).ok()?;
+    }
+    let detail = RepoDetail {
+        root: k,
+        dirty,
+        index_mtime,
+    };
+    if previous.as_ref() != Some(&detail) {
+        let tmp = json.with_extension(format!("{}.tmp", std::process::id()));
+        fs::write(&tmp, serde_json::to_vec(&detail).ok()?).ok()?;
+        fs::rename(&tmp, &json).ok()?;
+    }
+    Some(id)
+}
+
 /// Level of the repository whose working tree is `root`; `None` if it is not one.
 pub fn repo_level(root: &Path) -> Option<Level> {
+    repo_status(root, None).map(|(l, _)| l)
+}
+
+/// Level of the repository at `root`, and (with `details`) its detail files' id.
+fn repo_status(root: &Path, details: Option<&Path>) -> Option<(Level, Option<String>)> {
     let gd = git_dir(root)?;
     let in_progress = [
         "MERGE_HEAD",
@@ -150,6 +264,7 @@ pub fn repo_level(root: &Path) -> Option<Level> {
         .args([
             "status",
             "--porcelain=v2",
+            "-z",
             "--branch",
             "--untracked-files=normal",
         ])
@@ -158,10 +273,9 @@ pub fn repo_level(root: &Path) -> Option<Level> {
     if !out.status.success() {
         return None;
     }
-    Some(parse_level(
-        &String::from_utf8_lossy(&out.stdout),
-        in_progress,
-    ))
+    let (level, dirty) = parse_status_z(&out.stdout, in_progress);
+    let id = details.and_then(|d| write_detail(d, root, &gd, dirty));
+    Some((level, id))
 }
 
 fn is_repo(dir: &Path) -> bool {
@@ -204,29 +318,45 @@ pub fn roots() -> Vec<PathBuf> {
 
 /// Levels for `roots`, a few repositories at a time.
 pub fn compute(roots: &[PathBuf]) -> BTreeMap<String, Level> {
-    let mut map = BTreeMap::new();
+    compute_with(roots, None).0
+}
+
+type Computed = (BTreeMap<String, Level>, BTreeMap<String, String>);
+
+/// Levels, and with `details` the detail files of every repository (key → id).
+fn compute_with(roots: &[PathBuf], details: Option<&Path>) -> Computed {
+    let mut levels = BTreeMap::new();
+    let mut ids = BTreeMap::new();
     for chunk in roots.chunks(6) {
         let handles: Vec<_> = chunk
             .iter()
             .map(|r| {
                 let r = r.clone();
-                std::thread::spawn(move || (key(&r), repo_level(&r)))
+                let d = details.map(Path::to_path_buf);
+                std::thread::spawn(move || (key(&r), repo_status(&r, d.as_deref())))
             })
             .collect();
         for h in handles {
-            if let Ok((k, Some(level))) = h.join() {
-                map.insert(k, level);
+            if let Ok((k, Some((level, id)))) = h.join() {
+                if let Some(id) = id {
+                    ids.insert(k.clone(), id);
+                }
+                levels.insert(k, level);
             }
         }
     }
-    map
+    (levels, ids)
 }
 
 pub fn read() -> Option<StatusFile> {
     serde_json::from_slice(&fs::read(status_file()).ok()?).ok()
 }
 
-fn write_to(file: &Path, repos: BTreeMap<String, Level>) -> Result<()> {
+fn write_to(
+    file: &Path,
+    repos: BTreeMap<String, Level>,
+    details: BTreeMap<String, String>,
+) -> Result<()> {
     if let Some(dir) = file.parent() {
         fs::create_dir_all(dir)?;
     }
@@ -236,6 +366,7 @@ fn write_to(file: &Path, repos: BTreeMap<String, Level>) -> Result<()> {
         pid: std::process::id(),
         repos,
         exe: crate::shell_menu::exe(),
+        details,
     };
     // One temp file per process: the app and the sign-in agent may write at the same moment.
     let tmp = file.with_extension(format!("{}.tmp", std::process::id()));
@@ -246,9 +377,9 @@ fn write_to(file: &Path, repos: BTreeMap<String, Level>) -> Result<()> {
 
 /// Rebuild the status file now. Returns the number of repositories found.
 pub fn refresh() -> Result<usize> {
-    let repos = compute(&roots());
+    let (repos, details) = compute_with(&roots(), Some(&details_dir()));
     let n = repos.len();
-    write_to(&status_file(), repos)?;
+    write_to(&status_file(), repos, details)?;
     Ok(n)
 }
 
@@ -354,9 +485,35 @@ mod tests {
         assert_eq!(repo_level(dir.path()), None);
 
         let file = dir.path().join("overlay-status.json");
-        write_to(&file, compute(std::slice::from_ref(&r))).unwrap();
+        let details = dir.path().join("overlay");
+        let (levels, ids) = compute_with(std::slice::from_ref(&r), Some(&details));
+        write_to(&file, levels, ids).unwrap();
         let f: StatusFile = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
         assert_eq!(f.repos.get(&key(&r)), Some(&Level::Changed));
+
+        // Per-file detail: the changed file and the tracked list.
+        let id = f.details.get(&key(&r)).unwrap();
+        let d: RepoDetail =
+            serde_json::from_slice(&fs::read(details.join(format!("{id}.json"))).unwrap()).unwrap();
+        assert_eq!(d.dirty.get("a"), Some(&Level::Changed));
+        let tracked = fs::read_to_string(details.join(format!("{id}.files"))).unwrap();
+        assert_eq!(tracked.trim(), "a");
+    }
+
+    #[test]
+    fn status_records() {
+        let out = b"# branch.oid abc\0# branch.head main\0\
+1 .M N... 100644 100644 100644 a b src/my file.rs\0\
+2 R. N... 100644 100644 100644 a b R100 docs/new.md\0docs/old.md\0\
+u UU N... 100644 100644 100644 100644 a b c lib/conflict.rs\0\
+? untracked.txt\0";
+        let (level, dirty) = parse_status_z(out, false);
+        assert_eq!(level, Level::Danger);
+        assert_eq!(dirty.get("src/my file.rs"), Some(&Level::Changed));
+        assert_eq!(dirty.get("docs/new.md"), Some(&Level::Changed));
+        assert_eq!(dirty.get("lib/conflict.rs"), Some(&Level::Danger));
+        assert!(!dirty.contains_key("docs/old.md"));
+        assert!(!dirty.contains_key("untracked.txt"));
     }
 
     #[test]

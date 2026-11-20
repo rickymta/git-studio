@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -88,6 +88,9 @@ const RECHECK: Duration = Duration::from_millis(700);
 struct StatusFile {
     updated: i64,
     repos: HashMap<String, String>,
+    /// Repository key → id of its detail files in `overlay/`.
+    #[serde(default)]
+    details: HashMap<String, String>,
 }
 
 struct Cache {
@@ -95,6 +98,119 @@ struct Cache {
     modified: Option<SystemTime>,
     updated_ms: i64,
     repos: HashMap<String, Level>,
+    details: HashMap<String, String>,
+}
+
+/// `overlay/<id>.json`, as written by gitstudio_core::overlay.
+#[derive(Deserialize)]
+struct DetailFile {
+    dirty: HashMap<String, String>,
+}
+
+/// What is inside one repository, with paths relative to its root in Explorer's form
+/// (lower case, `\`).
+#[derive(Default)]
+struct RepoView {
+    checked: Option<Instant>,
+    json_mtime: Option<SystemTime>,
+    files_mtime: Option<SystemTime>,
+    dirty: HashMap<String, Level>,
+    /// Folders above changed / conflicted paths, with the most serious level below them.
+    dirty_dirs: HashMap<String, Level>,
+    tracked: HashSet<String>,
+    tracked_dirs: HashSet<String>,
+}
+
+static DETAILS: Mutex<Option<HashMap<String, RepoView>>> = Mutex::new(None);
+
+fn worse(a: Level, b: Level) -> Level {
+    let rank = |l: Level| match l {
+        Level::Clean => 0,
+        Level::Changed => 1,
+        Level::Danger => 2,
+    };
+    if rank(b) > rank(a) { b } else { a }
+}
+
+/// Every parent folder of `rel` (`a\b\c.txt` → `a`, `a\b`).
+fn parents(rel: &str) -> impl Iterator<Item = &str> {
+    rel.match_indices('\\').map(move |(i, _)| &rel[..i])
+}
+
+fn rel_key(p: &str) -> String {
+    p.replace('/', "\\").to_lowercase()
+}
+
+fn mtime(p: &std::path::Path) -> Option<SystemTime> {
+    std::fs::metadata(p).and_then(|m| m.modified()).ok()
+}
+
+impl RepoView {
+    /// Re-read the detail files when they changed (checked at most every RECHECK).
+    fn refresh(&mut self, dir: &std::path::Path, id: &str) {
+        if self.checked.is_some_and(|c| c.elapsed() < RECHECK) {
+            return;
+        }
+        self.checked = Some(Instant::now());
+        let json = dir.join(format!("{id}.json"));
+        let files = dir.join(format!("{id}.files"));
+        let (jm, fm) = (mtime(&json), mtime(&files));
+        if jm != self.json_mtime {
+            if let Some(d) = std::fs::read(&json)
+                .ok()
+                .and_then(|b| serde_json::from_slice::<DetailFile>(&b).ok())
+            {
+                self.json_mtime = jm;
+                self.dirty.clear();
+                self.dirty_dirs.clear();
+                for (path, level) in d.dirty {
+                    let Some(level) = Level::parse(&level) else {
+                        continue;
+                    };
+                    let k = rel_key(&path);
+                    for dir in parents(&k) {
+                        let e = self.dirty_dirs.entry(dir.to_string()).or_insert(level);
+                        *e = worse(*e, level);
+                    }
+                    self.dirty.insert(k, level);
+                }
+            }
+        }
+        if fm != self.files_mtime {
+            if let Ok(text) = std::fs::read_to_string(&files) {
+                self.files_mtime = fm;
+                self.tracked.clear();
+                self.tracked_dirs.clear();
+                for line in text.lines().filter(|l| !l.is_empty()) {
+                    let k = rel_key(line);
+                    for dir in parents(&k) {
+                        if !self.tracked_dirs.contains(dir) {
+                            self.tracked_dirs.insert(dir.to_string());
+                        }
+                    }
+                    self.tracked.insert(k);
+                }
+            }
+        }
+    }
+
+    /// Changed / conflicted first, then tracked = clean; ignored or untracked = no badge.
+    fn level(&self, rel: &str) -> Option<Level> {
+        if let Some(l) = self.dirty.get(rel).or_else(|| self.dirty_dirs.get(rel)) {
+            return Some(*l);
+        }
+        (self.tracked.contains(rel) || self.tracked_dirs.contains(rel)).then_some(Level::Clean)
+    }
+}
+
+/// Level of something inside the repository `id` (rooted at `root`, both normalised).
+fn inner_level(id: &str, rel: &str) -> Option<Level> {
+    let dir = status_path()?.parent()?.join("overlay");
+    let mut guard = DETAILS.lock().unwrap_or_else(|p| p.into_inner());
+    let views = guard.get_or_insert_with(HashMap::new);
+    let view = views.entry(id.to_string()).or_default();
+    view.refresh(&dir, id);
+    view.level(rel)
 }
 
 static CACHE: Mutex<Option<Cache>> = Mutex::new(None);
@@ -199,6 +315,7 @@ fn level_of_inner(path: &str) -> Option<Level> {
                             .into_iter()
                             .filter_map(|(k, v)| Level::parse(&v).map(|l| (k, l)))
                             .collect(),
+                        details: f.details,
                     });
                 }
                 // Keep what was known and try again on the next lookup: caching "nothing"
@@ -215,7 +332,27 @@ fn level_of_inner(path: &str) -> Option<Level> {
     if now_ms() - c.updated_ms > STALE.as_millis() as i64 {
         return None;
     }
-    c.repos.get(&key(path)).copied()
+    let k = key(path);
+    if let Some(level) = c.repos.get(&k) {
+        return Some(*level);
+    }
+    // Inside a repository: the deepest one containing the path (nested repositories win).
+    let (root, id) = c
+        .details
+        .iter()
+        .filter(|(root, _)| {
+            k.len() > root.len()
+                && k.starts_with(root.as_str())
+                && (root.ends_with('\\') || k.as_bytes()[root.len()] == b'\\')
+        })
+        .max_by_key(|(root, _)| root.len())?;
+    let rel = k[root.len()..].trim_start_matches('\\').to_string();
+    let id = id.clone();
+    drop(guard);
+    if rel == ".git" || rel.starts_with(".git\\") {
+        return None;
+    }
+    inner_level(&id, &rel)
 }
 
 // ---- COM objects --------------------------------------------------------------------------------------
@@ -569,6 +706,46 @@ mod tests {
         assert!(s.ends_with("overlay-danger.ico"), "{s}");
         assert_eq!(index, 0);
         assert_eq!(flags, ISIOI_ICONFILE | ISIOI_ICONINDEX);
+
+        // Inside a repository: tracked files and folders, changed and conflicted ones.
+        std::thread::sleep(RECHECK + Duration::from_millis(50));
+        let id = "0123456789abcdef";
+        let details = dir.path().join("overlay");
+        std::fs::create_dir_all(&details).unwrap();
+        std::fs::write(
+            details.join(format!("{id}.files")),
+            "README.md\nsrc/main.rs\nsrc/ui/App.tsx\ndocs/guide.md\n",
+        )
+        .unwrap();
+        std::fs::write(
+            details.join(format!("{id}.json")),
+            r#"{"root":"x","dirty":{"src/ui/App.tsx":"changed","docs/guide.md":"danger"},"indexMtime":1}"#,
+        )
+        .unwrap();
+        let mut repos = serde_json::Map::new();
+        repos.insert(key(r"H:\Work\Dirty"), "changed".into());
+        let mut ids = serde_json::Map::new();
+        ids.insert(key(r"H:\Work\Dirty"), id.into());
+        let body = serde_json::json!({
+            "version": 1, "updated": now_ms(), "pid": 1, "repos": repos, "details": ids
+        });
+        std::fs::write(&file, serde_json::to_vec(&body).unwrap()).unwrap();
+        std::thread::sleep(RECHECK + Duration::from_millis(50));
+        let r = r"H:\Work\Dirty";
+        assert_eq!(member(&clean, &format!(r"{r}\README.md"), 0), S_OK);
+        assert_eq!(member(&clean, &format!(r"{r}\src\main.rs"), 0), S_OK);
+        assert_eq!(member(&changed, &format!(r"{r}\src\ui\App.tsx"), 0), S_OK);
+        assert_eq!(member(&changed, &format!(r"{r}\SRC\UI"), DIR), S_OK);
+        assert_eq!(member(&changed, &format!(r"{r}\src"), DIR), S_OK);
+        assert_eq!(member(&clean, &format!(r"{r}\src"), DIR), S_FALSE);
+        assert_eq!(member(&danger, &format!(r"{r}\docs"), DIR), S_OK);
+        assert_eq!(member(&danger, &format!(r"{r}\docs\guide.md"), 0), S_OK);
+        // Untracked / ignored files and the .git folder get no badge at all.
+        for p in [r"\node_modules", r"\notes.txt", r"\.git", r"\src\new.rs"] {
+            for o in [&clean, &changed, &danger] {
+                assert_eq!(member(o, &format!("{r}{p}"), 0), S_FALSE, "{p}");
+            }
+        }
 
         // A stale file (no GitStudio refreshing it) shows nothing.
         std::thread::sleep(RECHECK + Duration::from_millis(50));

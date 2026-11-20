@@ -150,12 +150,21 @@ mod platform {
 
     /// Where the DLL is registered from: a per-version copy, so Explorer (which keeps the DLL
     /// loaded) never blocks an update of the app.
-    fn install_dir() -> PathBuf {
+    /// Named after the version and the DLL's content: a rebuilt DLL never lands on a file
+    /// Explorer still has loaded.
+    fn install_dir(resource_dir: Option<&Path>) -> PathBuf {
+        let mut name = env!("CARGO_PKG_VERSION").to_string();
+        if let Some(bytes) = overlay_dir(resource_dir)
+            .and_then(|d| std::fs::read(d.join("gitstudio_overlay.dll")).ok())
+        {
+            name.push('-');
+            name.push_str(&overlay::detail_id(&String::from_utf8_lossy(&bytes))[..8]);
+        }
         dirs::data_local_dir()
             .unwrap_or_else(std::env::temp_dir)
             .join("GitStudio")
             .join("overlay")
-            .join(env!("CARGO_PKG_VERSION"))
+            .join(name)
     }
 
     fn registered_dll() -> Option<String> {
@@ -208,9 +217,9 @@ mod platform {
         }
     }
 
-    pub fn info(_resource_dir: Option<&Path>) -> Info {
+    pub fn info(resource_dir: Option<&Path>) -> Info {
         let mut i = base_info("windows");
-        let ours = install_dir().join("gitstudio_overlay.dll");
+        let ours = install_dir(resource_dir).join("gitstudio_overlay.dll");
         let registered = registered_dll();
         i.installed = registered.is_some();
         if let Some(r) = &registered {
@@ -247,7 +256,7 @@ mod platform {
                         .into(),
                 )
             })?;
-        let dst = install_dir();
+        let dst = install_dir(resource_dir);
         std::fs::create_dir_all(&dst)?;
         for f in [
             "gitstudio_overlay.dll",
