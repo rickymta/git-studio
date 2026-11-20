@@ -22,7 +22,7 @@ import { pickFolder, revealPath } from '@/lib/native';
 import { openSession, toggleTerminal } from '@/features/terminal/runtime';
 import { useGitHub } from '@/stores/github';
 import { useRepo } from '@/stores/repo';
-import { toast } from '@/stores/ui';
+import { openDialog, toast } from '@/stores/ui';
 import { samePath, useWorkspaces } from '@/stores/workspace';
 import * as A from '../actions';
 
@@ -118,6 +118,7 @@ export function Toolbar() {
         if (p) await open(p);
       },
     },
+    { label: t('Clone repository…'), onSelect: () => openDialog('clone') },
     ...(ws && !ws.repos.some((r) => samePath(r, info.path))
       ? [
           {
