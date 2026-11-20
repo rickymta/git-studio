@@ -8,7 +8,11 @@ pub mod github;
 pub mod gitkraken;
 pub mod gitlab;
 pub mod history;
+pub mod launch;
+pub mod overlay;
+pub mod overlay_install;
 pub mod settings;
+pub mod shell_menu;
 pub mod ssh;
 pub mod support;
 pub mod terminal;
@@ -125,6 +129,63 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
         "history.clear" => {
             let repo: Option<String> = opt(a, "repo")?;
             serde_json::to_value(history::clear(repo.as_deref())?)?
+        }
+        // File-manager status icons (overlay.rs, overlay_install.rs).
+        "overlay.info" => {
+            let dir: Option<String> = opt(a, "resourceDir")?;
+            serde_json::to_value(overlay_install::info(
+                dir.as_deref().map(std::path::Path::new),
+            ))?
+        }
+        "overlay.enable" => {
+            let dir: Option<String> = opt(a, "resourceDir")?;
+            let d = dir.clone();
+            serde_json::to_value(
+                tokio::task::spawn_blocking(move || {
+                    overlay_install::enable(d.as_deref().map(std::path::Path::new))
+                })
+                .await
+                .map_err(|e| Error::Invalid(e.to_string()))??,
+            )?
+        }
+        "overlay.disable" => {
+            let dir: Option<String> = opt(a, "resourceDir")?;
+            serde_json::to_value(
+                tokio::task::spawn_blocking(move || {
+                    overlay_install::disable(dir.as_deref().map(std::path::Path::new))
+                })
+                .await
+                .map_err(|e| Error::Invalid(e.to_string()))??,
+            )?
+        }
+        "overlay.refresh" => {
+            let n = tokio::task::spawn_blocking(overlay::refresh)
+                .await
+                .map_err(|e| Error::Invalid(e.to_string()))??;
+            json!({ "repos": n })
+        }
+        "overlay.restartFileManager" => {
+            overlay_install::restart_file_manager()?;
+            return done();
+        }
+        // Context menu action ("Open with GitStudio").
+        "app.takeLaunchActions" => serde_json::to_value(launch::take())?,
+        "shellMenu.info" => json!({ "installed": shell_menu::installed() }),
+        "shellMenu.set" => {
+            let on: bool = arg(a, "enabled")?;
+            let mut s = settings::load();
+            s.context_menu = on;
+            settings::save(&s)?;
+            tokio::task::spawn_blocking(move || {
+                if on {
+                    shell_menu::install()
+                } else {
+                    shell_menu::remove()
+                }
+            })
+            .await
+            .map_err(|e| Error::Invalid(e.to_string()))??;
+            json!({ "installed": shell_menu::installed() })
         }
         "state.load" => Value::Object(history::state_load()),
         "state.set" => {

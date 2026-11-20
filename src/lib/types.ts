@@ -176,6 +176,8 @@ export interface Settings {
   historyWarnMb: number;
   historyMaxMb: number;
   historyLoadLimit: number;
+  overlayIcons: boolean;
+  contextMenu: boolean;
 }
 
 export interface HistoryStats {
@@ -186,6 +188,28 @@ export interface HistoryStats {
   warnBytes: number;
   maxBytes: number;
   retentionDays: number;
+}
+
+/** What a context-menu launch asked for (see launch.rs). */
+export type LaunchAction = { kind: 'open'; path: string };
+
+export interface QuickCommand {
+  label: string;
+  command: string;
+  sudo: boolean;
+}
+
+/** File-manager status icons (Explorer / Finder / Nautilus…). */
+export interface OverlayInfo {
+  platform: 'windows' | 'macos' | 'linux';
+  enabled: boolean;
+  installed: boolean;
+  repos: number;
+  updated: number;
+  statusFile: string;
+  notes: string[];
+  commands: QuickCommand[];
+  home: string;
 }
 
 export interface HistoryLoaded {

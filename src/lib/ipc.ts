@@ -66,6 +66,18 @@ export const api = {
   historyAppend: (entries: unknown[]) => call<T.HistoryStats>('history.append', { entries }),
   historyClear: (repo?: string | null) => call<T.HistoryStats>('history.clear', { repo }),
   stateLoad: () => call<Record<string, unknown>>('state.load'),
+  // file-manager context menu
+  takeLaunchActions: () => call<T.LaunchAction[]>('app.takeLaunchActions'),
+  shellMenuInfo: () => call<{ installed: boolean }>('shellMenu.info'),
+  shellMenuSet: (enabled: boolean) => call<{ installed: boolean }>('shellMenu.set', { enabled }),
+  // file-manager status icons
+  overlayInfo: (resourceDir: string | null) => call<T.OverlayInfo>('overlay.info', { resourceDir }),
+  overlayEnable: (resourceDir: string | null) =>
+    call<T.OverlayInfo>('overlay.enable', { resourceDir }),
+  overlayDisable: (resourceDir: string | null) =>
+    call<T.OverlayInfo>('overlay.disable', { resourceDir }),
+  overlayRefresh: () => call<{ repos: number }>('overlay.refresh'),
+  overlayRestartFileManager: () => call<null>('overlay.restartFileManager'),
   stateSet: (changes: Record<string, string | null>) => call<null>('state.set', { changes }),
   compareWithWorktree: (repo: string, hash: string) =>
     call<T.FileChange[]>('repo.compare', { repo, hash }),

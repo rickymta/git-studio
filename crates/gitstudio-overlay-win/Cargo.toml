@@ -1,0 +1,35 @@
+[package]
+name = "gitstudio-overlay-win"
+description = "Explorer icon-overlay shell extension: git status badges on folders (Windows only)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+name = "gitstudio_overlay"
+crate-type = ["cdylib", "rlib"]
+
+[target.'cfg(windows)'.dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+windows = { version = "0.62.2", features = [
+  "Win32_Foundation",
+  "Win32_System_Com",
+  "Win32_System_LibraryLoader",
+  "Win32_Security",
+  "Win32_System_Registry",
+  "Win32_System_SystemServices",
+  "Win32_UI_Shell",
+] }
+windows-core = "0.62.2"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+# A COM in-process server is FFI by nature: this crate opts out of the workspace's
+# `unsafe_code = "forbid"`; every unsafe block is commented.
+[lints.clippy]
+all = { level = "warn", priority = -1 }

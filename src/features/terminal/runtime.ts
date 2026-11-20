@@ -142,14 +142,21 @@ const shellName = (shell: string) =>
 
 const isToggleKey = (e: KeyboardEvent) => (e.ctrlKey || e.metaKey) && e.code === 'Backquote';
 
-export async function openSession(repo: string): Promise<void> {
+/**
+ * Start a shell in `repo` (any folder). `show: false` keeps the bottom panel as it is (for
+ * terminals hosted elsewhere, e.g. the command dialog in Preferences).
+ */
+export async function openSession(
+  repo: string,
+  opts: { show?: boolean } = {},
+): Promise<number | null> {
   const font = systemFont();
   let opened;
   try {
     opened = await api.terminalOpen(repo, 80, 24);
   } catch (e) {
     toast('error', t('Could not start terminal'), (e as Error).message);
-    return;
+    return null;
   }
   const { id } = opened;
   watchTheme();
@@ -212,8 +219,27 @@ export async function openSession(repo: string): Promise<void> {
 
   const st = useTerminal.getState();
   st.add({ id, repo, shell: shellName(opened.shell), exited: false });
-  st.setVisible(true);
+  if (opts.show !== false) st.setVisible(true);
   void pump(id);
+  return id;
+}
+
+/** Type `command` into session `id` and run it, once the shell has printed its prompt. */
+export async function runInSession(id: number, command: string): Promise<void> {
+  const l = live.get(id);
+  if (!l) return;
+  // Wait for the first output (the prompt), at most 3 s.
+  const start = l.lastActivity;
+  for (let i = 0; i < 30 && l.lastActivity === start; i++)
+    await new Promise((r) => setTimeout(r, 100));
+  await new Promise((r) => setTimeout(r, 250));
+  await api
+    .terminalWrite(
+      id,
+      `${command}
+`,
+    )
+    .catch(() => {});
 }
 
 export function closeSession(id: number) {

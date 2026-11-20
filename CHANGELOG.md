@@ -2,6 +2,14 @@
 
 Các thay đổi đáng chú ý của GitStudio. File này do `pnpm release` cập nhật.
 
+## v0.1.4 - 2026-11-19
+
+Thay đổi từ v0.1.3.
+
+- feat: "Open with GitStudio" in the file manager's context menu (7c17ee2, 2da7f6f)
+- fix(overlay): badges show in Explorer; bigger icons; on by default (d5487fa)
+- feat: git status icons on folders in Explorer, Finder and Nautilus/Nemo/Caja (85a6b12)
+
 ## v0.1.3 - 2026-11-19
 
 Thay đổi từ v0.1.2.

@@ -6,6 +6,8 @@ import { Button, ResizeHandle, Spinner, usePersistentWidth } from '@/components/
 import * as A from '@/features/actions';
 import { DiffView } from '@/features/diff/DiffView';
 import { GitHubSignIn } from '@/features/github/GitHubSignIn';
+import { ensureOverlaySetup } from '@/features/preferences/overlaySetup';
+import { listenLaunchActions, processLaunchActions } from '@/features/launchActions';
 import { RemotePanel } from '@/features/remotes/RemotePanel';
 import { CommitGraph } from '@/features/graph/CommitGraph';
 import { CommitPanel } from '@/features/panel/CommitPanel';
@@ -60,6 +62,8 @@ export function App() {
   const dialog = useUi((s) => s.dialog);
   const openDialog = useUi((s) => s.openDialog);
   const [prefs, setPrefs] = useState<PrefSection | null>(null);
+  // Later context-menu launches ("Open with GitStudio").
+  useEffect(() => listenLaunchActions(() => setPrefs(null)), []);
   const [booted, setBooted] = useState(false);
   const [zoom, setZoom] = useZoom();
   const lang = useLang();
@@ -91,6 +95,10 @@ export function App() {
     (async () => {
       const repo = useRepo.getState();
       await Promise.all([repo.loadSettings(), useWorkspaces.getState().load()]);
+      // Folder status icons are on by default: finish their setup on first launch.
+      void ensureOverlaySetup();
+      // Launched from the file manager's context menu ("Open with GitStudio").
+      void processLaunchActions(() => setPrefs(null));
       void useGitHub.getState().check();
       // Also reads both tokens' expiry for the status bar (and warns when it is close).
       ensureGitLabChecked();

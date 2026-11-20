@@ -989,3 +989,45 @@ async fn squash_merge_stash_options_ignore_and_clean() {
     r.clean_paths(&["debug.log".into()], true).await.unwrap();
     assert!(!dir.join("debug.log").exists());
 }
+
+#[tokio::test]
+async fn clone_with_branch_origin_depth_and_bare() {
+    let tmp = tempfile::tempdir().unwrap();
+    let src = tmp.path().join("src");
+    let r = new_repo(&src).await;
+    for i in 0..3 {
+        std::fs::write(src.join("f"), i.to_string()).unwrap();
+        r.stage(&[]).await.unwrap();
+        r.commit(&format!("c{i}"), false).await.unwrap();
+    }
+    r.create_branch("dev", None, false).await.unwrap();
+    // file:// so --depth is honoured for a local source.
+    let url = format!("file://{}", src.display().to_string().replace('\\', "/"));
+
+    let dest = tmp.path().join("a");
+    let opts = git::CloneOptions {
+        depth: Some(1),
+        branch: Some("dev".into()),
+        origin: Some("upstream".into()),
+        ..Default::default()
+    };
+    let c = git::clone_with(&url, &dest, None, opts).await.unwrap();
+    assert_eq!(c.status().await.unwrap().branch.as_deref(), Some("dev"));
+    assert_eq!(c.log(10, 0).await.unwrap().len(), 1);
+    assert!(
+        c.refs()
+            .await
+            .unwrap()
+            .remotes
+            .iter()
+            .any(|r| r.name == "upstream")
+    );
+
+    let bare = tmp.path().join("b.git");
+    let opts = git::CloneOptions {
+        bare: true,
+        ..Default::default()
+    };
+    git::clone_run(&url, &bare, None, &opts).await.unwrap();
+    assert!(bare.join("HEAD").exists() && !bare.join(".git").exists());
+}
