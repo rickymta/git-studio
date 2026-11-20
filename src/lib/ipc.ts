@@ -80,6 +80,9 @@ export const api = {
   remotesContaining: (repo: string, hash: string) =>
     call<string[]>('history.remotesContaining', { repo, hash }),
   dropCommit: (repo: string, hash: string) => call<null>('history.drop', { repo, hash }),
+  /** Commits of every ref matching `query`, found by git (not only the loaded ones). */
+  searchCommits: (repo: string, query: T.CommitSearch, limit = 200) =>
+    call<T.Commit[]>('history.search', { repo, query, limit }),
   /** Commits an interactive rebase from `from` rewrites: `from` up to HEAD, oldest first. */
   rebasePlan: (repo: string, from: string) =>
     call<T.Commit[]>('history.rebasePlan', { repo, from }),

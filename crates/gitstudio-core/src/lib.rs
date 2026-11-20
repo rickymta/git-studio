@@ -359,6 +359,18 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
                 .remotes_containing(&arg::<String>(a, "hash")?)
                 .await?
         ),
+        "history.search" => {
+            let limit: Option<u32> = opt(a, "limit")?;
+            serde_json::to_value(
+                repo(a)
+                    .await?
+                    .search_commits(
+                        &arg::<git::CommitSearch>(a, "query")?,
+                        limit.unwrap_or(200).min(2000),
+                    )
+                    .await?,
+            )?
+        }
         "history.rebasePlan" => serde_json::to_value(
             repo(a)
                 .await?

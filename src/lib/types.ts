@@ -29,6 +29,16 @@ export interface CommitDetail extends Commit {
   files: FileChange[];
 }
 
+/** `history.search`: every non-empty field has to match (literal text, any case). */
+export interface CommitSearch {
+  message?: string;
+  author?: string;
+  /** Text added or removed by the commit (`git log -S`). */
+  content?: string;
+  /** File or folder the commit touches. */
+  path?: string;
+}
+
 /** Squash keeps both messages; fixup keeps the earlier commit's message only. */
 export type RebaseAction = 'pick' | 'reword' | 'squash' | 'fixup' | 'drop';
 
