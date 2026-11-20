@@ -12,6 +12,8 @@ import { useGitHub } from '@/stores/github';
 import { ensureGitLabChecked, useGitLab } from '@/stores/gitlab';
 import { useRepo } from '@/stores/repo';
 import { toast } from '@/stores/ui';
+import { useWorkspaces } from '@/stores/workspace';
+import { addToWorkspace } from '@/features/workspace/workspaceActions';
 
 interface Props {
   open: boolean;
@@ -43,6 +45,9 @@ function CloneBody({ open, onClose, onSignIn }: Props) {
   const [sparse, setSparse] = useState(false);
   const [busy, setBusy] = useState(false);
   const [glConnect, setGlConnect] = useState(false);
+  // Cloning while a workspace is active adds the clone to it unless unticked.
+  const ws = useWorkspaces((s) => s.active());
+  const [toWorkspace, setToWorkspace] = useState(true);
 
   useEffect(() => ensureGitLabChecked(), []);
 
@@ -75,6 +80,7 @@ function CloneBody({ open, onClose, onSignIn }: Props) {
       const info = await api.clone(url.trim(), dest, { shallow, sparse });
       toast('success', t('Cloned {name}', { name: info.name }));
       onClose();
+      if (ws && toWorkspace) await addToWorkspace([info.path], info.name);
       await adopt(info);
     } catch (e) {
       toast('error', t('Clone failed'), (e as Error).message);
@@ -217,6 +223,14 @@ function CloneBody({ open, onClose, onSignIn }: Props) {
                     label={t('Sparse Checkout')}
                     help={t('Check out only the top-level files; add folders later.')}
                   />
+                  {ws && (
+                    <CheckRow
+                      checked={toWorkspace}
+                      onChange={setToWorkspace}
+                      label={t('Add to workspace “{name}”', { name: ws.name })}
+                      help={t('List the clone in this workspace once it is done.')}
+                    />
+                  )}
                 </div>
               </div>
 

@@ -56,10 +56,16 @@ interface PromptState extends PromptSpec {
   resolve: (v: PromptValues | null) => void;
 }
 
+/** App-level dialogs any part of the UI can open: Clone, and Scan a folder into the active
+ *  workspace. */
+export type AppDialog = 'clone' | 'scanWorkspace';
+
 interface UiStore {
   toasts: Toast[];
   prompt: PromptState | null;
   theme: 'dark' | 'light';
+  dialog: AppDialog | null;
+  openDialog: (d: AppDialog | null) => void;
   toast: (kind: ToastKind, title: string, detail?: string) => void;
   notify: (spec: ToastSpec) => void;
   dismiss: (id: number) => void;
@@ -82,6 +88,8 @@ export const useUi = create<UiStore>((set, get) => ({
   toasts: [],
   prompt: null,
   theme: savedTheme,
+  dialog: null,
+  openDialog: (dialog) => set({ dialog }),
   toast: (kind, title, detail) => get().notify({ kind, title, detail }),
   notify: ({ kind, title, detail, actions }) => {
     const id = nextId++;
@@ -134,6 +142,8 @@ export const toast = (kind: ToastKind, title: string, detail?: string) =>
 export const notify = (spec: ToastSpec) => useUi.getState().notify(spec);
 
 export const ask = (spec: PromptSpec) => useUi.getState().ask(spec);
+
+export const openDialog = (d: AppDialog | null) => useUi.getState().openDialog(d);
 
 export async function confirm(
   title: string,

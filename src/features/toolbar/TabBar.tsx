@@ -1,6 +1,9 @@
 import {
   ChevronDown,
+  Download,
   FolderGit2,
+  FolderOpen,
+  FolderSearch,
   LayoutGrid,
   LogOut,
   Moon,
@@ -16,8 +19,9 @@ import { t } from '@/lib/i18n';
 import { openUrl } from '@/lib/native';
 import { useGitHub } from '@/stores/github';
 import { useRepo } from '@/stores/repo';
-import { useUi } from '@/stores/ui';
+import { openDialog, useUi } from '@/stores/ui';
 import { samePath, useWorkspaces } from '@/stores/workspace';
+import { addRepoFolder, addToWorkspace } from '@/features/workspace/workspaceActions';
 
 const same = (a: string | null, b: string) =>
   !!a && a.replace(/\\/g, '/').toLowerCase() === b.replace(/\\/g, '/').toLowerCase();
@@ -59,6 +63,40 @@ export function TabBar({
     <div className="flex h-[34px] shrink-0 items-stretch border-b border-border bg-background">
       <Dropdown
         items={[
+          // Grow the active workspace from anywhere, not only from its overview.
+          ...(ws
+            ? [
+                {
+                  label: t('Add a repository folder to “{name}”…', { name: ws.name }),
+                  icon: <FolderOpen className="size-3.5" />,
+                  onSelect: addRepoFolder,
+                },
+                {
+                  label: t('Scan a folder into “{name}”…', { name: ws.name }),
+                  icon: <FolderSearch className="size-3.5" />,
+                  onSelect: () => openDialog('scanWorkspace'),
+                },
+                {
+                  label: t('Clone into “{name}”…', { name: ws.name }),
+                  icon: <Download className="size-3.5" />,
+                  onSelect: () => openDialog('clone'),
+                },
+                ...(path && !inWorkspace(path)
+                  ? [
+                      {
+                        label: t('Add this tab to “{name}”', { name: ws.name }),
+                        icon: <Plus className="size-3.5" />,
+                        onSelect: () =>
+                          void addToWorkspace(
+                            [path],
+                            tabs.find((x) => same(path, x.path))?.name ?? path,
+                          ),
+                      },
+                    ]
+                  : []),
+                'sep' as const,
+              ]
+            : []),
           ...workspaces.items.map((w) => ({
             label: `${w.name}  (${w.repos.length})`,
             icon: <span className="block size-2.5 rounded-full" style={{ background: w.color }} />,

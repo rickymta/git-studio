@@ -33,13 +33,14 @@ import {
 import { relativeTime } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
-import { openUrl, pickFolder, revealPath } from '@/lib/native';
+import { openUrl, revealPath } from '@/lib/native';
 import type { PullRequest, RepoSummary } from '@/lib/types';
 import { useGitHub } from '@/stores/github';
 import { useRepo } from '@/stores/repo';
-import { ask, confirm, toast } from '@/stores/ui';
+import { ask, confirm, openDialog, toast } from '@/stores/ui';
 import { samePath, summaryKey, useWorkspaces } from '@/stores/workspace';
-import { ColorSwatches, ScanDialog } from './WorkspaceDialogs';
+import { ColorSwatches } from './WorkspaceDialogs';
+import { addRepoFolder } from './workspaceActions';
 
 type Filter = 'all' | 'changes' | 'behind' | 'ahead' | 'problems';
 
@@ -59,7 +60,7 @@ interface WorkspacePr extends PullRequest {
   repoName: string;
 }
 
-export function WorkspaceView({ onClone }: { onClone: () => void }) {
+export function WorkspaceView() {
   const ws = useWorkspaces((s) => s.active());
   const summaries = useWorkspaces((s) => s.summaries);
   const loading = useWorkspaces((s) => s.summariesLoading);
@@ -70,7 +71,6 @@ export function WorkspaceView({ onClone }: { onClone: () => void }) {
   const user = useGitHub((s) => s.user);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
-  const [scanOpen, setScanOpen] = useState(false);
   const [prs, setPrs] = useState<WorkspacePr[] | null>(null);
   const [prsLoading, setPrsLoading] = useState(false);
 
@@ -161,23 +161,6 @@ export function WorkspaceView({ onClone }: { onClone: () => void }) {
     if (paths[0]) await open(paths[0]);
   };
 
-  const addFolder = async () => {
-    const p = await pickFolder(t('Add a repository to this workspace'));
-    if (!p) return;
-    try {
-      const info = await api.info(p);
-      const n = await addRepos(ws.id, [info.path]);
-      toast(
-        n ? 'success' : 'info',
-        n
-          ? t('Added {name}', { name: info.name })
-          : t('{name} is already in this workspace', { name: info.name }),
-      );
-    } catch (e) {
-      toast('error', t('Not a Git repository'), (e as Error).message);
-    }
-  };
-
   const addTabs = async () => {
     const n = await addRepos(
       ws.id,
@@ -220,17 +203,17 @@ export function WorkspaceView({ onClone }: { onClone: () => void }) {
     {
       label: t('Open a repository folder…'),
       icon: <FolderOpen className="size-3.5" />,
-      onSelect: addFolder,
+      onSelect: addRepoFolder,
     },
     {
       label: t('Scan a folder for repositories…'),
       icon: <FolderSearch className="size-3.5" />,
-      onSelect: () => setScanOpen(true),
+      onSelect: () => openDialog('scanWorkspace'),
     },
     {
       label: t('Clone a repository…'),
       icon: <Download className="size-3.5" />,
-      onSelect: onClone,
+      onSelect: () => openDialog('clone'),
     },
     {
       label: t('Add open tabs ({n})', { n: tabs.length }),
@@ -365,13 +348,13 @@ export function WorkspaceView({ onClone }: { onClone: () => void }) {
             <div className="flex flex-col items-center gap-3 p-10 text-center text-muted-foreground">
               {t('This workspace has no repositories yet.')}
               <div className="flex gap-2">
-                <Button onClick={() => setScanOpen(true)}>
+                <Button onClick={() => openDialog('scanWorkspace')}>
                   <FolderSearch className="size-4" /> {t('Scan a folder')}
                 </Button>
-                <Button onClick={addFolder}>
+                <Button onClick={addRepoFolder}>
                   <FolderOpen className="size-4" /> {t('Open a folder')}
                 </Button>
-                <Button onClick={onClone}>
+                <Button onClick={() => openDialog('clone')}>
                   <Download className="size-4" /> {t('Clone')}
                 </Button>
               </div>
@@ -477,7 +460,6 @@ export function WorkspaceView({ onClone }: { onClone: () => void }) {
           </div>
         )}
       </div>
-      <ScanDialog open={scanOpen} onClose={() => setScanOpen(false)} />
     </div>
   );
 }

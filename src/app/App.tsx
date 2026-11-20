@@ -19,7 +19,7 @@ import { TabBar } from '@/features/toolbar/TabBar';
 import { Toolbar } from '@/features/toolbar/Toolbar';
 import { CloneDialog } from '@/features/welcome/CloneDialog';
 import { Welcome } from '@/features/welcome/Welcome';
-import { NewWorkspaceDialog } from '@/features/workspace/WorkspaceDialogs';
+import { NewWorkspaceDialog, ScanDialog } from '@/features/workspace/WorkspaceDialogs';
 import { WorkspaceView } from '@/features/workspace/WorkspaceView';
 import { logActivity } from '@/stores/activity';
 import { useGitHub } from '@/stores/github';
@@ -53,7 +53,8 @@ export function App() {
   const diff = useRepo((s) => s.diff);
   const theme = useUi((s) => s.theme);
   const [signIn, setSignIn] = useState(false);
-  const [clone, setClone] = useState(false);
+  const dialog = useUi((s) => s.dialog);
+  const openDialog = useUi((s) => s.openDialog);
   const [prefs, setPrefs] = useState<PrefSection | null>(null);
   const [booted, setBooted] = useState(false);
   const [zoom, setZoom] = useZoom();
@@ -210,14 +211,14 @@ export function App() {
   } else if ((!path || !info) && ws) {
     body = (
       <div className="min-h-0 flex-1">
-        <WorkspaceView onClone={() => setClone(true)} />
+        <WorkspaceView />
       </div>
     );
   } else if (!path || !info) {
     body = (
       <div className="min-h-0 flex-1">
         <Welcome
-          onClone={() => setClone(true)}
+          onClone={() => openDialog('clone')}
           onSignIn={() => setSignIn(true)}
           onNewWorkspace={() => setNewWs(true)}
         />
@@ -306,14 +307,15 @@ export function App() {
       <StatusBar zoom={zoom} setZoom={setZoom} />
       <GitHubSignIn open={signIn} onClose={() => setSignIn(false)} />
       <CloneDialog
-        open={clone}
-        onClose={() => setClone(false)}
+        open={dialog === 'clone'}
+        onClose={() => openDialog(null)}
         onSignIn={() => {
-          setClone(false);
+          openDialog(null);
           setSignIn(true);
         }}
       />
       <NewWorkspaceDialog open={newWs} onClose={() => setNewWs(false)} />
+      <ScanDialog open={dialog === 'scanWorkspace'} onClose={() => openDialog(null)} />
       <PromptDialog />
       <Toasts />
     </div>
