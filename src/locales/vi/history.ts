@@ -330,6 +330,15 @@ export const history: Record<string, string> = {
     'Ctrl + click để thêm/bớt commit, Shift + click để chọn một dải.',
   'Cherry-pick {n} commits': 'Cherry-pick {n} commit',
   'Squash {n} commits': 'Squash {n} commit',
+  'Cherry pick {n} commits': 'Cherry-pick {n} commit',
+  'Move {n} commits up': 'Chuyển {n} commit lên',
+  'Move {n} commits down': 'Chuyển {n} commit xuống',
+  'Create patch from commits': 'Tạo patch từ các commit',
+  'Compare the 2 selected commits': 'So sánh 2 commit đã chọn',
+  'Saves the {n} commits as one patch file (git format-patch, git am applies it).':
+    'Lưu {n} commit thành một file patch (git format-patch, áp dụng bằng git am).',
+  'Only adjacent commits of the current branch can be moved together.':
+    'Chỉ chuyển cùng lúc được các commit liền nhau của branch hiện tại.',
   'Copy commit shas': 'Sao chép sha các commit',
 
   // Search the whole history

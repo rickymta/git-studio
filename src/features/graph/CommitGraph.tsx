@@ -2,26 +2,16 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronDown, ChevronUp, LocateFixed, Search, X } from 'lucide-react';
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 
-import {
-  Avatar,
-  ContextMenuWrap,
-  IconButton,
-  Input,
-  ResizeHandle,
-  type MenuItem,
-} from '@/components/ui';
+import { Avatar, ContextMenuWrap, IconButton, Input, ResizeHandle } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { usePersistentWidth } from '@/components/usePersistentWidth';
 import { useGravatar } from '@/components/useGravatar';
 import { fullDate, hue, initials, relativeTime, short } from '@/lib/format';
 import { laneColor, type GraphRow, type Segment } from '@/lib/graph';
 import { t } from '@/lib/i18n';
-import { copyText } from '@/lib/native';
-import type { Commit, GitRef, Stash } from '@/lib/types';
-import { useGitHub } from '@/stores/github';
+import type { Commit, GitRef } from '@/lib/types';
 import { useRepo } from '@/stores/repo';
 import * as A from '../actions';
-import { bisectMenu } from '../repoTools';
 import { ColumnSettingsMenu } from './ColumnSettingsMenu';
 import {
   COMPACT_WIDTHS,
@@ -34,7 +24,8 @@ import {
 import { branchRows, rowIndex } from './branchFocus';
 import { SearchResults } from './HistorySearch';
 import { SEARCH_MODES, useGitSearch, type SearchMode } from './gitSearch';
-import { onCurrentBranch, pickCommits, tidy } from './menuUtils';
+import { commitMenu, stashMenu } from './commitMenu';
+import { pickCommits } from './menuUtils';
 import { RefBadge } from './RefBadge';
 import { groupRefs } from './refGroups';
 
@@ -57,248 +48,6 @@ const COMPACT: Geom = { lane: 14, pad: 8, node: 6, compact: true };
 const REFS_W = 'var(--refs-w)';
 const GRAPH_W = 'var(--graph-w)';
 const bandLeft = (cx: number) => `calc(${REFS_W} + ${cx}px)`;
-
-/** One entry for a single branch, a submenu of branch names for several. */
-function perBranch(label: string, refs: GitRef[], onSelect: (r: GitRef) => void): MenuItem[] {
-  if (refs.length === 0) return [];
-  if (refs.length === 1) return [{ label, onSelect: () => onSelect(refs[0]!) }];
-  return [{ label, items: refs.map((r) => ({ label: r.name, onSelect: () => onSelect(r) })) }];
-}
-
-function stashMenu(s: Stash): MenuItem[] {
-  return [
-    { label: t('Apply Stash'), onSelect: () => A.stashOp(s, 'apply') },
-    { label: t('Pop Stash'), onSelect: () => A.stashOp(s, 'pop') },
-    { label: t('Delete Stash'), danger: true, onSelect: () => A.stashOp(s, 'drop') },
-    'sep',
-    { label: t('Edit stash message'), onSelect: () => A.editStashMessage(s) },
-    { label: t('Create branch from stash…'), onSelect: () => A.stashToBranch(s) },
-    'sep',
-    { label: t('Hide'), onSelect: () => A.hideStash(s) },
-  ];
-}
-
-function commitMenu(c: Commit): MenuItem[] {
-  const { info, refs } = useRepo.getState();
-  const cur = info?.status.branch ?? null;
-  const all = refs?.refs ?? [];
-  const here = all.filter((r) => r.target === c.hash);
-  const locals = here.filter((r) => r.kind === 'local');
-  const remotes = here.filter((r) => r.kind === 'remote' && !r.name.endsWith('/HEAD'));
-  const headBranch = locals.find((r) => r.isHead);
-  const branches = [...locals, ...remotes];
-  const mine = onCurrentBranch(c.hash);
-  const hasGitHub = !!refs?.remotes.some((r) => r.github) && !!useGitHub.getState().user;
-  /** The remote branch a local branch pushes to (its upstream, else origin/<name>). */
-  const remoteOf = (l: GitRef) =>
-    all.find((r) => r.kind === 'remote' && r.name === (l.upstream ?? `origin/${l.name}`));
-  const tracked = new Set(locals.map((l) => remoteOf(l)?.fullName));
-
-  const branchItems: MenuItem[] = [];
-  for (const l of locals) {
-    const remote = remoteOf(l);
-    branchItems.push({
-      label: t('Rename {name}…', { name: l.name }),
-      onSelect: () => A.renameBranch(l),
-    });
-    branchItems.push({
-      label: t('Delete {name}', { name: l.name }),
-      danger: true,
-      disabled: l.isHead,
-      onSelect: () => A.deleteBranch(l),
-    });
-    if (remote) {
-      branchItems.push({
-        label: t('Delete {name}', { name: remote.name }),
-        danger: true,
-        onSelect: () => A.deleteBranch(remote),
-      });
-      branchItems.push({
-        label: t('Delete {name} and {remote}', { name: l.name, remote: remote.name }),
-        danger: true,
-        disabled: l.isHead,
-        onSelect: () => A.deleteBranchAndRemote(l, remote),
-      });
-    }
-  }
-  for (const r of remotes.filter((r) => !tracked.has(r.fullName)))
-    branchItems.push({
-      label: t('Delete {name}', { name: r.name }),
-      danger: true,
-      onSelect: () => A.deleteBranch(r),
-    });
-
-  const isHeadCommit = info?.status.head === c.hash;
-  const isMerge = c.parents.length > 1;
-  const view = useRepo.getState().view;
-  // Branches here other than the checked-out one and the remote it tracks.
-  const others = branches.filter(
-    (r) => !r.isHead && !(headBranch && remoteOf(headBranch)?.fullName === r.fullName),
-  );
-  const viewItems = (label: string, active: string[], onSelect: (r: GitRef) => void): MenuItem[] =>
-    branches.length === 0
-      ? []
-      : [
-          {
-            label,
-            items: branches.map((r) => ({
-              label: r.name,
-              icon: active.includes(r.fullName) ? '✓' : undefined,
-              onSelect: () => onSelect(r),
-            })),
-          },
-        ];
-
-  return tidy([
-    ...(headBranch
-      ? ([
-          { label: t('Pull (fast-forward if possible)'), onSelect: () => A.pull() },
-          { label: t('Push'), onSelect: () => A.push() },
-          { label: t('Set Upstream'), onSelect: () => A.setUpstream(headBranch) },
-          'sep',
-        ] as MenuItem[])
-      : []),
-    ...(cur
-      ? [
-          ...perBranch(t('Merge into {branch}', { branch: cur }), others, (r) =>
-            A.mergeInto(r.name),
-          ),
-          ...perBranch(t('Rebase {branch} onto', { branch: cur }), others, (r) =>
-            A.rebaseOnto(r.name),
-          ),
-          'sep' as const,
-        ]
-      : []),
-    {
-      label: t('Checkout'),
-      items: [
-        ...branches
-          .filter((r) => !r.isHead)
-          .map((r) => ({ label: r.name, onSelect: () => A.checkoutRef(r) })),
-        { label: t('this commit'), onSelect: () => A.checkoutCommit(c.hash) },
-      ],
-    },
-    {
-      label: t('Create worktree from'),
-      items: [
-        ...locals
-          .filter((r) => !r.isHead)
-          .map((r) => ({ label: r.name, onSelect: () => A.addWorktree({ branch: r.name }) })),
-        ...remotes.map((r) => ({
-          label: r.name,
-          onSelect: () => A.addWorktree({ start: r.name }),
-        })),
-        { label: t('this commit'), onSelect: () => A.addWorktree({ start: c.hash }) },
-      ],
-    },
-    'sep',
-    { label: t('Create branch here'), onSelect: () => A.newBranch(c.hash) },
-    { label: t('Bisect'), items: bisectMenu(c.hash) },
-    {
-      label: t('Reset {branch} to this commit', { branch: cur ?? 'HEAD' }),
-      items: [
-        { label: t('Soft - keep all changes'), onSelect: () => A.resetWithMode(c.hash, 'soft') },
-        {
-          label: t('Mixed - keep working copy but reset index'),
-          onSelect: () => A.resetWithMode(c.hash, 'mixed'),
-        },
-        {
-          label: t('Hard - discard all changes'),
-          danger: true,
-          onSelect: () => A.resetWithMode(c.hash, 'hard'),
-        },
-      ],
-    },
-    {
-      label: t('Edit commit message'),
-      disabled: !mine,
-      onSelect: () => A.editCommitMessage(c.hash),
-    },
-    { label: t('Revert commit'), onSelect: () => A.revertCommit(c) },
-    // Like GitKraken, entries that cannot apply to this commit are left out, not greyed.
-    ...(mine ? [] : [{ label: t('Cherry pick commit'), onSelect: () => A.cherryPick(c) }]),
-    'sep',
-    { label: t('Drop commit'), danger: true, disabled: !mine, onSelect: () => A.dropCommit(c) },
-    ...(mine && !isHeadCommit && !isMerge
-      ? [{ label: t('Move commit up'), onSelect: () => A.moveCommit(c, false) }]
-      : []),
-    {
-      label: t('Move commit down'),
-      disabled: !mine || isMerge || c.parents.length === 0,
-      onSelect: () => A.moveCommit(c, true),
-    },
-    ...(mine && !isMerge
-      ? [{ label: t('Interactive rebase from here…'), onSelect: () => A.interactiveRebase(c.hash) }]
-      : []),
-    'sep',
-    ...(hasGitHub
-      ? perBranch(
-          locals.length === 1
-            ? t('Start a pull request to {remote} from {branch}', {
-                remote: A.prRemoteName() ?? 'origin',
-                branch: remoteOf(locals[0]!)?.name ?? locals[0]!.name,
-              })
-            : t('Start a pull request from…'),
-          locals,
-          (r) => A.createPullRequest(r.name),
-        )
-      : []),
-    'sep',
-    { label: t('Apply patch…'), onSelect: () => A.applyPatchFile() },
-    ...branchItems,
-    'sep',
-    // The local branch name, as GitKraken copies it ("main", not "origin/main").
-    ...perBranch(t('Copy branch name'), locals.length ? locals : remotes, (r) => copyText(r.name)),
-    { label: t('Copy commit sha'), onSelect: () => copyText(c.hash) },
-    { label: t('Copy commit message'), onSelect: () => copyText(c.subject) },
-    ...(A.hasWebRemote()
-      ? [
-          ...(() => {
-            // The remote branch the link points at: the upstream of a local branch, or itself.
-            const linkable = [
-              ...new Map(
-                branches
-                  .map((r) => (r.kind === 'local' ? (remoteOf(r) ?? r) : r))
-                  .filter((r) => A.branchUrl(r))
-                  .map((r) => [r.fullName, r]),
-              ).values(),
-            ];
-            return linkable.length === 1
-              ? [
-                  {
-                    label: t('Copy link to branch: {name}', { name: linkable[0]!.name }),
-                    onSelect: () => A.copyBranchLink(linkable[0]!),
-                  },
-                ]
-              : perBranch(t('Copy link to branch'), linkable, (r) => A.copyBranchLink(r));
-          })(),
-          {
-            label: t('Copy link to this commit on remote: {remote}', {
-              remote: A.webRemoteName() ?? 'origin',
-            }),
-            onSelect: () => A.copyCommitLink(c.hash),
-          },
-        ]
-      : []),
-    { label: t('Create patch from commit'), onSelect: () => A.createPatch(c.hash) },
-    'sep',
-    ...viewItems(t('Pin to Left'), view.pinned, A.pinRef),
-    ...viewItems(t('Solo'), view.solo, A.soloRef),
-    ...viewItems(t('Hide'), view.hidden, A.hideRef),
-    ...(view.solo.length || view.hidden.length
-      ? [{ label: t('Show all branches'), onSelect: () => A.showAllRefs() }]
-      : []),
-    'sep',
-    {
-      label: t('Compare commit against working directory'),
-      onSelect: () => A.compareWithWorkingDirectory(c.hash),
-    },
-    ...A.compareMenu(A.commitSide(c.hash)),
-    'sep',
-    { label: t('Create tag here'), onSelect: () => A.createTag(c.hash) },
-    { label: t('Create annotated tag here'), onSelect: () => A.createAnnotatedTag(c.hash) },
-  ]);
-}
 
 /** Shown while the graph is filtered (Solo / Hide) or has pinned branches. */
 function ViewBar() {
@@ -970,7 +719,16 @@ const CommitRow = memo(function CommitRow({
   const onBadgeHover = (on: boolean) => onRefHover(c.hash, on);
   const fade = faded && 'opacity-35';
   return (
-    <ContextMenuWrap items={() => (c.stash ? stashMenu(c.stash) : commitMenu(c))}>
+    <ContextMenuWrap
+      items={() => {
+        if (c.stash) return stashMenu(c.stash);
+        // Right-clicking one of several picked commits acts on all of them, like GitKraken.
+        const sel = useRepo.getState().selection;
+        const picked =
+          sel?.type === 'commits' && sel.hashes.includes(c.hash) ? A.commitsOf(sel.hashes) : [];
+        return commitMenu(c, picked);
+      }}
+    >
       <div
         style={stack ? { ...style, zIndex: 30 } : style}
         onClick={onSelect}

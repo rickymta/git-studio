@@ -1418,3 +1418,42 @@ async fn maintenance_tasks_pack_and_check_the_repository() {
     assert!(!bad.ok && !bad.output.is_empty());
     assert!(r.maintenance("rm -rf").await.is_err());
 }
+
+#[tokio::test]
+async fn patch_of_several_commits_applies_with_git_am() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("repo");
+    let r = new_repo(&dir).await;
+    std::fs::write(dir.join("f"), "0\n").unwrap();
+    r.stage(&[]).await.unwrap();
+    r.commit("base", false).await.unwrap();
+    for i in 1..=2 {
+        std::fs::write(dir.join("f"), format!("{i}\n")).unwrap();
+        r.stage(&[]).await.unwrap();
+        r.commit(&format!("c{i}"), false).await.unwrap();
+    }
+    let log = r.log(10, 0).await.unwrap();
+    let h = |s: &str| log.iter().find(|c| c.subject == s).unwrap().hash.clone();
+    let dest = tmp.path().join("two.patch");
+    r.create_patches(&[h("c1"), h("c2")], &dest).await.unwrap();
+    let text = std::fs::read_to_string(&dest).unwrap();
+    assert_eq!(text.matches("Subject: [PATCH] ").count(), 2, "{text}");
+    assert!(text.find("c1").unwrap() < text.find("c2").unwrap());
+
+    // The file replays both commits on the base.
+    sh(&dir, &["switch", "-q", "-c", "replay", &h("base")]);
+    sh(&dir, &["am", "-q", dest.to_str().unwrap()]);
+    // The replay branch alone (the log of every branch also lists main's commits).
+    let out = std::process::Command::new("git")
+        .current_dir(&dir)
+        .args(["log", "--format=%s", "-3", "replay"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .collect::<Vec<_>>(),
+        ["c2", "c1", "base"]
+    );
+    assert!(r.create_patches(&[], &dest).await.is_err());
+}

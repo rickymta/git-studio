@@ -728,6 +728,27 @@ impl Repo {
         Ok(())
     }
 
+    /// Several commits as one mailbox patch file (`git am` applies them in order): one
+    /// `git format-patch` per commit, in the order of `hashes` (give them oldest first).
+    pub async fn create_patches(&self, hashes: &[String], dest: &Path) -> Result<()> {
+        if hashes.is_empty() {
+            return Err(Error::Invalid("No commits to make a patch from".into()));
+        }
+        let mut all = Vec::new();
+        for h in hashes {
+            check_rev(h)?;
+            let out = run::ok(
+                &self.root,
+                &["format-patch", "-1", "--stdout", h],
+                Opts::default(),
+            )
+            .await?;
+            all.extend(out.stdout);
+        }
+        std::fs::write(dest, all)?;
+        Ok(())
+    }
+
     /// Apply a patch file to the working tree (3-way when possible).
     pub async fn apply_patch_file(&self, file: &Path) -> Result<()> {
         if !file.is_file() {

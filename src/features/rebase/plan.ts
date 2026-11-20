@@ -66,3 +66,28 @@ export function toSteps(rows: RebaseRow[]): RebaseStep[] {
 export function isNoop(rows: RebaseRow[], plan: Commit[]): boolean {
   return rows.every((r, i) => r.action === 'pick' && r.commit.hash === plan[i]?.hash);
 }
+
+/**
+ * Move the picked commits (`hashes`, which must be next to each other in `rows`) one place
+ * older (`down`) or newer, past the commit beside them. `null` when they are not adjacent or
+ * there is nothing to move past.
+ */
+export function moveBlock(rows: RebaseRow[], hashes: string[], down: boolean): RebaseRow[] | null {
+  const set = new Set(hashes);
+  const idx = rows.flatMap((r, i) => (set.has(r.commit.hash) ? [i] : []));
+  if (idx.length === 0 || idx.length !== set.size) return null;
+  const a = idx[0]!;
+  const b = idx[idx.length - 1]!;
+  if (b - a + 1 !== idx.length) return null;
+  const next = [...rows];
+  if (down) {
+    if (a === 0) return null;
+    const [past] = next.splice(a - 1, 1);
+    next.splice(b, 0, past!);
+  } else {
+    if (b === rows.length - 1) return null;
+    const [past] = next.splice(b + 1, 1);
+    next.splice(a, 0, past!);
+  }
+  return next;
+}

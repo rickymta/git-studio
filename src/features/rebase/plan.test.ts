@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { Commit } from '@/lib/types';
 import { pickCommits } from '../graph/menuUtils';
-import { isNoop, moveRow, planRows, rebaseProblem, toSteps } from './plan';
+import { isNoop, moveBlock, moveRow, planRows, rebaseProblem, toSteps } from './plan';
 
 const commit = (hash: string, extra: Partial<Commit> = {}): Commit => ({
   hash,
@@ -84,5 +84,28 @@ describe('pickCommits', () => {
   it('selects the range from the anchor, skipping stash rows', () => {
     expect(pickCommits(graph, ['d'], 3, 0)).toEqual(['d', 'c', 'b']);
     expect(pickCommits(graph, [], 0, 3)).toEqual(['d', 'c', 'b']);
+  });
+});
+
+describe('moveBlock', () => {
+  const rows = planRows(plan);
+  const hashes = (r: ReturnType<typeof moveBlock>) => r?.map((x) => x.commit.hash) ?? null;
+
+  it('moves adjacent commits past their older neighbour', () => {
+    expect(hashes(moveBlock(rows, ['c', 'b'], true))).toEqual(['b', 'c', 'a', 'd']);
+  });
+
+  it('moves adjacent commits past their newer neighbour', () => {
+    expect(hashes(moveBlock(rows, ['b', 'c'], false))).toEqual(['a', 'd', 'b', 'c']);
+  });
+
+  it('refuses commits that are not next to each other or not in the plan', () => {
+    expect(moveBlock(rows, ['a', 'c'], true)).toBeNull();
+    expect(moveBlock(rows, ['b', 'z'], true)).toBeNull();
+  });
+
+  it('has nothing to move past at either end', () => {
+    expect(moveBlock(rows, ['a', 'b'], true)).toBeNull();
+    expect(moveBlock(rows, ['c', 'd'], false)).toBeNull();
   });
 });

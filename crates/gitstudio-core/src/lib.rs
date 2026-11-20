@@ -608,13 +608,13 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
             return done();
         }
         "patch.create" => {
-            repo(a)
-                .await?
-                .create_patch(
-                    &arg::<String>(a, "hash")?,
-                    &PathBuf::from(arg::<String>(a, "dest")?),
-                )
-                .await?;
+            let dest = PathBuf::from(arg::<String>(a, "dest")?);
+            let hashes: Option<Vec<String>> = opt(a, "hashes")?;
+            let r = repo(a).await?;
+            match hashes {
+                Some(h) => r.create_patches(&h, &dest).await?,
+                None => r.create_patch(&arg::<String>(a, "hash")?, &dest).await?,
+            }
             return done();
         }
         "patch.apply" => {

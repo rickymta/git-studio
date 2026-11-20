@@ -147,6 +147,9 @@ export const api = {
     call<null>('history.move', { repo, hash, down }),
   createPatch: (repo: string, hash: string, dest: string) =>
     call<null>('patch.create', { repo, hash, dest }),
+  /** One patch file of several commits, in the order given (oldest first for `git am`). */
+  createPatches: (repo: string, hashes: string[], dest: string) =>
+    call<null>('patch.create', { repo, hashes, dest }),
   applyPatchFile: (repo: string, file: string) => call<null>('patch.apply', { repo, file }),
   // worktrees
   worktrees: (repo: string) => call<T.Worktree[]>('worktree.list', { repo }),

@@ -8,7 +8,7 @@ import { copyText, pickFile, pickFolder } from '@/lib/native';
 import type { Commit, GitRef, RebaseStep, Remote, Stash, Worktree } from '@/lib/types';
 import { useCompare } from '@/stores/compare';
 import { useRebaseDialog } from '@/stores/rebase';
-import { planRows, rebaseProblem, toSteps, type RebasePreset } from './rebase/plan';
+import { moveBlock, planRows, rebaseProblem, toSteps, type RebasePreset } from './rebase/plan';
 import { useGitHub } from '@/stores/github';
 import { useRemotePanel } from '@/stores/remotePanel';
 import { useRepo, type CompareSide } from '@/stores/repo';
@@ -1341,6 +1341,33 @@ export async function squashCommits(commits: Commit[]) {
   if (oldest) await interactiveRebase(oldest.hash, { squash: commits.map((c) => c.hash) });
 }
 
+/** Move several adjacent commits of the current branch one place down (older) or up. */
+export async function moveCommits(commits: Commit[], down: boolean) {
+  const path = repo().path;
+  const oldest = commits[commits.length - 1];
+  if (!path || !oldest) return;
+  // Moving down passes the commit before the block, so the rebase starts there.
+  const from = down ? oldest.parents[0] : oldest.hash;
+  if (!from) return;
+  let plan: Commit[];
+  try {
+    plan = await api.rebasePlan(path, from);
+  } catch (e) {
+    toast('error', t('Cannot rebase from here'), (e as Error).message);
+    return;
+  }
+  const rows = moveBlock(
+    planRows(plan),
+    commits.map((c) => c.hash),
+    down,
+  );
+  if (!rows) {
+    toast('error', t('Only adjacent commits of the current branch can be moved together.'));
+    return;
+  }
+  await runRebase(from, toSteps(rows));
+}
+
 /** Remove several commits from the current branch in one rebase. */
 export async function dropCommits(commits: Commit[]) {
   const path = repo().path;
@@ -1474,6 +1501,38 @@ export async function applyPatchFile() {
   const file = await pickFile(t('Choose a patch file'), repo().path ?? undefined);
   if (!file) return;
   await run('Apply patch', (p) => api.applyPatchFile(p, file), t('Patch applied'));
+}
+
+/** Save several commits (newest first, as picked in the graph) as one patch file. */
+export async function createPatchFromCommits(commits: Commit[]) {
+  const path = repo().path;
+  if (!path || commits.length === 0) return;
+  const v = await ask({
+    title: t('Create patch from commits'),
+    description: t(
+      'Saves the {n} commits as one patch file (git format-patch, git am applies it).',
+      {
+        n: commits.length,
+      },
+    ),
+    fields: [
+      {
+        name: 'dest',
+        label: t('Save to'),
+        initial: joinPath(
+          path,
+          `${short(commits[commits.length - 1]!.hash)}-${short(commits[0]!.hash)}.patch`,
+        ),
+        required: true,
+      },
+    ],
+    confirmLabel: t('Save'),
+  });
+  if (!v) return;
+  const dest = (v.dest as string).trim();
+  const oldestFirst = [...commits].reverse().map((c) => c.hash);
+  if (await run('Create patch', (p) => api.createPatches(p, oldestFirst, dest)))
+    toast('success', t('Patch saved'), dest);
 }
 
 export async function createPatch(hash: string) {
