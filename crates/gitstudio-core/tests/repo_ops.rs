@@ -1438,7 +1438,8 @@ async fn patch_of_several_commits_applies_with_git_am() {
     r.create_patches(&[h("c1"), h("c2")], &dest).await.unwrap();
     let text = std::fs::read_to_string(&dest).unwrap();
     assert_eq!(text.matches("Subject: [PATCH] ").count(), 2, "{text}");
-    assert!(text.find("c1").unwrap() < text.find("c2").unwrap());
+    // Subjects, not bare "c1": the hashes in the "From <sha>" lines may contain those letters.
+    assert!(text.find("Subject: [PATCH] c1").unwrap() < text.find("Subject: [PATCH] c2").unwrap());
 
     // The file replays both commits on the base.
     sh(&dir, &["switch", "-q", "-c", "replay", &h("base")]);
