@@ -90,6 +90,7 @@ export const diff: Record<string, string> = {
   'Select Next Item': 'Chọn mục sau',
   'Close diff / dialog': 'Đóng diff / hộp thoại',
   'Search commits': 'Tìm commit',
+  'Go to HEAD': 'Đi tới HEAD',
   'Filter branches and repositories': 'Lọc nhánh và repository',
   'Reset zoom': 'Đặt lại thu phóng',
   // Activity logs

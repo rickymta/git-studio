@@ -665,12 +665,14 @@ impl Repo {
         match kind {
             CheckoutKind::Branch => self.git(&["switch", target]).await.map(drop),
             CheckoutKind::Detached => self.git(&["switch", "--detach", target]).await.map(drop),
+            CheckoutKind::RemoteReset => {
+                let local = local_name_of(target)?;
+                self.git(&["switch", "-C", local, "--track", target])
+                    .await
+                    .map(drop)
+            }
             CheckoutKind::Remote => {
-                // origin/feature/x -> feature/x
-                let local = target
-                    .split_once('/')
-                    .map(|(_, b)| b)
-                    .ok_or_else(|| Error::Invalid(format!("Not a remote branch: {target}")))?;
+                let local = local_name_of(target)?;
                 let exists = run::raw(
                     Some(&self.root),
                     &["show-ref", "--verify", "-q", &format!("refs/heads/{local}")],
@@ -688,6 +690,24 @@ impl Repo {
                 }
             }
         }
+    }
+
+    /// Commits reachable from `rev` but from no branch, tag or remote branch: what would be hard
+    /// to find again once HEAD leaves a detached `rev`.
+    pub async fn unreferenced_commits(&self, rev: &str) -> Result<u32> {
+        check_rev(rev)?;
+        let out = self
+            .git(&[
+                "rev-list",
+                "--count",
+                rev,
+                "--not",
+                "--branches",
+                "--tags",
+                "--remotes",
+            ])
+            .await?;
+        Ok(out.trim().parse().unwrap_or(0))
     }
 
     pub async fn create_branch(
@@ -1425,11 +1445,22 @@ pub struct DiffRequest {
     pub encoding: Option<String>,
 }
 
+/// `origin/feature/x` -> `feature/x`.
+fn local_name_of(remote_branch: &str) -> Result<&str> {
+    remote_branch
+        .split_once('/')
+        .map(|(_, b)| b)
+        .ok_or_else(|| Error::Invalid(format!("Not a remote branch: {remote_branch}")))
+}
+
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum CheckoutKind {
     Branch,
     Remote,
+    /// A remote branch whose local namesake is moved onto it first (`switch -C`), so local
+    /// commits not on the remote are left only in the reflog.
+    RemoteReset,
     Detached,
 }
 

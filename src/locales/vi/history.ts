@@ -252,4 +252,30 @@ export const history: Record<string, string> = {
   'Check out {target}, then merge {source} into it.':
     'Checkout {target}, rồi merge {source} vào nhánh đó.',
   'Merged {source} into {target}': 'Đã merge {source} vào {target}',
+
+  // HEAD
+  'HEAD (detached) at {hash}': 'HEAD (detached) tại {hash}',
+  'Checked out (HEAD)': 'Đang checkout (HEAD)',
+  'Go to HEAD (Ctrl+Shift+H)': 'Đi tới HEAD (Ctrl+Shift+H)',
+  'Commits not on any branch': 'Có commit không thuộc nhánh nào',
+  'HEAD is detached at {hash} and {n} commit(s) there are on no branch or tag. Once you switch away they can only be found in the reflog.':
+    'HEAD đang detached tại {hash} và có {n} commit không thuộc nhánh hay tag nào. Sau khi chuyển đi, chỉ còn tìm lại được chúng qua reflog.',
+  'Before switching': 'Trước khi chuyển',
+  'Create a branch at HEAD to keep them': 'Tạo nhánh tại HEAD để giữ lại',
+  'Switch anyway': 'Vẫn chuyển',
+  '{local} has commits that {remote} does not have yet': '{local} có commit mà {remote} chưa có',
+  'The local branch {local} is behind {remote}.': 'Nhánh local {local} đang đi sau {remote}.',
+  'The local branch {local} and {remote} have diverged.':
+    'Nhánh local {local} và {remote} đã rẽ hướng khác nhau.',
+  'The local branch {local} points to a different commit than {remote}.':
+    'Nhánh local {local} trỏ tới commit khác với {remote}.',
+  'Local branch {local}': 'Nhánh local {local}',
+  'Fast-forward {local} to {remote}': 'Fast-forward {local} tới {remote}',
+  'Check out {local} as it is': 'Checkout {local} như hiện tại',
+  'Reset {local} to {remote} (drops its own commits)':
+    'Reset {local} về {remote} (bỏ các commit riêng của nó)',
+  'Reset {local} to {remote}': 'Reset {local} về {remote}',
+  'Commits on {local} that are not on {remote} will be left only in the reflog. Uncommitted changes are kept.':
+    'Các commit của {local} không có trên {remote} sẽ chỉ còn trong reflog. Thay đổi chưa commit được giữ nguyên.',
+  'Reset and check out': 'Reset và checkout',
 };

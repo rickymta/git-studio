@@ -177,8 +177,14 @@ export const api = {
   abort: (repo: string) => call<null>('op.abort', { repo }),
   continueOp: (repo: string) => call<null>('op.continue', { repo }),
 
-  checkout: (repo: string, target: string, kind: 'branch' | 'remote' | 'detached') =>
-    call<null>('branch.checkout', { repo, target, kind }),
+  /** `remoteReset`: check out a remote branch, moving its local namesake onto it first. */
+  checkout: (
+    repo: string,
+    target: string,
+    kind: 'branch' | 'remote' | 'remoteReset' | 'detached',
+  ) => call<null>('branch.checkout', { repo, target, kind }),
+  /** How many commits reachable from `rev` no branch, tag or remote branch contains. */
+  unreferenced: (repo: string, rev: string) => call<number>('branch.unreferenced', { repo, rev }),
   createBranch: (repo: string, name: string, start?: string, checkout = true) =>
     call<null>('branch.create', { repo, name, start, checkout }),
   deleteBranch: (repo: string, name: string, force = false) =>
