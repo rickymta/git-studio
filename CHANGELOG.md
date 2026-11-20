@@ -2,6 +2,33 @@
 
 Các thay đổi đáng chú ý của GitStudio. File này do `pnpm release` cập nhật.
 
+## v0.2.0 - 2026-11-20
+
+Thay đổi từ v0.1.4.
+
+- test: component tests for image diff, bisect, maintenance and merge tools (c45df6e)
+- refactor: move non-component exports out of component files (10aa0be)
+- feat: repository maintenance (4e5eb10)
+- feat: image diff (7de57ae)
+- feat: external merge and diff tools (d3a7caa)
+- feat(bisect): bisect from the commit menu with a progress banner (4010fa5)
+- feat(signing): show commit signatures, configure GPG/SSH signing (8eee39c)
+- feat(lfs): Git LFS section: tracked patterns, pull/fetch/prune, track from files (3e87c06)
+- feat(submodules): list, add, update, sync and deinit submodules (8c1b52c)
+- chore(test): keep vitest out of .claude worktrees and target (46990bb)
+- feat(git): squash merge, stash options, stash to branch, .gitignore, clean (217190c)
+- chore: refresh app icon set from the new app-icon/app-mark artwork (c3e2850)
+- feat(diff): stage, unstage and discard single lines (48f120e)
+- feat(history): search the whole history with git (0dc0d99)
+- feat(history): multi-select commits and interactive rebase (95f7e47)
+- feat(compare): compare two commits, branches or tags (5207bd5)
+- feat(reflog): HEAD history in the sidebar with lost-commit recovery (4cc7adb)
+- feat(avatars): Gravatar pictures for commit authors (f0c1d08)
+- feat(workspace): add or clone repositories into the active workspace from anywhere (fb150d6)
+- feat(head): show and manage HEAD in the graph, sidebar and toolbar (8793194)
+- feat(ui): tree icon for worktrees in the sidebar and branch badges (338d183)
+- docs: refresh README; add MIT LICENSE and CONTRIBUTING (856d81f)
+
 ## v0.1.4 - 2026-11-19
 
 Thay đổi từ v0.1.3.
