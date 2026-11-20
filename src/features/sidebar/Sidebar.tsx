@@ -24,7 +24,8 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { Avatar, ContextMenuWrap, Dropdown, IconButton, cn, type MenuItem } from '@/components/ui';
+import { Avatar, ContextMenuWrap, Dropdown, IconButton, type MenuItem } from '@/components/ui';
+import { cn } from '@/lib/cn';
 import { relativeTime, short } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
@@ -35,7 +36,8 @@ import { useRepo } from '@/stores/repo';
 import * as A from '../actions';
 import { ExtraSections } from './ExtraSections';
 import { Section } from './Section';
-import { headMenu, refMenu, worktreeOf } from '../graph/RefBadge';
+import { headMenu, refMenu } from '../graph/refMenu';
+import { worktreeOf } from '../graph/refGroups';
 
 function scrollToCommit(hash: string | null | undefined) {
   if (hash) void useRepo.getState().reveal(hash);

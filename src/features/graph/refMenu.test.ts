@@ -3,7 +3,7 @@ import type { Commit, GitRef, RepoInfo, Refs, Worktree } from '@/lib/types';
 import { useCompare } from '@/stores/compare';
 import { useRepo } from '@/stores/repo';
 import * as A from '../actions';
-import { refMenu } from './RefBadge';
+import { refMenu } from './refMenu';
 
 const commit = (hash: string, ...parents: string[]): Commit => ({
   hash,

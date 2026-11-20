@@ -1,7 +1,7 @@
 import { Check, Languages } from 'lucide-react';
 import { useState } from 'react';
 
-import { cn } from '@/components/ui';
+import { cn } from '@/lib/cn';
 import { LANGUAGES, systemLang, useLangStore, type Lang } from '@/lib/i18n';
 
 /** Shown once, on first launch, before anything else. Written in both languages on purpose. */

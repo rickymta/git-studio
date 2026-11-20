@@ -19,11 +19,12 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 
-import { Avatar, Button, Github, Input, Spinner, cn } from '@/components/ui';
+import { Avatar, Button, Github, Input, Spinner } from '@/components/ui';
+import { cn } from '@/lib/cn';
 import { GitLabConnectOptions, GitLabIcon } from '@/features/gitlab/GitLab';
 import { GitKrakenImport } from '@/features/welcome/Welcome';
-import { useViewMode } from '@/features/panel/FileList';
-import { useZoom } from '@/features/toolbar/StatusBar';
+import { useViewMode } from '@/features/panel/fileListPrefs';
+import { useZoom } from '@/features/toolbar/zoom';
 import {
   BRIGHTNESS_MAX,
   BRIGHTNESS_MIN,

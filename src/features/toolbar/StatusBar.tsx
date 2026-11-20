@@ -8,7 +8,6 @@ import {
   ZoomIn,
 } from 'lucide-react';
 import { useState } from 'react';
-import { create } from 'zustand';
 
 import { HelpDialog } from '@/features/help/HelpDialog';
 import { GlobalShortcuts } from '@/features/shortcuts/GlobalShortcuts';
@@ -17,41 +16,6 @@ import { TokenExpiry } from '@/features/tokens/TokenExpiry';
 import { t } from '@/lib/i18n';
 import { useGitHub } from '@/stores/github';
 import { useRepo } from '@/stores/repo';
-
-const ZOOM_KEY = 'gitstudio.zoom';
-
-function initialZoom() {
-  try {
-    const v = Number(localStorage.getItem(ZOOM_KEY));
-    return v >= 0.6 && v <= 2 ? v : 1;
-  } catch {
-    return 1;
-  }
-}
-
-/** Zoom shared by the status bar, keyboard shortcuts and Preferences. */
-const useZoomStore = create<{ zoom: number; set: (z: number) => void }>((set) => ({
-  zoom: initialZoom(),
-  set: (z) => {
-    const v = Math.round(Math.min(2, Math.max(0.6, z)) * 10) / 10;
-    set({ zoom: v });
-    try {
-      localStorage.setItem(ZOOM_KEY, String(v));
-    } catch {
-      /* ignore */
-    }
-  },
-}));
-
-export function useZoom(): [number, (z: number) => void] {
-  const zoom = useZoomStore((s) => s.zoom);
-  const set = useZoomStore((s) => s.set);
-  return [zoom, set];
-}
-
-export function applyZoom(z: number) {
-  (document.documentElement.style as CSSStyleDeclaration & { zoom: string }).zoom = String(z);
-}
 
 export function StatusBar({ zoom, setZoom }: { zoom: number; setZoom: (z: number) => void }) {
   const [win, setWindow] = useState<'activity' | 'shortcuts' | 'help' | null>(null);

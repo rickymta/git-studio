@@ -1,7 +1,9 @@
 import { ChevronDown, Plus, Terminal as TerminalIcon, Trash2, X } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 
-import { Button, IconButton, cn, usePersistentWidth } from '@/components/ui';
+import { Button, IconButton } from '@/components/ui';
+import { cn } from '@/lib/cn';
+import { usePersistentWidth } from '@/components/usePersistentWidth';
 import { t } from '@/lib/i18n';
 import { useRepo } from '@/stores/repo';
 import { useTerminal } from '@/stores/terminal';

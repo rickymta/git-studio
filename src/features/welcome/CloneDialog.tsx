@@ -1,7 +1,8 @@
 import { Check, ChevronDown, Globe, Lock, Search } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { Button, Github, Input, Modal, Spinner, cn } from '@/components/ui';
+import { Button, Github, Input, Modal, Spinner } from '@/components/ui';
+import { cn } from '@/lib/cn';
 import { GitLabConnectDialog, GitLabIcon } from '@/features/gitlab/GitLab';
 import { joinPath, repoNameFromUrl } from '@/lib/format';
 import { t } from '@/lib/i18n';

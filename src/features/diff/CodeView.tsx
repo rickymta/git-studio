@@ -41,7 +41,7 @@ import { t } from '@/lib/i18n';
 import type { BlameCommit } from '@/lib/types';
 
 /** Language support from the file extension. */
-export function languageFor(path: string): Extension | null {
+function languageFor(path: string): Extension | null {
   const name = path.toLowerCase();
   const ext = name.slice(name.lastIndexOf('.') + 1);
   switch (ext) {

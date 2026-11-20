@@ -3,7 +3,8 @@
 
 import { useState, type ReactNode } from 'react';
 
-import { Input, cn } from '@/components/ui';
+import { Input } from '@/components/ui';
+import { cn } from '@/lib/cn';
 
 export const Title = ({ children }: { children: ReactNode }) => (
   <h1 className="mb-6 text-[26px] font-semibold">{children}</h1>

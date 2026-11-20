@@ -1,7 +1,8 @@
 import { Download, FolderOpen, LayoutGrid, Plus, Search, SquarePlus, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { Avatar, Button, Github, IconButton, Spinner, cn } from '@/components/ui';
+import { Avatar, Button, Github, IconButton, Spinner } from '@/components/ui';
+import { cn } from '@/lib/cn';
 import { relativeTime } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';

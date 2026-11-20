@@ -8,10 +8,10 @@ import {
   IconButton,
   Input,
   ResizeHandle,
-  cn,
-  usePersistentWidth,
   type MenuItem,
 } from '@/components/ui';
+import { cn } from '@/lib/cn';
+import { usePersistentWidth } from '@/components/usePersistentWidth';
 import { useGravatar } from '@/components/useGravatar';
 import { fullDate, hue, initials, relativeTime, short } from '@/lib/format';
 import { laneColor, type GraphRow, type Segment } from '@/lib/graph';
@@ -35,7 +35,8 @@ import { branchRows, rowIndex } from './branchFocus';
 import { SearchResults } from './HistorySearch';
 import { SEARCH_MODES, useGitSearch, type SearchMode } from './gitSearch';
 import { onCurrentBranch, pickCommits, tidy } from './menuUtils';
-import { RefBadge, groupRefs } from './RefBadge';
+import { RefBadge } from './RefBadge';
+import { groupRefs } from './refGroups';
 
 // Proportions measured from GitKraken: 28px rows, 22px lanes, ~20px avatar nodes.
 const ROW = 28;
@@ -457,6 +458,9 @@ export function CommitGraph() {
   );
 
   const count = commits.length + offset + (hasMore ? 1 : 0);
+  // TanStack Virtual returns new functions on every render, so the React Compiler skips this
+  // component on purpose; nothing memoized depends on `virt`.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const virt = useVirtualizer({
     count,
     getScrollElement: () => scrollRef.current,

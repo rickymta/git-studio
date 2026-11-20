@@ -1,7 +1,8 @@
 import { ArrowLeftRight, Copy, Pencil, TriangleAlert, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 
-import { Avatar, IconButton, Spinner, cn } from '@/components/ui';
+import { Avatar, IconButton, Spinner } from '@/components/ui';
+import { cn } from '@/lib/cn';
 import { short } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
@@ -13,15 +14,8 @@ import { amendHeadMessage, canAmendMessage, headIsPushed } from '../actions';
 import { SUMMARY_MAX, joinMessage, splitMessage } from './commitMessage';
 import { SignatureBadge } from './SignatureBadge';
 import { openDiffTool } from '../repoTools';
-import {
-  FileList,
-  FilesSection,
-  SortButton,
-  ViewToggle,
-  sortFiles,
-  useFileSort,
-  useViewMode,
-} from './FileList';
+import { FileList, FilesSection, SortButton, ViewToggle } from './FileList';
+import { sortFiles, useFileSort, useViewMode } from './fileListPrefs';
 
 /** "11/17/2026 @ 12:12 AM" */
 function authoredAt(unix: number): string {

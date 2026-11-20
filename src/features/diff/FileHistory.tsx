@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import { Avatar, Spinner, cn } from '@/components/ui';
+import { Avatar, Spinner } from '@/components/ui';
+import { cn } from '@/lib/cn';
 import { relativeTime, short } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';

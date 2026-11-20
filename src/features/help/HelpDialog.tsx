@@ -1,7 +1,8 @@
 import { AlertCircle, CheckCircle2, Send } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
-import { Button, cn, Input, Modal, Spinner, Textarea } from '@/components/ui';
+import { Button, Input, Modal, Spinner, Textarea } from '@/components/ui';
+import { cn } from '@/lib/cn';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import type { SystemInfo } from '@/lib/types';

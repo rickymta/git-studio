@@ -1,7 +1,8 @@
 import { Boxes, HardDrive, Plus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import { ContextMenuWrap, Dropdown, cn, type MenuItem } from '@/components/ui';
+import { ContextMenuWrap, Dropdown, type MenuItem } from '@/components/ui';
+import { cn } from '@/lib/cn';
 import { joinPath, short } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';

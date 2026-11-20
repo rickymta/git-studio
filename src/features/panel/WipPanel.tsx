@@ -12,7 +12,8 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { Button, IconButton, Spinner, cn, type MenuItem } from '@/components/ui';
+import { Button, IconButton, Spinner, type MenuItem } from '@/components/ui';
+import { cn } from '@/lib/cn';
 import { joinPath } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
@@ -22,16 +23,8 @@ import { useRepo } from '@/stores/repo';
 import { confirm, openDialog, toast } from '@/stores/ui';
 import { commitChanges, ignoreFile, push, stashFiles, stashStaged } from '../actions';
 import { lfsPatternFor, lfsTrack, openDiffTool, openMergeTool } from '../repoTools';
-import {
-  EmptyFiles,
-  FILES_DRAG,
-  FileList,
-  SortButton,
-  ViewToggle,
-  sortFiles,
-  useFileSort,
-  useViewMode,
-} from './FileList';
+import { EmptyFiles, FILES_DRAG, FileList, SortButton, ViewToggle } from './FileList';
+import { sortFiles, useFileSort, useViewMode } from './fileListPrefs';
 import { SUMMARY_MAX } from './commitMessage';
 
 type ListId = 'unstaged' | 'staged';

@@ -14,7 +14,8 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 
-import { Avatar, Dropdown, Github, cn } from '@/components/ui';
+import { Avatar, Dropdown, Github } from '@/components/ui';
+import { cn } from '@/lib/cn';
 import { t } from '@/lib/i18n';
 import { openUrl } from '@/lib/native';
 import { useGitHub } from '@/stores/github';

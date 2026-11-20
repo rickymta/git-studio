@@ -15,7 +15,8 @@ import {
 } from 'lucide-react';
 import type { ReactNode } from 'react';
 
-import { Dropdown, Spinner, cn, type MenuItem } from '@/components/ui';
+import { Dropdown, Spinner, type MenuItem } from '@/components/ui';
+import { cn } from '@/lib/cn';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import { pickFolder, revealPath } from '@/lib/native';

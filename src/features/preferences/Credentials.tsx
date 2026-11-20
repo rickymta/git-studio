@@ -4,7 +4,8 @@
 import { RefreshCw, UserRound } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import { Button, Spinner, cn } from '@/components/ui';
+import { Button, Spinner } from '@/components/ui';
+import { cn } from '@/lib/cn';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import type { CredentialAccount, HostCredential } from '@/lib/types';

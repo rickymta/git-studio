@@ -16,7 +16,8 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { Button, Dropdown, IconButton, Spinner, cn, type MenuItem } from '@/components/ui';
+import { Button, Dropdown, IconButton, Spinner, type MenuItem } from '@/components/ui';
+import { cn } from '@/lib/cn';
 import { parseDiff } from '@/lib/diff';
 import { short } from '@/lib/format';
 import { t } from '@/lib/i18n';

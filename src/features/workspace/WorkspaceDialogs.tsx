@@ -1,7 +1,8 @@
 import { Check, FolderOpen, FolderSearch } from 'lucide-react';
 import { useState } from 'react';
 
-import { Button, Input, Modal, Spinner, cn } from '@/components/ui';
+import { Button, Input, Modal, Spinner } from '@/components/ui';
+import { cn } from '@/lib/cn';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import { pickFolder } from '@/lib/native';

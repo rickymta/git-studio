@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
-import { Button, Input, cn } from '@/components/ui';
+import { Button, Input } from '@/components/ui';
+import { cn } from '@/lib/cn';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import type { SigningConfig } from '@/lib/types';

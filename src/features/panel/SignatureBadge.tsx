@@ -1,7 +1,7 @@
 import { ShieldAlert, ShieldCheck, ShieldQuestion } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import { cn } from '@/components/ui';
+import { cn } from '@/lib/cn';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import type { CommitSignature, SignatureStatus } from '@/lib/types';

@@ -1,7 +1,8 @@
 import { ArrowDown, ArrowUp, Check } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { Button, IconButton, Spinner, cn } from '@/components/ui';
+import { Button, IconButton, Spinner } from '@/components/ui';
+import { cn } from '@/lib/cn';
 import {
   parseConflicts,
   resolveConflicts,

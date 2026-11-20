@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
-import { Spinner, cn } from '@/components/ui';
+import { Spinner } from '@/components/ui';
+import { cn } from '@/lib/cn';
 import { formatBytes } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';

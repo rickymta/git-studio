@@ -2,7 +2,8 @@ import type { MenuItem } from '@/components/ui';
 import type { Commit, GitRef, RepoInfo, Refs } from '@/lib/types';
 import { useRepo } from '@/stores/repo';
 import { compareWithRemote } from '../actions';
-import { groupRefs, headMenu } from './RefBadge';
+import { groupRefs } from './refGroups';
+import { headMenu } from './refMenu';
 
 const commit = (hash: string, ...parents: string[]): Commit => ({
   hash,

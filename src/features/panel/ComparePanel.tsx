@@ -1,22 +1,16 @@
 import { ArrowLeftRight, ArrowRight, GitCompareArrows, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
-import { IconButton, Spinner, cn } from '@/components/ui';
+import { IconButton, Spinner } from '@/components/ui';
+import { cn } from '@/lib/cn';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import { copyText } from '@/lib/native';
 import type { Comparison, FileChange } from '@/lib/types';
 import { useRepo, type CompareSide } from '@/stores/repo';
 import { compareCommits } from '../actions';
-import {
-  EmptyFiles,
-  FileList,
-  SortButton,
-  ViewToggle,
-  sortFiles,
-  useFileSort,
-  useViewMode,
-} from './FileList';
+import { EmptyFiles, FileList, SortButton, ViewToggle } from './FileList';
+import { sortFiles, useFileSort, useViewMode } from './fileListPrefs';
 
 /** Badge naming one end of the comparison. */
 function Side({ side, tone }: { side: CompareSide; tone: 'base' | 'target' }) {

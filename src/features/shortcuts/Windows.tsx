@@ -2,7 +2,8 @@ import { FolderGit2, Search, Trash2, X } from 'lucide-react';
 import { Dialog } from 'radix-ui';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { IconButton, cn } from '@/components/ui';
+import { IconButton } from '@/components/ui';
+import { cn } from '@/lib/cn';
 import { t } from '@/lib/i18n';
 import { useActivity } from '@/stores/activity';
 import { useRepo } from '@/stores/repo';

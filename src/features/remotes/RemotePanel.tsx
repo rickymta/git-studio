@@ -1,7 +1,8 @@
 import { Cloud, Globe, Trash2, X } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 
-import { Button, Github, IconButton, Input, Spinner, cn } from '@/components/ui';
+import { Button, Github, IconButton, Input, Spinner } from '@/components/ui';
+import { cn } from '@/lib/cn';
 import * as A from '@/features/actions';
 import { GitLabConnectDialog, GitLabIcon } from '@/features/gitlab/GitLab';
 import { RepoCombobox } from '@/features/welcome/CloneDialog';

@@ -11,7 +11,8 @@ import {
   type Ref,
 } from 'react';
 
-import { Button, Spinner, cn } from '@/components/ui';
+import { Button, Spinner } from '@/components/ui';
+import { cn } from '@/lib/cn';
 import {
   changeBlocks,
   hunkPatch,
@@ -151,6 +152,9 @@ export function DiffBody({
   }, [current, blockCount, onBlocks]);
 
   const getItemKey = useCallback((i: number) => `${layout}:${i}`, [layout]);
+  // TanStack Virtual returns new functions on every render, so the React Compiler skips this
+  // component on purpose; nothing memoized depends on `virt`.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const virt = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scroller.current,

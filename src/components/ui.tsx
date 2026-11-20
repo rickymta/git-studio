@@ -1,13 +1,12 @@
 import { ContextMenu, Dialog, DropdownMenu } from 'radix-ui';
 import { ChevronRight, Loader2, X } from 'lucide-react';
-import { useCallback, useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { useState, type ButtonHTMLAttributes, type ReactNode } from 'react';
 
+import { cn } from '@/lib/cn';
 import { hue, initials } from '@/lib/format';
 import { hasLoaded, markLoaded } from '@/lib/gravatar';
 import { t } from '@/lib/i18n';
 import { useGravatar } from './useGravatar';
-
-export const cn = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(' ');
 
 type Variant = 'primary' | 'default' | 'ghost' | 'danger';
 
@@ -323,36 +322,6 @@ export function Github({ className }: { className?: string }) {
 }
 
 // ---- resizable widths ---------------------------------------------------------------------------
-
-/** A width in px persisted in localStorage, clamped to [min, max]. */
-export function usePersistentWidth(
-  key: string,
-  initial: number,
-  min: number,
-  max: number,
-): [number, (w: number) => void] {
-  const [w, setW] = useState(() => {
-    try {
-      const v = Number(localStorage.getItem(`gitstudio.width.${key}`));
-      return v >= min && v <= max ? v : initial;
-    } catch {
-      return initial;
-    }
-  });
-  const set = useCallback(
-    (v: number) => {
-      const c = Math.round(Math.min(max, Math.max(min, v)));
-      setW(c);
-      try {
-        localStorage.setItem(`gitstudio.width.${key}`, String(c));
-      } catch {
-        /* ignore */
-      }
-    },
-    [key, min, max],
-  );
-  return [w, set];
-}
 
 /**
  * Drag handle on the edge of a column or panel. `side="left"` sits on the left edge (dragging

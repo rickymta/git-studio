@@ -1,5 +1,6 @@
 import { ArrowDown, ArrowUp, CornerLeftUp } from 'lucide-react';
-import { Button, IconButton, Modal, Textarea, cn } from '@/components/ui';
+import { Button, IconButton, Modal, Textarea } from '@/components/ui';
+import { cn } from '@/lib/cn';
 import { short } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';

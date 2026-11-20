@@ -27,9 +27,9 @@ import {
   Dropdown,
   IconButton,
   Spinner,
-  cn,
   type MenuItem,
 } from '@/components/ui';
+import { cn } from '@/lib/cn';
 import { relativeTime } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';

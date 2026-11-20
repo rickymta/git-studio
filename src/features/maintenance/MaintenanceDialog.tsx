@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { Button, Modal, Spinner, cn } from '@/components/ui';
+import { Button, Modal, Spinner } from '@/components/ui';
+import { cn } from '@/lib/cn';
 import { formatBytes } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
