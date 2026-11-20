@@ -5,8 +5,10 @@ import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import type { MenuItem } from '@/components/ui';
 import { copyText, pickFile, pickFolder } from '@/lib/native';
-import type { Commit, GitRef, Remote, Stash, Worktree } from '@/lib/types';
+import type { Commit, GitRef, RebaseStep, Remote, Stash, Worktree } from '@/lib/types';
 import { useCompare } from '@/stores/compare';
+import { useRebaseDialog } from '@/stores/rebase';
+import { planRows, rebaseProblem, toSteps, type RebasePreset } from './rebase/plan';
 import { useGitHub } from '@/stores/github';
 import { useRemotePanel } from '@/stores/remotePanel';
 import { useRepo, type CompareSide } from '@/stores/repo';
@@ -1175,6 +1177,99 @@ export async function moveCommit(c: Commit, down: boolean) {
       ? t('Moved {hash} down', { hash: short(c.hash) })
       : t('Moved {hash} up', { hash: short(c.hash) }),
   );
+}
+
+// ---- interactive rebase / several commits ---------------------------------------------------------
+
+/** Open the interactive rebase dialog for the commits from `from` (included) up to HEAD. */
+export async function interactiveRebase(from: string, preset?: RebasePreset) {
+  const path = repo().path;
+  if (!path) return;
+  try {
+    const plan = await api.rebasePlan(path, from);
+    if (plan.length === 0) {
+      toast('info', t('Nothing to rebase'));
+      return;
+    }
+    useRebaseDialog.getState().show(from, plan, planRows(plan, preset));
+  } catch (e) {
+    toast('error', t('Cannot rebase from here'), (e as Error).message);
+  }
+}
+
+/** Run the todo list chosen in the interactive rebase dialog. */
+export async function runRebase(from: string, steps: RebaseStep[]) {
+  return journaled(
+    'Interactive rebase',
+    (p) => api.rebaseSteps(p, from, steps),
+    // Undo/redo move the branch between the two histories (changes are autostashed).
+    (b, a) =>
+      b.head && a.head && b.head !== a.head
+        ? {
+            undo: (p) => api.reset(p, b.head!, 'keep'),
+            redo: (p) => api.reset(p, a.head!, 'keep'),
+          }
+        : null,
+    t('Rebased {n} commit(s)', { n: steps.length }),
+  );
+}
+
+/** Loaded commits for `hashes`, in graph order (newest first). */
+export function commitsOf(hashes: string[]): Commit[] {
+  const set = new Set(hashes);
+  return repo().commits.filter((c) => set.has(c.hash));
+}
+
+/** Cherry-pick several commits onto HEAD, oldest first; a conflict stops at that commit. */
+export async function cherryPickMany(commits: Commit[]) {
+  const list = [...commits].reverse();
+  await run(
+    'Cherry-pick',
+    async (p) => {
+      for (const c of list) await api.cherryPick(p, c.hash, c.parents.length > 1);
+    },
+    t('Cherry-picked {n} commit(s)', { n: list.length }),
+  );
+}
+
+/** Squash several commits of the current branch into the oldest of them (reviewed in the dialog). */
+export async function squashCommits(commits: Commit[]) {
+  const oldest = commits[commits.length - 1];
+  if (oldest) await interactiveRebase(oldest.hash, { squash: commits.map((c) => c.hash) });
+}
+
+/** Remove several commits from the current branch in one rebase. */
+export async function dropCommits(commits: Commit[]) {
+  const path = repo().path;
+  const oldest = commits[commits.length - 1];
+  if (!path || !oldest) return;
+  let plan: Commit[];
+  try {
+    plan = await api.rebasePlan(path, oldest.hash);
+  } catch (e) {
+    toast('error', t('Cannot rebase from here'), (e as Error).message);
+    return;
+  }
+  const rows = planRows(plan, { drop: commits.map((c) => c.hash) });
+  if (rows.filter((r) => r.action === 'drop').length !== commits.length) {
+    toast('error', t('Only commits of the current branch line can be dropped together.'));
+    return;
+  }
+  const problem = rebaseProblem(rows);
+  if (problem) {
+    toast('error', t('Cannot drop these commits'), problem);
+    return;
+  }
+  const ok = await confirm(
+    t('Drop {n} commits', { n: commits.length }),
+    t(
+      'Remove the {n} selected commits from the branch? This rewrites history: the commits after them are recreated and the changes they made are discarded from the branch.',
+      { n: commits.length },
+    ),
+    t('Drop commits'),
+    true,
+  );
+  if (ok) await runRebase(oldest.hash, toSteps(rows));
 }
 
 // ---- graph view: solo / hide / pin to left --------------------------------------------------------

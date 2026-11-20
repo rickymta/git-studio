@@ -31,7 +31,7 @@ import {
   type Column,
 } from './columnSettings';
 import { branchRows, rowIndex } from './branchFocus';
-import { onCurrentBranch, tidy } from './menuUtils';
+import { onCurrentBranch, pickCommits, tidy } from './menuUtils';
 import { RefBadge, groupRefs } from './RefBadge';
 
 // Proportions measured from GitKraken: 28px rows, 22px lanes, ~20px avatar nodes.
@@ -221,6 +221,9 @@ function commitMenu(c: Commit): MenuItem[] {
       disabled: !mine || isMerge || c.parents.length === 0,
       onSelect: () => A.moveCommit(c, true),
     },
+    ...(mine && !isMerge
+      ? [{ label: t('Interactive rebase from here…'), onSelect: () => A.interactiveRebase(c.hash) }]
+      : []),
     'sep',
     ...(hasGitHub
       ? perBranch(
@@ -474,6 +477,36 @@ export function CommitGraph() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // Ctrl / Cmd + click toggles a commit, Shift + click selects from the last clicked one.
+  const anchor = useRef<string | null>(null);
+  const picked = useMemo(
+    () => new Set(selection?.type === 'commits' ? selection.hashes : []),
+    [selection],
+  );
+  const clickCommit = (e: React.MouseEvent, i: number) => {
+    const c = commits[i]!;
+    const multi = !c.stash && (e.ctrlKey || e.metaKey || e.shiftKey);
+    if (!multi) {
+      anchor.current = c.hash;
+      void select({ type: 'commit', hash: c.hash });
+      return;
+    }
+    const current =
+      selection?.type === 'commits'
+        ? selection.hashes
+        : selection?.type === 'commit'
+          ? [selection.hash]
+          : [];
+    // Shift + click would also select the row text in between.
+    if (e.shiftKey) window.getSelection()?.removeAllRanges();
+    const a = anchor.current ? commits.findIndex((x) => x.hash === anchor.current) : -1;
+    const next = pickCommits(commits, current, i, e.shiftKey ? a : -1);
+    if (!e.shiftKey) anchor.current = c.hash;
+    if (next.length === 0) void select(null);
+    else if (next.length === 1) void select({ type: 'commit', hash: next[0]! });
+    else void select({ type: 'commits', hashes: next });
+  };
+
   const onListKey = (e: React.KeyboardEvent) => {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
     e.preventDefault();
@@ -716,6 +749,7 @@ export function CommitGraph() {
             const c = commits[i]!;
             const selected =
               (selection?.type === 'commit' && selection.hash === c.hash) ||
+              (selection?.type === 'commits' && picked.has(c.hash)) ||
               (selection?.type === 'compare' &&
                 (selection.base.hash === c.hash || selection.target.hash === c.hash));
             return (
@@ -735,7 +769,7 @@ export function CommitGraph() {
                 dim={(matches.length > 0 && !matchSet.has(i)) || (!!related && !related.has(i))}
                 faded={!!lit && !lit.has(i) && !selected}
                 onRefHover={onRefHover}
-                onSelect={() => select({ type: 'commit', hash: c.hash })}
+                onSelect={(e) => clickCommit(e, i)}
               />
             );
           })}
@@ -875,7 +909,7 @@ const CommitRow = memo(function CommitRow({
   /** Another branch's badge is hovered: fade this row's band and text. */
   faded: boolean;
   onRefHover: (hash: string, on: boolean) => void;
-  onSelect: () => void;
+  onSelect: (e: React.MouseEvent) => void;
 }) {
   const groups = groupRefs(refs ?? [], isHead && detached);
   const color = laneColor(row.color);

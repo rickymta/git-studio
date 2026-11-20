@@ -359,6 +359,20 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
                 .remotes_containing(&arg::<String>(a, "hash")?)
                 .await?
         ),
+        "history.rebasePlan" => serde_json::to_value(
+            repo(a)
+                .await?
+                .rebase_plan(&arg::<String>(a, "from")?)
+                .await?,
+        )?,
+        "history.rebaseSteps" => {
+            let steps: Vec<git::files::RebaseStep> = arg(a, "steps")?;
+            repo(a)
+                .await?
+                .rebase_steps(&arg::<String>(a, "from")?, &steps)
+                .await?;
+            return done();
+        }
         "history.move" => {
             repo(a)
                 .await?

@@ -580,6 +580,141 @@ impl Repo {
         res.map(drop)
     }
 
+    /// The commits an interactive rebase from `from` would rewrite: `from` (included) up to
+    /// HEAD along the first parents, oldest first.
+    pub async fn rebase_plan(&self, from: &str) -> Result<Vec<Commit>> {
+        self.check_rewritable(from).await?;
+        let base = self.parent_of(from).await;
+        let range = match &base {
+            Some(b) => format!("{b}..HEAD"),
+            None => "HEAD".into(),
+        };
+        let out = run::ok(
+            &self.root,
+            &[
+                "log",
+                "--first-parent",
+                "--reverse",
+                super::parse::LOG_FORMAT,
+                &range,
+                "--",
+            ],
+            Opts::default(),
+        )
+        .await?;
+        Ok(super::parse::parse_log(&out.text()))
+    }
+
+    /// First parent of `rev`, `None` for a root commit.
+    async fn parent_of(&self, rev: &str) -> Option<String> {
+        run::raw(
+            Some(&self.root),
+            &["rev-parse", "--verify", "-q", &format!("{rev}^")],
+            Opts::default(),
+        )
+        .await
+        .ok()
+        .filter(|o| o.code == 0)
+        .map(|o| o.text().trim().to_string())
+    }
+
+    /// Interactive rebase from `from` with a todo list chosen by the user: every commit of
+    /// [`Repo::rebase_plan`] exactly once, in any order, each picked, reworded (with its new
+    /// message), squashed or fixed up into the one before it, or dropped. Uncommitted changes are
+    /// autostashed; a conflict stops the rebase like any other (continue / abort in the banner).
+    pub async fn rebase_steps(&self, from: &str, steps: &[RebaseStep]) -> Result<()> {
+        let plan = self.rebase_plan(from).await?;
+        let mut want: Vec<&str> = plan.iter().map(|c| c.hash.as_str()).collect();
+        let mut got: Vec<&str> = steps.iter().map(|s| s.hash.as_str()).collect();
+        want.sort_unstable();
+        got.sort_unstable();
+        if want != got {
+            return Err(Error::Invalid(
+                "The branch changed; open the interactive rebase again".into(),
+            ));
+        }
+        if plan.iter().any(|c| c.parents.len() > 1) {
+            return Err(Error::Invalid(
+                "Merge commits cannot be rebased here".into(),
+            ));
+        }
+        match steps.iter().find(|s| s.action != RebaseAction::Drop) {
+            None => {
+                return Err(Error::Invalid(
+                    "Keep at least one commit, or reset the branch instead".into(),
+                ));
+            }
+            Some(s) if matches!(s.action, RebaseAction::Squash | RebaseAction::Fixup) => {
+                return Err(Error::Invalid(
+                    "The first kept commit cannot be squashed: there is nothing before it".into(),
+                ));
+            }
+            _ => {}
+        }
+
+        let dir = self.git_dir.join("gitstudio-rebase");
+        std::fs::create_dir_all(&dir)?;
+        let quoted = |p: &Path| -> Result<String> {
+            let s = p.to_string_lossy().replace('\\', "/");
+            if s.contains('\'') {
+                return Err(Error::Invalid("Unsupported repository path".into()));
+            }
+            Ok(format!("'{s}'"))
+        };
+        let mut todo = String::new();
+        for (i, s) in steps.iter().enumerate() {
+            let verb = match s.action {
+                RebaseAction::Pick | RebaseAction::Reword => "pick",
+                RebaseAction::Squash => "squash",
+                RebaseAction::Fixup => "fixup",
+                RebaseAction::Drop => "drop",
+            };
+            todo.push_str(&format!("{verb} {}\n", s.hash));
+            if s.action == RebaseAction::Reword {
+                let msg = s.message.as_deref().map(str::trim).unwrap_or_default();
+                if msg.is_empty() {
+                    return Err(Error::Invalid("A reworded commit needs a message".into()));
+                }
+                let file = dir.join(format!("msg-{i}"));
+                std::fs::write(&file, format!("{msg}\n"))?;
+                // Message-only amend of the commit just picked.
+                todo.push_str(&format!(
+                    "exec git commit --amend --only --allow-empty --no-verify -F {}\n",
+                    quoted(&file)?
+                ));
+            }
+        }
+        let file = dir.join("todo");
+        std::fs::write(&file, todo)?;
+        let base = self.parent_of(from).await;
+        let mut args = vec!["rebase", "-i", "--autostash"];
+        match &base {
+            Some(b) => args.push(b),
+            None => args.push("--root"),
+        }
+        let res = run::ok(
+            &self.root,
+            &args,
+            Opts {
+                stdin: None,
+                env: vec![
+                    (
+                        "GIT_SEQUENCE_EDITOR".into(),
+                        format!("cp {}", quoted(&file)?),
+                    ),
+                    ("GIT_EDITOR".into(), "true".into()),
+                ],
+            },
+        )
+        .await;
+        // Message files must outlive a rebase stopped on a conflict: `exec` lines still need
+        // them when it is continued. Removed once the rebase is over.
+        if self.state() == super::model::RepoState::Clean {
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+        res.map(drop)
+    }
+
     /// `git format-patch` of one commit into `dest` (a file path).
     pub async fn create_patch(&self, hash: &str, dest: &Path) -> Result<()> {
         check_rev(hash)?;
@@ -651,6 +786,30 @@ impl Repo {
             behind,
         })
     }
+}
+
+/// What to do with one commit in [`Repo::rebase_steps`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RebaseAction {
+    Pick,
+    Reword,
+    /// Fold into the commit before it, keeping both messages.
+    Squash,
+    /// Fold into the commit before it, keeping only that commit's message.
+    Fixup,
+    Drop,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RebaseStep {
+    pub action: RebaseAction,
+    /// Full commit hash, as listed by [`Repo::rebase_plan`].
+    pub hash: String,
+    /// New message for `reword`.
+    #[serde(default)]
+    pub message: Option<String>,
 }
 
 /// Result of [`Repo::compare_commits`].

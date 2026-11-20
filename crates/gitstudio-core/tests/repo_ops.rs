@@ -529,6 +529,73 @@ async fn reflog_lists_head_moves_and_flags_lost_commits() {
 }
 
 #[tokio::test]
+async fn interactive_rebase_reorders_squashes_rewords_and_drops() {
+    use gitstudio_core::git::files::{RebaseAction as Act, RebaseStep};
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("repo");
+    let r = new_repo(&dir).await;
+    for f in ["a", "b", "c", "d", "e"] {
+        commit_file(&r, &dir, f).await;
+    }
+    let log = r.log(10, 0).await.unwrap();
+    let h = |s: &str| log.iter().find(|c| c.subject == s).unwrap().hash.clone();
+    // Uncommitted work survives (autostash).
+    std::fs::write(dir.join("a"), "dirty").unwrap();
+
+    let plan = r.rebase_plan(&h("b")).await.unwrap();
+    let subjects: Vec<&str> = plan.iter().map(|c| c.subject.as_str()).collect();
+    assert_eq!(subjects, ["b", "c", "d", "e"]);
+
+    let step = |action, s: &str, message: Option<&str>| RebaseStep {
+        action,
+        hash: h(s),
+        message: message.map(str::to_string),
+    };
+    // Missing a commit of the plan is refused.
+    assert!(
+        r.rebase_steps(&h("b"), &[step(Act::Pick, "b", None)])
+            .await
+            .is_err()
+    );
+    // Nothing to squash into.
+    assert!(
+        r.rebase_steps(
+            &h("b"),
+            &[
+                step(Act::Squash, "b", None),
+                step(Act::Pick, "c", None),
+                step(Act::Pick, "d", None),
+                step(Act::Pick, "e", None),
+            ],
+        )
+        .await
+        .is_err()
+    );
+
+    r.rebase_steps(
+        &h("b"),
+        &[
+            step(Act::Pick, "d", None),
+            step(Act::Squash, "c", None),
+            step(Act::Reword, "b", Some("B renamed\n\nwith a body")),
+            step(Act::Drop, "e", None),
+        ],
+    )
+    .await
+    .unwrap();
+
+    let after = r.log(10, 0).await.unwrap();
+    let subjects: Vec<&str> = after.iter().map(|c| c.subject.as_str()).collect();
+    assert_eq!(subjects, ["B renamed", "d", "a"]);
+    assert_eq!(after[0].body.trim(), "with a body");
+    assert!(after[1].body.contains('c'), "squash keeps both messages");
+    assert!(!dir.join("e").exists(), "dropped commit's file is gone");
+    assert!(dir.join("c").exists() && dir.join("d").exists());
+    assert_eq!(std::fs::read_to_string(dir.join("a")).unwrap(), "dirty");
+    assert_eq!(r.state(), RepoState::Clean);
+}
+
+#[tokio::test]
 async fn compare_two_branches() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().join("repo");

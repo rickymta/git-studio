@@ -29,6 +29,17 @@ export interface CommitDetail extends Commit {
   files: FileChange[];
 }
 
+/** Squash keeps both messages; fixup keeps the earlier commit's message only. */
+export type RebaseAction = 'pick' | 'reword' | 'squash' | 'fixup' | 'drop';
+
+export interface RebaseStep {
+  action: RebaseAction;
+  /** Full hash, as listed by the rebase plan. */
+  hash: string;
+  /** New message, for `reword`. */
+  message?: string;
+}
+
 /** What changes from one commit (or branch, tag) to another. */
 export interface Comparison {
   files: FileChange[];
