@@ -2,6 +2,13 @@
 
 Các thay đổi đáng chú ý của GitStudio. File này do `pnpm release` cập nhật.
 
+## v0.3.4 - 2026-11-21
+
+Thay đổi từ v0.3.3.
+
+- fix(overlay): never block or crash Explorer (5183c24)
+- feat: GitLab merge requests, PR links, graph colours and hover branch, large-history paging (72d43cd)
+
 ## v0.3.3 - 2026-11-20
 
 Thay đổi từ v0.3.2.
