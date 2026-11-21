@@ -1,7 +1,6 @@
 import {
   ChevronDown,
   Download,
-  FolderGit2,
   FolderOpen,
   FolderSearch,
   LayoutGrid,
@@ -10,9 +9,7 @@ import {
   Plus,
   Settings as SettingsIcon,
   Sun,
-  X,
 } from 'lucide-react';
-import { useState } from 'react';
 
 import { Avatar, Dropdown, Github } from '@/components/ui';
 import { cn } from '@/lib/cn';
@@ -23,6 +20,8 @@ import { useRepo } from '@/stores/repo';
 import { openDialog, useUi } from '@/stores/ui';
 import { samePath, useWorkspaces } from '@/stores/workspace';
 import { addRepoFolder, addToWorkspace } from '@/features/workspace/workspaceActions';
+import { RepoTabs } from './RepoTabs';
+import { TabShortcuts } from './TabSwitcher';
 
 const same = (a: string | null, b: string) =>
   !!a && a.replace(/\\/g, '/').toLowerCase() === b.replace(/\\/g, '/').toLowerCase();
@@ -44,14 +43,9 @@ export function TabBar({
 }) {
   const tabs = useRepo((s) => s.tabs);
   const path = useRepo((s) => s.path);
-  const open = useRepo((s) => s.open);
-  const closeTab = useRepo((s) => s.closeTab);
-  const newTab = useRepo((s) => s.newTab);
-  const moveTab = useRepo((s) => s.moveTab);
   const { user, signOut } = useGitHub();
   const theme = useUi((s) => s.theme);
   const toggleTheme = useUi((s) => s.toggleTheme);
-  const [drag, setDrag] = useState<number | null>(null);
   const workspaces = useWorkspaces((s) => s.data);
   const activate = useWorkspaces((s) => s.activate);
   const ws = workspaces.items.find((w) => w.id === workspaces.active) ?? null;
@@ -148,83 +142,13 @@ export function TabBar({
           <LayoutGrid className="size-4" />
         </button>
       )}
-      <div
-        className="flex min-w-0 flex-1 items-stretch overflow-x-auto"
-        onClickCapture={onNavigate}
-      >
-        {tabs.map((tab, i) => {
-          const active = same(path, tab.path);
-          return (
-            <div
-              key={tab.path}
-              role="tab"
-              aria-selected={active}
-              title={tab.path}
-              draggable
-              onDragStart={() => setDrag(i)}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={() => {
-                if (drag !== null && drag !== i) moveTab(drag, i);
-                setDrag(null);
-              }}
-              onClick={() => open(tab.path)}
-              onAuxClick={(e) => e.button === 1 && closeTab(tab.path)}
-              className={cn(
-                'group relative flex max-w-52 min-w-28 shrink-0 cursor-default items-center gap-2 border-r border-border px-3',
-                active
-                  ? 'bg-surface text-foreground'
-                  : 'text-muted-foreground hover:bg-surface-hover hover:text-foreground',
-              )}
-            >
-              {active && <span className="absolute inset-x-0 top-0 h-0.5 bg-accent" />}
-              <FolderGit2 className={cn('size-3.5 shrink-0', active && 'text-accent')} />
-              <span
-                className={cn(
-                  'min-w-0 flex-1 truncate',
-                  active && 'font-semibold',
-                  !inWorkspace(tab.path) && 'italic',
-                )}
-                title={
-                  inWorkspace(tab.path)
-                    ? undefined
-                    : t('Not in workspace {name}', { name: ws?.name ?? '' })
-                }
-              >
-                {tab.name}
-              </span>
-              <button
-                type="button"
-                aria-label={t('Close {name}', { name: tab.name })}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  closeTab(tab.path);
-                }}
-                className={cn(
-                  'flex size-4 shrink-0 items-center justify-center rounded hover:bg-surface-hover',
-                  active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
-                )}
-              >
-                <X className="size-3" />
-              </button>
-            </div>
-          );
-        })}
-        {!path && !ws && (
-          <div className="relative flex shrink-0 items-center gap-2 border-r border-border bg-surface px-3 font-semibold">
-            <span className="absolute inset-x-0 top-0 h-0.5 bg-accent" />
-            {t('New tab')}
-          </div>
-        )}
-        <button
-          type="button"
-          title={t('Open a repository in a new tab')}
-          aria-label={t('New tab')}
-          onClick={newTab}
-          className="flex w-9 shrink-0 items-center justify-center text-muted-foreground hover:bg-surface-hover hover:text-foreground"
-        >
-          <Plus className="size-4" />
-        </button>
-      </div>
+      <RepoTabs
+        onNavigate={onNavigate}
+        showNewTabPlaceholder={!path && !ws}
+        inWorkspace={inWorkspace}
+        workspaceName={ws?.name ?? null}
+      />
+      <TabShortcuts onNavigate={onNavigate} />
 
       <div className="flex shrink-0 items-center gap-0.5 px-2">
         <button

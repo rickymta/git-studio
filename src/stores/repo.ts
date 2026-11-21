@@ -121,6 +121,8 @@ export interface OpenDiff {
 export interface RepoTab {
   path: string;
   name: string;
+  /** Pinned tabs stay first and survive "Close others" / "Close all". */
+  pinned?: boolean;
 }
 
 /** A reversible operation for Undo/Redo. */
@@ -165,6 +167,12 @@ interface RepoStore {
   /** Show the start page in a new tab (current repository tab stays open). */
   newTab: () => void;
   closeTab: (path: string) => void;
+  /** Close several tabs at once (one save, one switch if the shown tab is among them). */
+  closeTabs: (paths: string[]) => void;
+  /** Open the most recently closed tab of this scope again. */
+  reopenClosedTab: () => void;
+  /** Pin or unpin a tab; pinned tabs are kept before the others. */
+  pinTab: (path: string, pinned: boolean) => void;
   moveTab: (from: number, to: number) => void;
   /** Add tabs without opening them (e.g. imported from GitKraken). */
   addTabs: (tabs: RepoTab[]) => void;
@@ -216,6 +224,47 @@ function saveTabs(tabs: RepoTab[], current: string | null) {
 
 const pathKey = (p: string) => p.replace(/\\/g, '/').toLowerCase();
 const samePath = (a: string, b: string) => pathKey(a) === pathKey(b);
+
+/** Pinned tabs first, each group keeping its order. */
+const pinnedFirst = (tabs: RepoTab[]) => [
+  ...tabs.filter((t) => t.pinned),
+  ...tabs.filter((t) => !t.pinned),
+];
+
+/**
+ * Recently closed tabs per scope, newest last (Ctrl+Shift+T). Tabs closed together ("Close
+ * others", "Close clean tabs"…) come back together. `show`: the tab to open again (the one
+ * shown when they closed; null keeps the shown tab).
+ */
+const closedTabs = new Map<
+  string,
+  { tabs: { tab: RepoTab; index: number }[]; show: string | null }[]
+>();
+const CLOSED_MAX = 25;
+function rememberClosed(tabs: { tab: RepoTab; index: number }[], show: string | null) {
+  const list = closedTabs.get(scope) ?? [];
+  list.push({ tabs, show });
+  if (list.length > CLOSED_MAX) list.shift();
+  closedTabs.set(scope, list);
+}
+export const canReopenTab = () => (closedTabs.get(scope)?.length ?? 0) > 0;
+
+/** Tab paths of each scope, most recently shown first (Ctrl+Tab). */
+const recentByScope = new Map<string, string[]>();
+function touchRecent(path: string) {
+  const list = (recentByScope.get(scope) ?? []).filter((p) => !samePath(p, path));
+  list.unshift(path);
+  recentByScope.set(scope, list.slice(0, 500));
+}
+/** The open tabs, most recently shown first; tabs not shown this session follow in tab order. */
+export function tabsByRecent(tabs: RepoTab[]): RepoTab[] {
+  const order = recentByScope.get(scope) ?? [];
+  const rank = new Map(order.map((p, i) => [pathKey(p), i]));
+  return tabs
+    .map((t, i) => ({ t, r: rank.get(pathKey(t.path)) ?? order.length + i }))
+    .sort((a, b) => a.r - b.r)
+    .map((x) => x.t);
+}
 
 /**
  * Undo / Redo history of the repositories not on screen, so switching tabs and back keeps it
@@ -475,9 +524,10 @@ function registerTab(info: RepoInfo, opts?: { keepOutOfWorkspace?: boolean }): R
     vars: { name: info.path },
     status: 'info',
   });
+  touchRecent(info.path);
   const tabs = [...useRepo.getState().tabs];
   const i = tabs.findIndex((t) => samePath(t.path, info.path));
-  if (i >= 0) tabs[i] = { path: info.path, name: info.name };
+  if (i >= 0) tabs[i] = { ...tabs[i], path: info.path, name: info.name };
   else tabs.push({ path: info.path, name: info.name });
   saveTabs(tabs, info.path);
   useRepo.setState({ tabs });
@@ -602,21 +652,64 @@ export const useRepo = create<RepoStore>((set, get) => ({
     void get().loadSettings();
   },
 
-  closeTab: (path) => {
+  closeTab: (path) => get().closeTabs([path]),
+
+  closeTabs: (paths) => {
     const tabs = get().tabs;
-    const idx = tabs.findIndex((t) => samePath(t.path, path));
-    const rest = tabs.filter((_, i) => i !== idx);
-    const wasCurrent = !!get().path && samePath(get().path!, path);
-    saveTabs(rest, wasCurrent ? null : get().path);
+    const gone = new Set(paths.map(pathKey));
+    if (!tabs.some((t) => gone.has(pathKey(t.path)))) return;
+    const cur = get().path;
+    const curIdx = cur ? tabs.findIndex((t) => samePath(t.path, cur)) : -1;
+    const rest = tabs.filter((t) => !gone.has(pathKey(t.path)));
+    const wasCurrent = !!cur && gone.has(pathKey(cur));
+    const closed = tabs
+      .map((tab, index) => ({ tab, index }))
+      .filter((x) => gone.has(pathKey(x.tab.path)));
+    rememberClosed(closed, wasCurrent ? cur : null);
+    saveTabs(rest, wasCurrent ? null : cur);
     set({ tabs: rest });
+    recentByScope.set(
+      scope,
+      (recentByScope.get(scope) ?? []).filter((p) => !gone.has(pathKey(p))),
+    );
     // A closed repository's history goes with its tab.
-    journals.delete(pathKey(path));
-    snapshots.delete(pathKey(path));
+    for (const k of gone) {
+      journals.delete(k);
+      snapshots.delete(k);
+    }
     if (!wasCurrent) return;
-    const next = rest[Math.min(idx, rest.length - 1)];
+    // Next: the tab shown before it, else the one that took its place.
+    const next = tabsByRecent(rest)[0] ?? rest[Math.min(Math.max(curIdx, 0), rest.length - 1)];
     set({ ...emptyRepo });
     if (next) void get().open(next.path);
     else void get().loadSettings();
+  },
+
+  reopenClosedTab: () => {
+    const last = closedTabs.get(scope)?.pop();
+    if (!last) return;
+    const next = [...get().tabs];
+    // Ascending original positions, so each lands where it was.
+    for (const { tab, index } of last.tabs) {
+      if (next.some((t) => samePath(t.path, tab.path))) continue;
+      next.splice(Math.min(index, next.length), 0, tab);
+    }
+    const ordered = pinnedFirst(next);
+    saveTabs(ordered, get().path);
+    set({ tabs: ordered });
+    if (last.show) void get().open(last.show);
+  },
+
+  pinTab: (path, pinned) => {
+    const tabs = get().tabs;
+    const i = tabs.findIndex((t) => samePath(t.path, path));
+    if (i < 0 || !!tabs[i]!.pinned === pinned) return;
+    const tab = { ...tabs[i]!, pinned: pinned || undefined };
+    const rest = tabs.filter((_, j) => j !== i);
+    // A newly pinned tab goes last among the pinned; an unpinned one first among the others.
+    rest.splice(rest.filter((t) => t.pinned).length, 0, tab);
+    saveTabs(rest, get().path);
+    set({ tabs: rest });
   },
 
   addTabs: (more) => {
@@ -630,9 +723,12 @@ export const useRepo = create<RepoStore>((set, get) => ({
     const tabs = [...get().tabs];
     const [t] = tabs.splice(from, 1);
     if (!t) return;
-    tabs.splice(to, 0, t);
-    saveTabs(tabs, get().path);
-    set({ tabs });
+    // Dropped right after a pinned tab (or first, before one) it is pinned; otherwise not.
+    const neighbour = to > 0 ? tabs[to - 1] : tabs[0];
+    tabs.splice(to, 0, { ...t, pinned: neighbour?.pinned || undefined });
+    const ordered = pinnedFirst(tabs);
+    saveTabs(ordered, get().path);
+    set({ tabs: ordered });
   },
 
   close: () => {

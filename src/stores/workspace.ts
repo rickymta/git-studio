@@ -40,6 +40,8 @@ interface WorkspaceStore {
   /** Activate a workspace ('' for none); swaps the open tabs to that workspace's set. */
   activate: (id: string) => Promise<void>;
   refreshSummaries: (paths?: string[]) => Promise<void>;
+  /** Quietly re-read the status of these repositories (tab badges): no spinner, no error toast. */
+  refreshTabStatus: (paths: string[]) => Promise<void>;
   bulk: (op: BulkOp, paths: string[]) => Promise<void>;
 }
 
@@ -149,6 +151,18 @@ export const useWorkspaces = create<WorkspaceStore>((set, get) => {
         toast('error', t('Could not read repository status'), (e as Error).message);
       } finally {
         set({ summariesLoading: false });
+      }
+    },
+
+    refreshTabStatus: async (paths) => {
+      if (paths.length === 0) return;
+      try {
+        const res = await api.workspaceStatus(paths);
+        const next = { ...get().summaries };
+        for (const s of res) next[norm(s.path)] = s;
+        set({ summaries: next });
+      } catch {
+        /* badges just stay as they were */
       }
     },
 

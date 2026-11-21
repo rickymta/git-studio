@@ -199,7 +199,7 @@ export function App() {
       } else if (mod && key === '0') {
         e.preventDefault();
         setZoom(1);
-      } else if (mod && key === 't') {
+      } else if (mod && !e.shiftKey && key === 't') {
         e.preventDefault();
         useRepo.getState().newTab();
       } else if (mod && key === 'w' && useRepo.getState().path) {

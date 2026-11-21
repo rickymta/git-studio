@@ -52,6 +52,29 @@ export const SHORTCUTS: ShortcutGroup[] = [
     items: [
       { label: 'New tab', keys: [['Ctrl', 'T']] },
       { label: 'Close tab', keys: [['Ctrl', 'W']] },
+      { label: 'Reopen closed tab', keys: [['Ctrl', 'Shift', 'T']] },
+      {
+        label: 'Switch to recent tab (release Ctrl to open)',
+        keys: [
+          ['Ctrl', 'Tab'],
+          ['Ctrl', 'Shift', 'Tab'],
+        ],
+      },
+      {
+        label: 'Next / previous tab',
+        keys: [
+          ['Ctrl', 'PageDown'],
+          ['Ctrl', 'PageUp'],
+        ],
+      },
+      {
+        label: 'Go to tab 1–8 / last tab',
+        keys: [
+          ['Ctrl', '1…8'],
+          ['Ctrl', '9'],
+        ],
+      },
+      { label: 'Go to repository (open tabs and workspace)', keys: [['Ctrl', 'P']] },
       { label: 'Refresh', keys: [['F5'], ['Ctrl', 'R']] },
       { label: 'Zoom in', keys: [['Ctrl', '+']] },
       { label: 'Zoom out', keys: [['Ctrl', '-']] },

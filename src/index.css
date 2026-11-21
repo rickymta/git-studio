@@ -257,3 +257,11 @@ textarea,
 .diff-hatch {
   background-image: repeating-linear-gradient(-45deg, transparent 0 6px, var(--diff-hatch) 6px 7px);
 }
+
+/* Scrolls without showing a scrollbar (the tab strip has its own ◀ ▶ buttons and wheel). */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
