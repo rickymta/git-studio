@@ -31,6 +31,15 @@ const commit = (hash: string): Commit => ({
 });
 
 const api = vi.hoisted(() => ({
+  // `load` is log + refs + worktrees in one call: built from the mocks above so each test can
+  // keep driving those.
+  load: vi.fn(async (repo: string, limit: number, skip?: number, view?: unknown) => ({
+    commits: await (api.log as (...a: unknown[]) => Promise<unknown>)(repo, limit, skip, view),
+    refs: await (api.refs as (...a: unknown[]) => Promise<unknown>)(repo),
+    worktrees: (await (api.worktrees as (...a: unknown[]) => Promise<unknown>)(repo)) ?? [],
+  })),
+  loadPage: vi.fn(async () => null),
+  savePage: vi.fn(async () => null),
   open: vi.fn(),
   info: vi.fn(),
   log: vi.fn(),

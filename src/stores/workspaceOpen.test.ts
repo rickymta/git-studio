@@ -53,3 +53,30 @@ describe('opening a repository in a workspace', () => {
     expect(api.saveWorkspaces).not.toHaveBeenCalled();
   });
 });
+
+describe('workspace folders in the store', () => {
+  const ws = () => useWorkspaces.getState().data.items[0]!;
+
+  it('puts new repositories into the folder being shown, and forgets them on removal', async () => {
+    const store = useWorkspaces.getState();
+    const id = (await store.addFolder('w1', '', 'Backend'))!;
+    expect(ws().folders).toEqual([{ id, name: 'Backend', parent: '', collapsed: false }]);
+    store.setAddTarget(id);
+    await store.addRepos('w1', ['D:/code/api']);
+    expect(ws().placement).toEqual({ 'd:/code/api': id });
+    await store.removeRepo('w1', 'D:/CODE/api/');
+    expect(ws().placement).toEqual({});
+  });
+
+  it('refuses a fourth level and resets the target when its folder is deleted', async () => {
+    const store = useWorkspaces.getState();
+    const a = (await store.addFolder('w1', '', 'a'))!;
+    const b = (await store.addFolder('w1', a, 'b'))!;
+    const c = (await store.addFolder('w1', b, 'c'))!;
+    expect(await store.addFolder('w1', c, 'd')).toBeNull();
+    store.setAddTarget(c);
+    await store.deleteFolder('w1', c);
+    expect(useWorkspaces.getState().addTarget).toBe('');
+    expect(ws().folders!.map((f) => f.id)).toEqual([a, b]);
+  });
+});

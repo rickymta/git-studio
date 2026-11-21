@@ -27,6 +27,15 @@ function deferred<T>() {
 }
 
 const api = vi.hoisted(() => ({
+  // `load` is log + refs + worktrees in one call: built from the mocks above so each test can
+  // keep driving those.
+  load: vi.fn(async (repo: string, limit: number, skip?: number, view?: unknown) => ({
+    commits: await (api.log as (...a: unknown[]) => Promise<unknown>)(repo, limit, skip, view),
+    refs: await (api.refs as (...a: unknown[]) => Promise<unknown>)(repo),
+    worktrees: (await (api.worktrees as (...a: unknown[]) => Promise<unknown>)(repo)) ?? [],
+  })),
+  loadPage: vi.fn(async () => null),
+  savePage: vi.fn(async () => null),
   open: vi.fn(),
   info: vi.fn(),
   log: vi.fn(),
@@ -81,8 +90,37 @@ describe('switching to a repository tab', () => {
     ]);
     expect(useRepo.getState().commits).toHaveLength(800);
     expect(useRepo.getState().hasMore).toBe(true);
-    // `open` already read the status: the first load does not run it again.
-    expect(api.info).not.toHaveBeenCalled();
+    // `open` is the quick one (no `git status`); the status is read once, after the history
+    // was asked for, so the graph never waits for it.
+    expect(api.open).toHaveBeenCalledWith('D:/b', true);
+    expect(api.info).toHaveBeenCalledTimes(1);
+    expect(api.info.mock.invocationCallOrder[0]!).toBeGreaterThan(
+      api.log.mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it('shows the page saved last time while git answers', async () => {
+    const saved = {
+      commits: HISTORY.slice(0, 3),
+      refs: { refs: [], stashes: [], remotes: [] },
+      worktrees: [],
+      at: 1,
+    };
+    api.loadPage.mockResolvedValueOnce(saved as never);
+    const slowLog = deferred<typeof HISTORY>();
+    api.log.mockReturnValueOnce(slowLog.promise);
+    // A repository not opened in this run yet (pages are written once a minute per repository).
+    const opening = useRepo.getState().open('D:/saved');
+    await vi.waitFor(() => expect(useRepo.getState().commits).toHaveLength(3));
+    expect(useRepo.getState().loading).toBe(true);
+    slowLog.resolve(HISTORY.slice(0, FIRST_PAGE));
+    await opening;
+    expect(useRepo.getState().commits.length).toBeGreaterThan(3);
+    // The fresh first screen is kept for next time.
+    expect(api.savePage).toHaveBeenCalledWith(
+      'D:/saved',
+      expect.objectContaining({ at: expect.any(Number) }),
+    );
   });
 
   it('keeps the last tab clicked when an earlier one answers later', async () => {

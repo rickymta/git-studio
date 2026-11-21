@@ -250,7 +250,19 @@ export const api = {
   saveSettings: (settings: T.Settings) => call<T.Settings>('settings.set', { settings }),
   forgetRecent: (path: string) => call<T.Settings>('settings.forgetRecent', { path }),
 
-  open: (repo: string) => call<T.RepoInfo>('repo.open', { repo }),
+  /** `quick`: branch and HEAD from files, no `git status` yet (read `info` next). */
+  open: (repo: string, quick = false) => call<T.RepoInfo>('repo.open', { repo, quick }),
+  /** A page of history, the refs and the worktrees in one call, read at the same time. */
+  load: (repo: string, limit: number, skip = 0, view?: { solo: string[]; hidden: string[] }) =>
+    call<{ commits: T.Commit[]; refs: T.Refs; worktrees: T.Worktree[] }>('repo.load', {
+      repo,
+      limit,
+      skip,
+      view,
+    }),
+  /** The first screen kept on disk for `repo` (null when none). */
+  loadPage: (repo: string) => call<T.SavedPage | null>('page.load', { repo }),
+  savePage: (repo: string, page: T.SavedPage) => call<null>('page.save', { repo, page }),
   init: (path: string, branch = 'main') => call<T.RepoInfo>('repo.init', { path, branch }),
   clone: (url: string, dest: string, options: T.CloneOptions = {}) =>
     call<T.RepoInfo>('repo.clone', { url, dest, options }),

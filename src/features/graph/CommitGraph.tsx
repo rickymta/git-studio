@@ -1,16 +1,26 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronDown, ChevronUp, LocateFixed, Search, X } from 'lucide-react';
-import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import {
+  memo,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import { Avatar, ContextMenuWrap, IconButton, Input, ResizeHandle, Spinner } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { usePersistentWidth } from '@/components/usePersistentWidth';
 import { useGravatar } from '@/components/useGravatar';
 import { fullDate, hue, initials, relativeTime, short } from '@/lib/format';
-import { laneColor, wipRowOf, type GraphRow, type Segment } from '@/lib/graph';
+import { hashIndex, laneColor, wipRowOf, type GraphRow, type Segment } from '@/lib/graph';
 import { t } from '@/lib/i18n';
 import type { Commit, GitRef } from '@/lib/types';
-import { useRepo } from '@/stores/repo';
+import { setGraphScrolling, useRepo } from '@/stores/repo';
 import * as A from '../actions';
 import { ColumnSettingsMenu } from './ColumnSettingsMenu';
 import {
@@ -143,6 +153,13 @@ export function CommitGraph() {
   // 0 = fill the remaining space.
   const [msgW, setMsgW] = usePersistentWidth('message', W.message, 0, 3000);
   const msgRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  /**
+   * While a column is dragged only its CSS variable changes (no render of every row on each
+   * pointer move, which made resizing stutter); the width is saved when the drag ends.
+   */
+  const live = (name: string, min: number, max: number) => (w: number) =>
+    rootRef.current?.style.setProperty(name, `${Math.round(Math.min(max, Math.max(min, w)))}px`);
   // Hidden columns take no room: their width variables drop to 0. The message always takes the
   // rest of the row (a set width is its minimum), so it runs right up to the scrollbar.
   const vars = {
@@ -165,7 +182,10 @@ export function CommitGraph() {
     setShaW(w.sha);
   };
 
-  const headIdx = useMemo(() => commits.findIndex((c) => c.hash === st?.head), [commits, st?.head]);
+  const headIdx = useMemo(
+    () => (st?.head ? (hashIndex(commits).get(st.head) ?? -1) : -1),
+    [commits, st?.head],
+  );
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -217,12 +237,42 @@ export function CommitGraph() {
     count,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => ROW,
-    overscan: 20,
+    overscan: 6,
   });
 
   // Scrolled near the end of what is loaded: fetch the next page (the background loader usually
   // got there first; this covers it while it waits).
-  const lastShown = virt.getVirtualItems().at(-1)?.index ?? 0;
+  const liveItems = virt.getVirtualItems();
+  const lastShown = liveItems.at(-1)?.index ?? 0;
+  // Rows for a new scroll position render at low priority, in small slices: dragging the
+  // scrollbar thumb across a long history mounts a whole screen of new rows per frame (~20 ms),
+  // which made the thumb stutter. The scroll itself stays on the pointer; rows fill in right after.
+  const items = useDeferredValue(liveItems);
+
+  // While the list scrolls (wheel, or the scrollbar thumb held and dragged), pages loading in the
+  // background wait: the list growing under the pointer makes the thumb jump.
+  const scrolling = virt.isScrolling;
+  const [thumbHeld, setThumbHeld] = useState(false);
+  useEffect(() => {
+    setGraphScrolling(scrolling || thumbHeld);
+  }, [scrolling, thumbHeld]);
+  useEffect(() => () => setGraphScrolling(false), []);
+  // Held but still for a while (or the pointerup never came): loading goes on.
+  useEffect(() => {
+    if (!thumbHeld || scrolling) return;
+    const t = setTimeout(() => setThumbHeld(false), 2000);
+    return () => clearTimeout(t);
+  }, [thumbHeld, scrolling]);
+  useEffect(() => {
+    if (!thumbHeld) return;
+    const up = () => setThumbHeld(false);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('blur', up);
+    return () => {
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('blur', up);
+    };
+  }, [thumbHeld]);
   useEffect(() => {
     if (hasMore && !loading && lastShown >= count - 60) void loadMore();
   }, [lastShown, count, hasMore, loading, loadMore]);
@@ -261,6 +311,10 @@ export function CommitGraph() {
     () => new Set(selection?.type === 'commits' ? selection.hashes : []),
     [selection],
   );
+  // Rows get one stable handler (so their memo holds while the list scrolls); it calls the
+  // latest `clickCommit`.
+  const clickRef = useRef<(e: React.MouseEvent, i: number) => void>(() => {});
+  const onPick = useCallback((e: React.MouseEvent, i: number) => clickRef.current(e, i), []);
   const clickCommit = (e: React.MouseEvent, i: number) => {
     const c = commits[i]!;
     const multi = !c.stash && (e.ctrlKey || e.metaKey || e.shiftKey);
@@ -284,6 +338,9 @@ export function CommitGraph() {
     else if (next.length === 1) void select({ type: 'commit', hash: next[0]! });
     else void select({ type: 'commits', hashes: next });
   };
+  useLayoutEffect(() => {
+    clickRef.current = clickCommit;
+  });
 
   const onListKey = (e: React.KeyboardEvent) => {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
@@ -305,7 +362,7 @@ export function CommitGraph() {
     'shrink-0 px-2 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase';
 
   return (
-    <div className="flex h-full min-h-0 flex-col" style={vars}>
+    <div ref={rootRef} className="flex h-full min-h-0 flex-col" style={vars}>
       <ViewBar />
       <div className="relative flex h-[22px] shrink-0 items-center border-b border-border bg-surface">
         {/* The column titles clip when the pane is narrow; search and the gear stay put. */}
@@ -316,7 +373,12 @@ export function CommitGraph() {
               style={{ width: REFS_W }}
             >
               {t('Branch / Tag')}
-              <ResizeHandle width={refsW} onResize={setRefsW} onReset={() => setRefsW(W.refs)} />
+              <ResizeHandle
+                width={refsW}
+                onResize={setRefsW}
+                onLive={live('--refs-w', 70, 520)}
+                onReset={() => setRefsW(W.refs)}
+              />
             </div>
           )}
           {show.has('graph') && (
@@ -328,6 +390,7 @@ export function CommitGraph() {
               <ResizeHandle
                 width={graphWidth}
                 onResize={setGraphW}
+                onLive={live('--graph-w', 40, 900)}
                 onReset={() => setGraphW(W.graph)}
               />
             </div>
@@ -342,6 +405,12 @@ export function CommitGraph() {
               <ResizeHandle
                 width={msgW >= 120 ? msgW : (msgRef.current?.offsetWidth ?? 400)}
                 onResize={(w) => setMsgW(Math.max(120, w))}
+                onLive={(w) =>
+                  rootRef.current?.style.setProperty(
+                    '--msg-flex',
+                    `1 1 ${Math.round(Math.min(3000, Math.max(120, w)))}px`,
+                  )
+                }
                 onReset={() => setMsgW(W.message)}
               />
             </div>
@@ -358,6 +427,7 @@ export function CommitGraph() {
                     side="left"
                     width={authorW}
                     onResize={setAuthorW}
+                    onLive={live('--author-w', 70, 420)}
                     onReset={() => setAuthorW(W.author)}
                   />
                   {t('Author')}
@@ -372,6 +442,7 @@ export function CommitGraph() {
                     side="left"
                     width={dateW}
                     onResize={setDateW}
+                    onLive={live('--date-w', 60, 300)}
                     onReset={() => setDateW(W.date)}
                   />
                   {t('Date / Time')}
@@ -386,6 +457,7 @@ export function CommitGraph() {
                     side="left"
                     width={shaW}
                     onResize={setShaW}
+                    onLive={live('--sha-w', 60, 200)}
                     onReset={() => setShaW(W.sha)}
                   />
                   {t('Sha')}
@@ -394,70 +466,68 @@ export function CommitGraph() {
             </>
           )}
         </div>
-        {searchOpen ? (
-          <div className="flex items-center gap-1 pr-2">
-            <Select
-              aria-label={t('Search in')}
-              value={searchMode}
-              onChange={(v) => {
-                setSearchMode(v as SearchMode);
-                setMatchIdx(-1);
-              }}
-              className="h-5 rounded px-1.5 text-[11px]"
-              options={SEARCH_MODES.map((m) => ({ value: m.value, label: m.label() }))}
-            />
-            <div className="relative">
-              <Search className="absolute top-1.5 left-2 size-3.5 text-muted-foreground" />
-              <Input
-                autoFocus
-                className="h-6 w-60 pl-7 text-xs"
-                placeholder={
-                  searchMode === 'loaded'
-                    ? t('Search message, author or sha')
-                    : searchMode === 'path'
-                      ? t('Path, e.g. src/app')
-                      : t('Text to find')
-                }
-                value={query}
-                onFocus={() => setResultsOpen(true)}
-                onChange={(e) => {
-                  setQuery(e.target.value);
+        {
+          searchOpen ? (
+            <div className="flex items-center gap-1 pr-2">
+              <Select
+                aria-label={t('Search in')}
+                value={searchMode}
+                onChange={(v) => {
+                  setSearchMode(v as SearchMode);
                   setMatchIdx(-1);
-                  setResultsOpen(true);
                 }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') jump(e.shiftKey ? -1 : 1);
-                  if (e.key === 'Escape') {
-                    setSearchOpen(false);
-                    setQuery('');
-                  }
-                }}
+                className="h-5 rounded px-1.5 text-[11px]"
+                options={SEARCH_MODES.map((m) => ({ value: m.value, label: m.label() }))}
               />
+              <div className="relative">
+                <Search className="absolute top-1.5 left-2 size-3.5 text-muted-foreground" />
+                <Input
+                  autoFocus
+                  className="h-6 w-60 pl-7 text-xs"
+                  placeholder={
+                    searchMode === 'loaded'
+                      ? t('Search message, author or sha')
+                      : searchMode === 'path'
+                        ? t('Path, e.g. src/app')
+                        : t('Text to find')
+                  }
+                  value={query}
+                  onFocus={() => setResultsOpen(true)}
+                  onChange={(e) => {
+                    setQuery(e.target.value);
+                    setMatchIdx(-1);
+                    setResultsOpen(true);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') jump(e.shiftKey ? -1 : 1);
+                    if (e.key === 'Escape') {
+                      setSearchOpen(false);
+                      setQuery('');
+                    }
+                  }}
+                />
+              </div>
+              <span className="w-12 text-center text-xs text-muted-foreground">
+                {query ? `${matches.length ? Math.max(matchIdx, 0) + 1 : 0}/${matches.length}` : ''}
+              </span>
+              <IconButton label={t('Previous match')} onClick={() => jump(-1)}>
+                <ChevronUp className="size-3.5" />
+              </IconButton>
+              <IconButton label={t('Next match')} onClick={() => jump(1)}>
+                <ChevronDown className="size-3.5" />
+              </IconButton>
+              <IconButton
+                label={t('Close search')}
+                onClick={() => {
+                  setSearchOpen(false);
+                  setQuery('');
+                }}
+              >
+                <X className="size-3.5" />
+              </IconButton>
             </div>
-            <span className="w-12 text-center text-xs text-muted-foreground">
-              {query ? `${matches.length ? Math.max(matchIdx, 0) + 1 : 0}/${matches.length}` : ''}
-            </span>
-            <IconButton label={t('Previous match')} onClick={() => jump(-1)}>
-              <ChevronUp className="size-3.5" />
-            </IconButton>
-            <IconButton label={t('Next match')} onClick={() => jump(1)}>
-              <ChevronDown className="size-3.5" />
-            </IconButton>
-            <IconButton
-              label={t('Close search')}
-              onClick={() => {
-                setSearchOpen(false);
-                setQuery('');
-              }}
-            >
-              <X className="size-3.5" />
-            </IconButton>
-          </div>
-        ) : (
-          <IconButton label={t('Search commits (Ctrl+F)')} onClick={() => setSearchOpen(true)}>
-            <Search className="size-3.5" />
-          </IconButton>
-        )}
+          ) : null /* Opened from the toolbar's Search button or Ctrl+F. */
+        }
         <IconButton
           label={t('Go to HEAD (Ctrl+Shift+H)')}
           disabled={!st?.head}
@@ -475,6 +545,11 @@ export function CommitGraph() {
         ref={scrollRef}
         tabIndex={0}
         onKeyDown={onListKey}
+        onPointerDown={(e) => {
+          // On the scrollbar itself (the target is the scroll box, past its content width).
+          const el = e.currentTarget;
+          if (e.target === el && e.nativeEvent.offsetX >= el.clientWidth) setThumbHeld(true);
+        }}
         className="min-h-0 flex-1 overflow-auto outline-none"
       >
         {commits.length === 0 && !dirty && (
@@ -494,11 +569,17 @@ export function CommitGraph() {
                 e.preventDefault();
                 const x0 = e.clientX;
                 const w0 = graphWidth;
-                const move = (ev: PointerEvent) => setGraphW(Math.max(40, w0 + ev.clientX - x0));
+                let last = w0;
+                const show = live('--graph-w', 40, 900);
+                const move = (ev: PointerEvent) => {
+                  last = Math.max(40, w0 + ev.clientX - x0);
+                  show(last);
+                };
                 const up = () => {
                   window.removeEventListener('pointermove', move);
                   window.removeEventListener('pointerup', up);
                   document.body.style.cursor = '';
+                  if (last !== w0) setGraphW(last);
                 };
                 document.body.style.cursor = 'col-resize';
                 window.addEventListener('pointermove', move);
@@ -508,7 +589,7 @@ export function CommitGraph() {
               style={{ left: `calc(${REFS_W} + ${GRAPH_W} - 3px)` }}
             />
           )}
-          {virt.getVirtualItems().map((v) => {
+          {items.map((v) => {
             const style = {
               position: 'absolute' as const,
               top: 0,
@@ -522,7 +603,6 @@ export function CommitGraph() {
                 <WipRow
                   key="wip"
                   style={style}
-                  graphWidth={graphWidth}
                   geom={geom}
                   show={show}
                   headRow={headIdx >= 0 ? graph[headIdx]! : null}
@@ -563,7 +643,8 @@ export function CommitGraph() {
             return (
               <CommitRow
                 key={c.hash}
-                style={style}
+                start={v.start}
+                index={i}
                 commit={c}
                 row={graph[i]!}
                 refs={rowRefs}
@@ -579,7 +660,6 @@ export function CommitGraph() {
                         },
                       )
                 }
-                graphWidth={graphWidth}
                 geom={geom}
                 show={show}
                 selected={selected}
@@ -589,7 +669,7 @@ export function CommitGraph() {
                 dim={(matches.length > 0 && !matchSet.has(i)) || (!!related && !related.has(i))}
                 faded={!!lit && !lit.has(i) && !selected}
                 onRefHover={onRefHover}
-                onSelect={(e) => clickCommit(e, i)}
+                onPick={onPick}
               />
             );
           })}
@@ -601,7 +681,6 @@ export function CommitGraph() {
 
 function WipRow({
   style,
-  graphWidth,
   geom,
   show,
   headRow,
@@ -610,7 +689,6 @@ function WipRow({
   onSelect,
 }: {
   style: React.CSSProperties;
-  graphWidth: number;
   geom: Geom;
   show: Set<Column>;
   headRow: GraphRow | null;
@@ -649,7 +727,7 @@ function WipRow({
       />
       <div style={{ width: REFS_W }} className="shrink-0" />
       {show.has('graph') && (
-        <svg width={graphWidth} height={ROW} className="relative shrink-0 overflow-hidden">
+        <svg height={ROW} className="relative shrink-0 overflow-hidden" style={{ width: GRAPH_W }}>
           {/* Its dotted lane down to HEAD (and pinned lanes passing by). */}
           {wipRow?.segments.map((s, i) => (
             <path
@@ -712,12 +790,12 @@ function WipRow({
 }
 
 const CommitRow = memo(function CommitRow({
-  style,
+  start,
+  index,
   commit: c,
   row,
   refs,
   laneLabel,
-  graphWidth,
   geom,
   show,
   selected,
@@ -727,15 +805,16 @@ const CommitRow = memo(function CommitRow({
   dim,
   faded,
   onRefHover,
-  onSelect,
+  onPick,
 }: {
-  style: React.CSSProperties;
+  /** Top of the row in the list (px). Numbers, not a style object, so the memo holds. */
+  start: number;
+  index: number;
   commit: Commit;
   row: GraphRow;
   refs: GitRef[] | undefined;
   /** Branch this commit's line belongs to, shown faintly while the row is hovered. */
   laneLabel: string | null;
-  graphWidth: number;
   geom: Geom;
   show: Set<Column>;
   selected: boolean;
@@ -747,8 +826,17 @@ const CommitRow = memo(function CommitRow({
   /** Another branch's badge is hovered: fade this row's band and text. */
   faded: boolean;
   onRefHover: (hash: string, on: boolean) => void;
-  onSelect: (e: React.MouseEvent) => void;
+  /** Stable across renders: picks row `index`. */
+  onPick: (e: React.MouseEvent, index: number) => void;
 }) {
+  const style: React.CSSProperties = {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: ROW,
+    transform: `translateY(${start}px)`,
+  };
   const groups = groupRefs(refs ?? [], isHead && detached);
   const color = laneColor(row.color);
   const cx = laneX(row.lane, geom);
@@ -775,7 +863,7 @@ const CommitRow = memo(function CommitRow({
     >
       <div
         style={stack ? { ...style, zIndex: 30 } : style}
-        onClick={onSelect}
+        onClick={(e) => onPick(e, index)}
         className={cn('group relative flex cursor-default items-center', dim && 'opacity-40')}
       >
         {/* Selected row: a faint full-width highlight and a bar in the branch colour, so the
@@ -804,8 +892,9 @@ const CommitRow = memo(function CommitRow({
 
         {show.has('refs') && (
           <div
-            className="relative flex h-full shrink-0 items-center"
+            className="group/refs relative flex h-full shrink-0 items-center"
             style={{ width: REFS_W }}
+            title={groups.length === 0 && laneLabel ? laneLabel : undefined}
             onMouseEnter={() => groups.length > 1 && setHovered(true)}
             onMouseLeave={() => setHovered(false)}
           >
@@ -831,9 +920,10 @@ const CommitRow = memo(function CommitRow({
             )}
             {groups.length === 0 && laneLabel && (
               // GitKraken-style: which branch this commit is on, while the row is hovered.
-              <div className="pointer-events-none absolute inset-y-0 right-0 left-2 flex items-center opacity-0 transition-opacity group-hover:opacity-75">
+              // Hovering the column itself unfolds the whole name over the graph.
+              <div className="pointer-events-none absolute inset-y-0 right-0 left-2 flex items-center opacity-0 transition-opacity group-hover:opacity-75 group-hover/refs:z-30 group-hover/refs:opacity-100">
                 <span
-                  className="min-w-0 truncate rounded px-1.5 py-px text-xs"
+                  className="min-w-0 truncate rounded px-1.5 py-px text-xs group-hover/refs:max-w-none group-hover/refs:shrink-0 group-hover/refs:overflow-visible group-hover/refs:shadow-md"
                   style={{
                     color,
                     background: `color-mix(in oklch, ${color} 18%, var(--background))`,
@@ -873,7 +963,6 @@ const CommitRow = memo(function CommitRow({
         {show.has('graph') && (
           <GraphCell
             row={row}
-            width={graphWidth}
             geom={geom}
             merge={c.parents.length > 1}
             stash={!!c.stash}
@@ -971,7 +1060,6 @@ function segmentPath(s: Segment, g: Geom): string {
 
 function GraphCell({
   row,
-  width,
   geom,
   merge,
   stash,
@@ -981,7 +1069,6 @@ function GraphCell({
   withRefs,
 }: {
   row: GraphRow;
-  width: number;
   geom: Geom;
   merge: boolean;
   stash: boolean;
@@ -1000,7 +1087,7 @@ function GraphCell({
   const gravatar = useGravatar(geom.compact || merge || stash ? null : email, face * 2);
   const clip = `gv${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
   return (
-    <svg width={width} height={ROW} className="relative shrink-0 overflow-hidden">
+    <svg height={ROW} className="relative shrink-0 overflow-hidden" style={{ width: GRAPH_W }}>
       {withRefs && <line x1={0} x2={cx} y1={cy} y2={cy} stroke={color} strokeWidth={2} />}
       {row.segments.map((s, i) => (
         <path

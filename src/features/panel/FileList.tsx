@@ -7,7 +7,7 @@ import {
   ListTree,
   List,
 } from 'lucide-react';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode, memo } from 'react';
 
 import { ContextMenuWrap, Dropdown, type MenuItem } from '@/components/ui';
 import { cn } from '@/lib/cn';
@@ -128,6 +128,8 @@ function Row({
   dragSource,
   dragPaths,
 }: {
+  /** Number of selected files (only compared, see `MemoRow`). */
+  selCount?: number;
   file: FileChange;
   label: ReactNode;
   depth: number;
@@ -180,6 +182,7 @@ function Row({
 function selectionProps(props: FileListProps, f: FileChange) {
   const sel = props.selected;
   return {
+    selCount: sel?.size ?? 0,
     selected: sel?.has(f.path),
     onSelect: props.onSelect ? (e: React.MouseEvent) => props.onSelect!(f, e) : undefined,
     dragSource: props.dragSource,
@@ -187,6 +190,26 @@ function selectionProps(props: FileListProps, f: FileChange) {
     dragPaths: () => (sel?.has(f.path) && sel.size > 1 ? [...sel] : [f.path]),
   };
 }
+
+/**
+ * Rows re-render only when what they show changes: opening a file used to re-render every row of
+ * a long list (hundreds of files in a merge). Handlers and labels are left out of the comparison;
+ * the ones that depend on the selection are fresh because a selection change (`selCount`,
+ * `selected`) re-renders the rows.
+ */
+const MemoRow = memo(
+  Row,
+  (a, b) =>
+    a.file === b.file &&
+    a.active === b.active &&
+    a.selected === b.selected &&
+    a.selCount === b.selCount &&
+    a.depth === b.depth &&
+    a.dragSource === b.dragSource &&
+    !!a.actions === !!b.actions &&
+    !!a.menu === !!b.menu &&
+    !!a.onSelect === !!b.onSelect,
+);
 
 /** Path mode: `src/dir/` dimmed, then the file name. */
 function PathLabel({ path }: { path: string }) {
@@ -242,7 +265,7 @@ function DirRows({ dir, depth, props }: { dir: Dir; depth: number; props: FileLi
           <DirRows key={d.name} dir={d} depth={dir.name ? depth + 1 : depth} props={props} />
         ))}
       {dir.files.map((f) => (
-        <Row
+        <MemoRow
           key={f.path}
           file={f}
           depth={dir.name ? depth + 1 : depth}
@@ -280,7 +303,7 @@ export function FileList(props: FileListProps) {
   return (
     <>
       {props.files.map((f) => (
-        <Row
+        <MemoRow
           key={f.path}
           file={f}
           depth={0}

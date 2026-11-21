@@ -31,6 +31,15 @@ const commit = (hash: string): Commit => ({
 });
 
 const api = vi.hoisted(() => ({
+  // `load` is log + refs + worktrees in one call: built from the mocks above so each test can
+  // keep driving those.
+  load: vi.fn(async (repo: string, limit: number, skip?: number, view?: unknown) => ({
+    commits: await (api.log as (...a: unknown[]) => Promise<unknown>)(repo, limit, skip, view),
+    refs: await (api.refs as (...a: unknown[]) => Promise<unknown>)(repo),
+    worktrees: (await (api.worktrees as (...a: unknown[]) => Promise<unknown>)(repo)) ?? [],
+  })),
+  loadPage: vi.fn(async () => null),
+  savePage: vi.fn(async () => null),
   open: vi.fn(),
   info: vi.fn(),
   log: vi.fn(),
@@ -68,8 +77,14 @@ describe('managing many tabs', () => {
     expect(names()).toEqual(['d*', 'a', 'b', 'c']);
     useRepo.getState().moveTab(3, 0);
     expect(names()).toEqual(['c*', 'd*', 'a', 'b']);
+    // Dragged within its own group: keeps its pinned state, even first among the unpinned.
+    useRepo.getState().moveTab(3, 2, false);
+    expect(names()).toEqual(['c*', 'd*', 'b', 'a']);
+    useRepo.getState().moveTab(1, 0, true);
+    expect(names()).toEqual(['d*', 'c*', 'b', 'a']);
+    useRepo.getState().moveTab(1, 0, true);
     useRepo.getState().pinTab('/d', false);
-    expect(names()).toEqual(['c*', 'd', 'a', 'b']);
+    expect(names()).toEqual(['c*', 'd', 'b', 'a']);
   });
 
   it('closes several tabs at once and goes to the tab used before', async () => {

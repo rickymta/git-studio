@@ -7,6 +7,7 @@
  */
 import { create } from 'zustand';
 
+import { hashIndex } from '@/lib/graph';
 import type { Commit, GitRef } from '@/lib/types';
 
 export const COLUMNS = ['refs', 'graph', 'message', 'author', 'date', 'sha'] as const;
@@ -180,7 +181,7 @@ export function focusTips(refs: GitRef[], head: string | null): string[] {
  * related when the commit it was made on is. Everything else is an unrelated branch, dimmed.
  */
 export function relatedRows(commits: Commit[], tips: string[]): Set<number> {
-  const index = new Map(commits.map((c, i) => [c.hash, i]));
+  const index = hashIndex(commits);
   const seen = new Set<number>();
   const stack = tips.map((h) => index.get(h)).filter((i): i is number => i !== undefined);
   while (stack.length) {

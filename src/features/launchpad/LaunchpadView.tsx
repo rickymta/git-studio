@@ -323,9 +323,11 @@ export function LaunchpadView({ onSignIn }: { onSignIn: () => void }) {
     <div
       ref={rootRef}
       tabIndex={-1}
-      className="flex h-full min-h-0 flex-col overflow-auto outline-none"
+      // The scrollbar's room is always kept, so the page does not shift sideways between a long
+      // list (scrollbar) and a short one (none).
+      className="flex h-full min-h-0 flex-col overflow-auto outline-none [scrollbar-gutter:stable]"
     >
-      <div className="mx-auto w-full max-w-[1800px] px-6 py-5">
+      <div className="w-full px-[2.7rem] py-5">
         {/* Header */}
         <div className="flex flex-wrap items-center gap-3">
           <Rocket className="size-5 text-accent" />

@@ -263,6 +263,7 @@ function PromptBody({ close }: { close: (v: PromptValues | null) => void }) {
                   autoFocus={i === 0}
                   type={f.type === 'password' ? 'password' : 'text'}
                   placeholder={f.placeholder}
+                  maxLength={f.maxLength}
                   value={values[f.name] as string}
                   onChange={(e) => set(e.target.value)}
                   spellCheck={false}

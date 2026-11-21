@@ -1,6 +1,13 @@
 import { create } from 'zustand';
 
-import { extendGraph, layoutGraph, withStashes, type GraphRow } from '@/lib/graph';
+import {
+  carryIndex,
+  extendGraph,
+  hashIndex,
+  layoutGraph,
+  withStashes,
+  type GraphRow,
+} from '@/lib/graph';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import type {
@@ -9,6 +16,7 @@ import type {
   DiffRequest,
   Refs,
   RepoInfo,
+  SavedPage,
   Settings,
   Worktree,
 } from '@/lib/types';
@@ -44,6 +52,28 @@ const SNAPSHOT_COMMITS = 5000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+let graphScrolling = false;
+/**
+ * The commit list is being scrolled, or its scrollbar held: pages loading in the background wait,
+ * so the list does not grow (and the scrollbar thumb jump) under the pointer.
+ */
+export function setGraphScrolling(on: boolean) {
+  graphScrolling = on;
+}
+const scrollSettled = async () => {
+  while (graphScrolling) await sleep(100);
+};
+
+/** The same repository state, field for field. */
+export const sameInfo = (a: RepoInfo, b: RepoInfo) => JSON.stringify(a) === JSON.stringify(b);
+
+/** Commits in a list that are not stash rows. */
+const realCount = (commits: Commit[]) => {
+  let n = 0;
+  for (const c of commits) if (!c.stash) n++;
+  return n;
+};
+
 /**
  * After the newest page shows, load the rest of the history in the background, page after page,
  * so the whole graph is there without "Load more" (histories of hundreds of thousands of commits).
@@ -62,8 +92,11 @@ async function loadRest(path: string) {
         await sleep(500);
         continue;
       }
+      await scrollSettled();
       const loaded = s.commits.length;
-      await s.loadMore(Math.min(REST_MAX, Math.max(REST_MIN, Math.round(loaded / 2))));
+      await s.loadMore(Math.min(REST_MAX, Math.max(REST_MIN, Math.round(loaded / 2))), {
+        background: true,
+      });
     }
   } catch {
     /* the "Load more" row stays; scrolling to it or clicking it tries again */
@@ -112,11 +145,17 @@ export type Selection =
   /** Several commits (Ctrl / Shift + click), newest first as in the graph. */
   | { type: 'commits'; hashes: string[] };
 
+export type DiffOpenMode = 'file' | 'history' | 'blame';
+
 export interface OpenDiff {
   request: DiffRequest;
   text: string;
   loading: boolean;
+  /** Opened straight into File View / History / Blame (Spotlight); `id` remounts the view. */
+  view?: { id: number; mode: DiffOpenMode };
 }
+
+let diffViewId = 0;
 
 export interface RepoTab {
   path: string;
@@ -163,7 +202,10 @@ interface RepoStore {
   open: (path: string) => Promise<boolean>;
   /** Show `info` in its tab (a new one if needed). `keepOutOfWorkspace`: a new tab does not
    *  join the active workspace. */
-  adopt: (info: RepoInfo, opts?: { keepOutOfWorkspace?: boolean }) => Promise<void>;
+  adopt: (
+    info: RepoInfo,
+    opts?: { keepOutOfWorkspace?: boolean; saved?: Promise<SavedPage | null> },
+  ) => Promise<void>;
   /** Show the start page in a new tab (current repository tab stays open). */
   newTab: () => void;
   closeTab: (path: string) => void;
@@ -173,7 +215,9 @@ interface RepoStore {
   reopenClosedTab: () => void;
   /** Pin or unpin a tab; pinned tabs are kept before the others. */
   pinTab: (path: string, pinned: boolean) => void;
-  moveTab: (from: number, to: number) => void;
+  /** Move the tab at `from` to `to`. `pinned`: its pinned state afterwards (default: that of the
+   *  tab it lands after, or before when first). */
+  moveTab: (from: number, to: number, pinned?: boolean) => void;
   /** Add tabs without opening them (e.g. imported from GitKraken). */
   addTabs: (tabs: RepoTab[]) => void;
   close: () => void;
@@ -185,11 +229,12 @@ interface RepoStore {
   refreshOnFocus: () => Promise<void>;
   refreshStatus: () => Promise<void>;
   /** Load the next `count` commits (default: a page) below the loaded ones. */
-  loadMore: (count?: number) => Promise<void>;
+  /** `background`: the rest of the history loading by itself (waits while the list scrolls). */
+  loadMore: (count?: number, opts?: { background?: boolean }) => Promise<void>;
   select: (s: Selection | null) => Promise<void>;
   /** Select `hash` in the graph, loading older pages if it is not loaded yet. */
   reveal: (hash: string) => Promise<void>;
-  openDiff: (request: DiffRequest) => Promise<void>;
+  openDiff: (request: DiffRequest, mode?: DiffOpenMode) => Promise<void>;
   reloadDiff: () => Promise<void>;
   closeDiff: () => void;
   /** Run a mutating operation with a busy label, error toast, and refresh afterwards. */
@@ -422,22 +467,79 @@ export function keepOlder(fresh: Commit[], loaded: Commit[]): Commit[] | null {
   return [...fresh, ...loaded.slice(j + 1).filter((c) => !seen.has(c.hash))];
 }
 
+/** Bumped each time a full status lands, so an older one arriving later is dropped. */
+let infoSeq = 0;
+
+/**
+ * Take a freshly read status: the WIP row comes or goes with the changes, which moves lanes, so
+ * the graph is laid out again when that changes.
+ */
+function applyInfo(path: string, info: RepoInfo) {
+  const s = useRepo.getState();
+  if (s.path !== path) return;
+  infoSeq++;
+  if (wipHead(s.info) !== wipHead(info)) {
+    useRepo.setState({
+      info,
+      graph: layoutGraph(s.commits, pinnedTips(s.view, s.refs), wipHead(info)),
+    });
+  } else useRepo.setState({ info });
+}
+
+/** The status after a quick open, read while the graph is already on screen. */
+async function followStatus(path: string) {
+  const seq = infoSeq;
+  const info = await api.info(path).catch(() => null);
+  // A refresh meanwhile brought a newer status: keep that one.
+  if (info && seq === infoSeq) applyInfo(path, info);
+}
+
+/** When each repository's first screen was last written to disk (once a minute at most). */
+const pageSaved = new Map<string, number>();
+const PAGE_SAVE_EVERY_MS = 60_000;
+/** Messages are kept short in the saved page: it only has to fill the screen for a moment. */
+const PAGE_BODY_CHARS = 300;
+
+/** Keep the shown repository's first screen on disk, to show it at once next time. */
+function savePage(path: string) {
+  const key = pathKey(path);
+  const last = pageSaved.get(key) ?? 0;
+  if (Date.now() - last < PAGE_SAVE_EVERY_MS) return;
+  const s = useRepo.getState();
+  if (s.path !== path || !s.refs) return;
+  pageSaved.set(key, Date.now());
+  const commits = s.commits
+    .filter((c) => !c.stash)
+    .slice(0, FIRST_PAGE)
+    .map((c) =>
+      c.body && c.body.length > PAGE_BODY_CHARS
+        ? { ...c, body: c.body.slice(0, PAGE_BODY_CHARS) }
+        : c,
+    );
+  void api
+    .savePage(path, { commits, refs: s.refs, worktrees: s.worktrees, at: Date.now() })
+    .catch(() => pageSaved.delete(key));
+}
+
 /**
  * Load the repository at `path` into the store: status, refs, worktrees and the newest page of
  * the graph's commits, keeping the older ones already loaded below it (`first`: a short first
- * page and the status `open` just read; `fresh`: only the new page).
+ * page, without waiting for the status, which follows; `fresh`: only the new page).
  */
 async function loadRepo(path: string, first: boolean, fresh = false) {
   try {
     const limit = first ? Math.min(page(), FIRST_PAGE) : page();
     const view = loadView(path);
-    const [info, commits, refs, worktrees] = await Promise.all([
-      first ? Promise.resolve(useRepo.getState().info!) : api.info(path),
-      api.log(path, limit, 0, logView(view)),
-      api.refs(path),
-      api.worktrees(path).catch((): Worktree[] => []),
+    // One call for history, refs and worktrees (read at the same time). The first load does not
+    // wait for `git status`: the graph shows first and the changed files follow.
+    const [loaded, fullInfo] = await Promise.all([
+      api.load(path, limit, 0, logView(view)),
+      first ? null : api.info(path),
     ]);
+    const { commits, refs, worktrees } = loaded;
     if (useRepo.getState().path !== path) return;
+    if (fullInfo) infoSeq++;
+    const info = fullInfo ?? useRepo.getState().info!;
     const before = useRepo.getState();
     const older = before.commits.filter((c) => !c.stash);
     // Scrolled further than a page: keep those commits under the new page.
@@ -456,6 +558,8 @@ async function loadRepo(path: string, first: boolean, fresh = false) {
       worktrees,
       hasMore: kept ? before.hasMore : commits.length >= limit,
     });
+    if (first) void followStatus(path);
+    savePage(path);
     if (!first && useRepo.getState().hasMore) void loadRest(path);
     const sel = useRepo.getState().selection;
     if (sel?.type === 'commit') {
@@ -484,6 +588,24 @@ function appendCommits(
   view: GraphView,
   refs: Refs | null,
 ): { commits: Commit[]; graph: GraphRow[] } {
+  // Fast path, the usual one: the new page goes after what is there. Only the new rows are
+  // looked at; on long histories a full pass per page froze the list for a second at 500,000
+  // commits (scrolling while the rest of the history loads).
+  if (view.pinned.length === 0 && prev.commits.length > 0) {
+    const index = hashIndex(prev.commits);
+    const fresh = more.filter((c) => !index.has(c.hash));
+    const freshHashes = new Set(fresh.map((c) => c.hash));
+    // A stash whose base only arrives now may belong higher up: that needs the full pass.
+    const moved = shownStashes(view, refs).some(
+      (st) => !index.has(st.hash) && !!st.base && freshHashes.has(st.base),
+    );
+    const graph = moved ? null : extendGraph(prev.graph, fresh);
+    if (graph) {
+      const commits = prev.commits.concat(fresh);
+      carryIndex(prev.commits, commits);
+      return { commits, graph };
+    }
+  }
   const real = prev.commits.filter((c) => !c.stash);
   const seen = new Set(real.map((c) => c.hash));
   const commits = withStashes(
@@ -616,9 +738,11 @@ export const useRepo = create<RepoStore>((set, get) => ({
     // on screen (and seemingly frozen) until the new one has loaded.
     set({ ...emptyRepo, path, loading: true });
     try {
-      const info = await api.open(path);
+      // The page saved last time is read meanwhile, to show the graph before git answers.
+      const saved = api.loadPage(path).catch(() => null);
+      const info = await api.open(path, true);
       if (seq !== openSeq) return true;
-      await get().adopt(info);
+      await get().adopt(info, { saved });
       return true;
     } catch (e) {
       if (seq !== openSeq) return false;
@@ -642,6 +766,20 @@ export const useRepo = create<RepoStore>((set, get) => ({
       selection: { type: 'wip' },
       loading: true,
     });
+    // Seen before (also in an earlier run): its saved first screen shows while git answers.
+    const saved = opts?.saved ? await opts.saved : null;
+    if (saved && get().path === info.path && get().commits.length === 0) {
+      const view = loadView(info.path);
+      const rows = withStashes(saved.commits, shownStashes(view, saved.refs));
+      set({
+        commits: rows,
+        view,
+        graph: layoutGraph(rows, pinnedTips(view, saved.refs)),
+        refs: saved.refs,
+        worktrees: saved.worktrees,
+        hasMore: true,
+      });
+    }
     // Toolbar, sidebar and WIP show now; the graph fills in as its commits arrive.
     await get().refresh({ first: true });
     if (get().path !== info.path) return;
@@ -727,13 +865,13 @@ export const useRepo = create<RepoStore>((set, get) => ({
     set({ tabs });
   },
 
-  moveTab: (from, to) => {
+  moveTab: (from, to, pinned) => {
     const tabs = [...get().tabs];
     const [t] = tabs.splice(from, 1);
     if (!t) return;
     // Dropped right after a pinned tab (or first, before one) it is pinned; otherwise not.
     const neighbour = to > 0 ? tabs[to - 1] : tabs[0];
-    tabs.splice(to, 0, { ...t, pinned: neighbour?.pinned || undefined });
+    tabs.splice(to, 0, { ...t, pinned: (pinned ?? neighbour?.pinned) || undefined });
     const ordered = pinnedFirst(tabs);
     saveTabs(ordered, get().path);
     set({ tabs: ordered });
@@ -784,6 +922,9 @@ export const useRepo = create<RepoStore>((set, get) => ({
       const info = await api.info(path);
       if (get().path !== path) return;
       const prev = get().info;
+      // Nothing changed (the usual case, every few seconds): keep the same object, so nothing
+      // that shows the status renders again.
+      if (prev && sameInfo(prev, info)) return;
       // Only a status refresh when nothing about refs changed.
       if (
         prev &&
@@ -803,17 +944,18 @@ export const useRepo = create<RepoStore>((set, get) => ({
     }
   },
 
-  loadMore: async (count) => {
+  loadMore: async (count, opts) => {
     if (morePending) return morePending;
-    const { path, commits, graph, view, refs } = get();
+    const { path, commits, view } = get();
     if (!path) return;
     const want = count ?? page();
     morePending = (async () => {
       // Stash rows are not history: page by real commits only, then re-place the stashes.
-      const real = commits.filter((c) => !c.stash);
-      const more = await api.log(path, want, real.length, logView(view));
+      const more = await api.log(path, want, realCount(commits), logView(view));
+      if (opts?.background) await scrollSettled();
       // Another tab, or a refresh replaced the list meanwhile: this page no longer fits.
       if (get().path !== path || get().commits !== commits) return;
+      const { graph, refs } = get();
       set({
         ...appendCommits({ commits, graph }, more, view, refs),
         hasMore: more.length >= want,
@@ -856,15 +998,22 @@ export const useRepo = create<RepoStore>((set, get) => ({
     }
   },
 
-  openDiff: async (request) => {
+  openDiff: async (request, mode) => {
     const path = get().path;
     if (!path) return;
-    set({ diff: { request, text: get().diff?.text ?? '', loading: true } });
+    const prev = get().diff;
+    // A reload of the same file keeps the view it was opened in.
+    const view = mode
+      ? { id: ++diffViewId, mode }
+      : prev?.request.path === request.path
+        ? prev.view
+        : undefined;
+    set({ diff: { request, text: prev?.text ?? '', loading: true, view } });
     try {
       const text = await api.diff(path, request);
-      if (get().diff?.request === request) set({ diff: { request, text, loading: false } });
+      if (get().diff?.request === request) set({ diff: { request, text, loading: false, view } });
     } catch (e) {
-      set({ diff: { request, text: '', loading: false } });
+      set({ diff: { request, text: '', loading: false, view } });
       toast('error', t('Could not load diff'), (e as Error).message);
     }
   },

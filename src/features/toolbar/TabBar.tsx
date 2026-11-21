@@ -53,7 +53,10 @@ export function TabBar({
   const activate = useWorkspaces((s) => s.activate);
   const ws = workspaces.items.find((w) => w.id === workspaces.active) ?? null;
   const inWorkspace = (p: string) => !ws || ws.repos.some((r) => samePath(r, p));
-  const launchpadOpen = useLaunchpad((s) => s.open);
+  // Preferences cover everything, Launchpad covers the workspace overview and the repository:
+  // only the screen actually shown is marked as the current one.
+  const launchpadOpen = useLaunchpad((s) => s.open) && !prefsOpen;
+  const covered = launchpadOpen || prefsOpen;
   const badge = useLaunchpad((s) => badgeCount(allItems(s.items), s.prefs, Date.now()));
 
   const iconBtn =
@@ -166,10 +169,12 @@ export function TabBar({
           }}
           className={cn(
             'relative flex w-10 shrink-0 items-center justify-center border-r border-border',
-            !path ? 'bg-surface text-foreground' : 'text-muted-foreground hover:bg-surface-hover',
+            !path && !covered
+              ? 'bg-surface text-foreground'
+              : 'text-muted-foreground hover:bg-surface-hover',
           )}
         >
-          {!path && (
+          {!path && !covered && (
             <span className="absolute inset-x-0 top-0 h-0.5" style={{ background: ws.color }} />
           )}
           <LayoutGrid className="size-4" />
@@ -180,6 +185,7 @@ export function TabBar({
         showNewTabPlaceholder={!path && !ws}
         inWorkspace={inWorkspace}
         workspaceName={ws?.name ?? null}
+        covered={covered}
       />
       <TabShortcuts onNavigate={onNavigate} />
 

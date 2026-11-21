@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 
+import * as F from '@/features/workspace/folders';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import type { RepoSummary, Workspace, Workspaces } from '@/lib/types';
@@ -29,13 +30,23 @@ interface WorkspaceStore {
   summariesLoading: boolean;
   /** Repos with an operation in flight, keyed by normalised path. */
   running: Record<string, BulkOp>;
+  /** Folder of the active workspace that new repositories go into ('' for the root). */
+  addTarget: string;
 
   load: () => Promise<void>;
   active: () => Workspace | null;
   create: (name: string, color: string, repos: string[]) => Promise<Workspace>;
   update: (id: string, patch: Partial<Omit<Workspace, 'id'>>) => Promise<void>;
   remove: (id: string) => Promise<void>;
-  addRepos: (id: string, paths: string[]) => Promise<number>;
+  /** Adds repositories to `folder` (default: `addTarget` of the active workspace). */
+  addRepos: (id: string, paths: string[], folder?: string) => Promise<number>;
+  setAddTarget: (folder: string) => void;
+  addFolder: (id: string, parent: string, name: string) => Promise<string | null>;
+  renameFolder: (id: string, folder: string, name: string) => Promise<void>;
+  toggleFolder: (id: string, folder: string, collapsed?: boolean) => Promise<void>;
+  moveFolder: (id: string, folder: string, parent: string) => Promise<void>;
+  deleteFolder: (id: string, folder: string) => Promise<void>;
+  moveRepos: (id: string, paths: string[], folder: string) => Promise<void>;
   removeRepo: (id: string, path: string) => Promise<void>;
   /** Activate a workspace ('' for none); swaps the open tabs to that workspace's set. */
   activate: (id: string) => Promise<void>;
@@ -57,16 +68,28 @@ export const useWorkspaces = create<WorkspaceStore>((set, get) => {
     }
   };
 
+  /** Applies a pure edit to one workspace and saves. */
+  const editWs = async (id: string, edit: (w: Workspace) => Workspace) => {
+    const data = get().data;
+    const ws = data.items.find((w) => w.id === id);
+    if (!ws) return;
+    const next = edit(ws);
+    if (next === ws) return;
+    await persist({ ...data, items: data.items.map((w) => (w.id === id ? next : w)) });
+  };
+
   return {
     data: { items: [], active: '' },
     loaded: false,
     summaries: {},
     summariesLoading: false,
     running: {},
+    addTarget: '',
 
     load: async () => {
       try {
         const data = await api.workspaces();
+        data.items = data.items.map(F.sanitize);
         if (data.active && !data.items.some((w) => w.id === data.active)) data.active = '';
         set({ data, loaded: true });
       } catch {
@@ -110,12 +133,18 @@ export const useWorkspaces = create<WorkspaceStore>((set, get) => {
       if (wasActive) useRepo.getState().setScope('');
     },
 
-    addRepos: async (id, paths) => {
+    addRepos: async (id, paths, folder) => {
       const ws = get().data.items.find((w) => w.id === id);
       if (!ws) return 0;
       const merged = dedupe([...ws.repos, ...paths]);
       const added = merged.length - ws.repos.length;
-      await get().update(id, { repos: merged });
+      const target = folder ?? (get().data.active === id ? get().addTarget : '');
+      const fresh = merged.slice(ws.repos.length);
+      const placed =
+        target && (ws.folders ?? []).some((f) => f.id === target)
+          ? F.moveRepos(ws, fresh, target).placement
+          : ws.placement;
+      await get().update(id, { repos: merged, placement: placed });
       if (added > 0) void get().refreshSummaries(merged.slice(ws.repos.length));
       return added;
     },
@@ -123,8 +152,35 @@ export const useWorkspaces = create<WorkspaceStore>((set, get) => {
     removeRepo: async (id, path) => {
       const ws = get().data.items.find((w) => w.id === id);
       if (!ws) return;
-      await get().update(id, { repos: ws.repos.filter((p) => !samePath(p, path)) });
+      const placement = { ...(ws.placement ?? {}) };
+      delete placement[F.placeKey(path)];
+      await get().update(id, { repos: ws.repos.filter((p) => !samePath(p, path)), placement });
     },
+
+    setAddTarget: (folder) => set({ addTarget: folder }),
+
+    addFolder: async (id, parent, name) => {
+      const ws = get().data.items.find((w) => w.id === id);
+      if (!ws || !name.trim() || !F.canNest(ws.folders ?? [], parent)) return null;
+      const fid = newId();
+      await editWs(id, (w) => F.addFolder(w, parent, name, fid));
+      return fid;
+    },
+    renameFolder: (id, folder, name) =>
+      editWs(id, (w) => (name.trim() ? F.patchFolder(w, folder, { name: name.trim() }) : w)),
+    toggleFolder: (id, folder, collapsed) =>
+      editWs(id, (w) => {
+        const f = (w.folders ?? []).find((x) => x.id === folder);
+        return f ? F.patchFolder(w, folder, { collapsed: collapsed ?? !f.collapsed }) : w;
+      }),
+    moveFolder: (id, folder, parent) => editWs(id, (w) => F.moveFolder(w, folder, parent)),
+    deleteFolder: async (id, folder) => {
+      await editWs(id, (w) => F.deleteFolder(w, folder));
+      const ws = get().data.items.find((w) => w.id === id);
+      if (get().data.active === id && !(ws?.folders ?? []).some((f) => f.id === get().addTarget))
+        set({ addTarget: '' });
+    },
+    moveRepos: (id, paths, folder) => editWs(id, (w) => F.moveRepos(w, paths, folder)),
 
     activate: async (id) => {
       if (get().data.active === id) {
@@ -132,6 +188,7 @@ export const useWorkspaces = create<WorkspaceStore>((set, get) => {
         if (id) useRepo.getState().newTab();
         return;
       }
+      set({ addTarget: '' });
       await persist({ ...get().data, active: id });
       await useRepo.getState().setScope(id);
       if (id) void get().refreshSummaries();
@@ -144,9 +201,8 @@ export const useWorkspaces = create<WorkspaceStore>((set, get) => {
       set({ summariesLoading: true });
       try {
         const res = await api.workspaceStatus(list);
-        const next = { ...get().summaries };
-        for (const s of res) next[norm(s.path)] = s;
-        set({ summaries: next });
+        const next = mergeSummaries(get().summaries, res);
+        if (next) set({ summaries: next });
       } catch (e) {
         toast('error', t('Could not read repository status'), (e as Error).message);
       } finally {
@@ -158,9 +214,8 @@ export const useWorkspaces = create<WorkspaceStore>((set, get) => {
       if (paths.length === 0) return;
       try {
         const res = await api.workspaceStatus(paths);
-        const next = { ...get().summaries };
-        for (const s of res) next[norm(s.path)] = s;
-        set({ summaries: next });
+        const next = mergeSummaries(get().summaries, res);
+        if (next) set({ summaries: next });
       } catch {
         /* badges just stay as they were */
       }
@@ -211,6 +266,25 @@ export const useWorkspaces = create<WorkspaceStore>((set, get) => {
     },
   };
 });
+
+/**
+ * `res` merged into `prev`, keeping the objects of repositories whose status did not change (so
+ * their tab badges and rows do not render again); null when nothing changed at all.
+ */
+function mergeSummaries(
+  prev: Record<string, RepoSummary>,
+  res: RepoSummary[],
+): Record<string, RepoSummary> | null {
+  let next: Record<string, RepoSummary> | null = null;
+  for (const s of res) {
+    const k = norm(s.path);
+    const old = prev[k];
+    if (old && JSON.stringify(old) === JSON.stringify(s)) continue;
+    next ??= { ...prev };
+    next[k] = s;
+  }
+  return next;
+}
 
 function dedupe(paths: string[]): string[] {
   const seen = new Set<string>();

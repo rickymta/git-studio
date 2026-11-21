@@ -83,7 +83,8 @@ const EDIT_BUTTON =
 /** Details of a selected commit, laid out like GitKraken's commit panel. */
 export function CommitPanel({ hash }: { hash: string }) {
   const detail = useRepo((s) => s.detail);
-  const diff = useRepo((s) => s.diff);
+  // The request only: the same object while the diff loads, so one render per file opened.
+  const diffReq = useRepo((s) => s.diff?.request ?? null);
   const openDiff = useRepo((s) => s.openDiff);
   const select = useRepo((s) => s.select);
   const repo = useRepo((s) => s.path)!;
@@ -143,14 +144,10 @@ export function CommitPanel({ hash }: { hash: string }) {
   const body = bodyLines.join('\n').trim();
   const coauthors = coAuthors(d.body);
   const isActive = (f: FileChange) =>
-    diff?.request.source === 'commit' &&
-    diff.request.commit === d.hash &&
-    diff.request.path === f.path;
+    diffReq?.source === 'commit' && diffReq.commit === d.hash && diffReq.path === f.path;
   const comparing = compare.hash === d.hash;
   const isCompareActive = (f: FileChange) =>
-    diff?.request.source === 'worktree' &&
-    diff.request.commit === d.hash &&
-    diff.request.path === f.path;
+    diffReq?.source === 'worktree' && diffReq.commit === d.hash && diffReq.path === f.path;
 
   const editable = canAmendMessage(d.hash);
   const editing = editable && edit?.hash === d.hash ? edit : null;

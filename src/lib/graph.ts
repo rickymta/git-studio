@@ -50,9 +50,38 @@ export function hueGap(a: number, b: number): number {
   return Math.min(arc(HUES_LIGHT[i]!, HUES_LIGHT[j]!), arc(HUES_DARK[i]!, HUES_DARK[j]!));
 }
 
+const indexes = new WeakMap<Commit[], Map<string, number>>();
+
+/**
+ * Hash → row of a commit list, built once per list. Building it costs ~1 µs a commit (over half a
+ * second at 500,000), so a list grown by `carryIndex` takes the old index over instead.
+ */
+export function hashIndex(commits: Commit[]): Map<string, number> {
+  let m = indexes.get(commits);
+  if (!m) {
+    m = new Map();
+    for (let i = 0; i < commits.length; i++) m.set(commits[i]!.hash, i);
+    indexes.set(commits, m);
+  }
+  return m;
+}
+
+/**
+ * `next` is `prev` with rows added at the end: its index is `prev`'s, extended (and `prev` loses
+ * its cached one, so a later lookup on it builds a fresh one).
+ */
+export function carryIndex(prev: Commit[], next: Commit[]) {
+  const m = indexes.get(prev);
+  if (!m) return;
+  for (let i = prev.length; i < next.length; i++) m.set(next[i]!.hash, i);
+  indexes.delete(prev);
+  indexes.set(next, m);
+}
+
 /** Stash rows go just above the newest commit older than them, and never below their base. */
 export function withStashes(commits: Commit[], stashes: Stash[]): Commit[] {
-  const index = new Map(commits.map((c, i) => [c.hash, i]));
+  if (stashes.length === 0) return commits;
+  const index = hashIndex(commits);
   const at = new Map<number, Commit[]>();
   for (const s of stashes) {
     const baseIdx = s.base ? index.get(s.base) : undefined;

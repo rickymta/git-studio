@@ -1,5 +1,5 @@
 import { AlertTriangle } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 
 import { PromptDialog, Toasts } from '@/components/Overlays';
 import { Button, ResizeHandle, Spinner } from '@/components/ui';
@@ -24,6 +24,7 @@ import { MergePreviewHost } from '@/features/merge/MergePreview';
 import { PullMergeDialog } from '@/features/merge/PullMergeDialog';
 import { RebaseDialog } from '@/features/rebase/RebaseDialog';
 import { Sidebar } from '@/features/sidebar/Sidebar';
+import { Spotlight } from '@/features/spotlight/Spotlight';
 import { TerminalPanel } from '@/features/terminal/TerminalPanel';
 import { toggleTerminal } from '@/features/terminal/runtime';
 import { StatusBar } from '@/features/toolbar/StatusBar';
@@ -39,6 +40,7 @@ import { useGitHub } from '@/stores/github';
 import { ensureGitLabChecked } from '@/stores/gitlab';
 import { startLaunchpadPolling, useLaunchpad } from '@/stores/launchpad';
 import { useRepo } from '@/stores/repo';
+import { useSpotlight } from '@/stores/spotlight';
 import { useTokens } from '@/stores/tokens';
 import { useUi } from '@/stores/ui';
 import { useWorkspaces } from '@/stores/workspace';
@@ -59,12 +61,31 @@ const typing = (e: KeyboardEvent) => {
   return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
 };
 
+// The big panes read the stores themselves; memo keeps App's own re-renders (a selection, a
+// dialog, a diff opening) from re-rendering all of them.
+const MemoSidebar = memo(Sidebar);
+
+/** A dragged side's width, straight on its element (no render until the drag ends). */
+function setWidth(el: HTMLElement | null, w: number, min: number, max: number) {
+  if (el) el.style.width = `${Math.round(Math.min(max, Math.max(min, w)))}px`;
+}
+const MemoCommitGraph = memo(CommitGraph);
+const MemoToolbar = memo(Toolbar);
+const MemoTerminalPanel = memo(TerminalPanel);
+
 export function App() {
   const path = useRepo((s) => s.path);
-  const info = useRepo((s) => s.info);
+  // Primitives, not the whole `info`: App re-rendering re-renders everything under it, and the
+  // status is read again every few seconds.
+  const hasInfo = useRepo((s) => !!s.info);
+  const opState = useRepo((s) => s.info?.state ?? 'clean');
+  const conflicts = useRepo((s) => s.info?.status.conflicted.length ?? 0);
   const loading = useRepo((s) => s.loading);
   const selection = useRepo((s) => s.selection);
-  const diff = useRepo((s) => s.diff);
+  // Whether a diff is open (and the view it was opened in), not the diff itself: it changes twice
+  // per file opened (loading, loaded), and App re-rendering re-renders everything under it.
+  const hasDiff = useRepo((s) => !!s.diff);
+  const diffKey = useRepo((s) => s.diff?.view?.id ?? 0);
   const theme = useUi((s) => s.theme);
   const [signIn, setSignIn] = useState(false);
   const dialog = useUi((s) => s.dialog);
@@ -79,6 +100,9 @@ export function App() {
   const [newWs, setNewWs] = useState(false);
   const [sideW, setSideW] = usePersistentWidth('sidebar', 300, 180, 520);
   const [panelW, setPanelW] = usePersistentWidth('panel', 400, 280, 760);
+  // Dragging a side resizes its element directly; the width is saved (one render) on release.
+  const sideRef = useRef<HTMLElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
   const ws = useWorkspaces((s) => s.active());
   const launchpad = useLaunchpad((s) => s.open);
 
@@ -210,6 +234,10 @@ export function App() {
         e.preventDefault();
         setPrefs(null);
         useLaunchpad.getState().setOpen(!useLaunchpad.getState().open);
+      } else if (mod && !e.shiftKey && key === 'k' && useRepo.getState().path) {
+        // Spotlight over the open repository.
+        e.preventDefault();
+        useSpotlight.getState().setOpen(!useSpotlight.getState().open);
       } else if (mod && !e.shiftKey && key === 't') {
         e.preventDefault();
         useRepo.getState().newTab();
@@ -238,19 +266,19 @@ export function App() {
         <LaunchpadView onSignIn={() => setSignIn(true)} />
       </div>
     );
-  } else if (!booted || (loading && !info)) {
+  } else if (!booted || (loading && !hasInfo)) {
     body = (
       <div className="flex min-h-0 flex-1 items-center justify-center text-muted-foreground">
         <Spinner className="size-6" />
       </div>
     );
-  } else if ((!path || !info) && ws) {
+  } else if ((!path || !hasInfo) && ws) {
     body = (
       <div className="min-h-0 flex-1">
         <WorkspaceView />
       </div>
     );
-  } else if (!path || !info) {
+  } else if (!path || !hasInfo) {
     body = (
       <div className="min-h-0 flex-1">
         <Welcome
@@ -263,15 +291,15 @@ export function App() {
   } else {
     body = (
       <>
-        <Toolbar />
-        {info.state !== 'clean' && (
+        <MemoToolbar />
+        {opState !== 'clean' && (
           <div className="flex shrink-0 items-center gap-3 border-b border-warning/40 bg-warning-soft px-4 py-2">
             <AlertTriangle className="size-4 text-warning" />
             <span className="flex-1">
-              <b>{t(STATE_LABEL[info.state])}.</b>{' '}
-              {info.status.conflicted.length > 0
+              <b>{t(STATE_LABEL[opState])}.</b>{' '}
+              {conflicts > 0
                 ? t('Resolve {n} conflicted file(s), stage them, then continue.', {
-                    n: info.status.conflicted.length,
+                    n: conflicts,
                   })
                 : t('All conflicts resolved. Continue to finish.')}
             </span>
@@ -281,7 +309,7 @@ export function App() {
             <Button
               size="sm"
               variant="primary"
-              disabled={info.status.conflicted.length > 0}
+              disabled={conflicts > 0}
               onClick={() => A.continueOp()}
             >
               {t('Continue')}
@@ -291,20 +319,32 @@ export function App() {
         <BisectBanner />
         <div className="flex min-h-0 flex-1">
           <aside
+            ref={sideRef}
             className="relative shrink-0 border-r border-border bg-surface"
             style={{ width: sideW }}
           >
-            <Sidebar />
-            <ResizeHandle width={sideW} onResize={setSideW} onReset={() => setSideW(300)} />
+            <MemoSidebar />
+            <ResizeHandle
+              width={sideW}
+              onResize={setSideW}
+              onLive={(w) => setWidth(sideRef.current, w, 180, 520)}
+              onReset={() => setSideW(300)}
+            />
           </aside>
           <div className="relative flex min-w-0 flex-1 flex-col">
             <main className="min-h-0 min-w-0 flex-1 bg-background">
-              {diff ? <DiffView /> : <CommitGraph />}
+              {/* The graph stays mounted under an open diff: closing the diff shows it again
+                  as it was (same scroll position) instead of building it again. */}
+              <div className={hasDiff ? 'hidden' : 'h-full'}>
+                <MemoCommitGraph />
+              </div>
+              {hasDiff && <DiffView key={diffKey} />}
             </main>
-            <TerminalPanel />
+            <MemoTerminalPanel />
             <RemotePanel onSignIn={() => setSignIn(true)} />
           </div>
           <aside
+            ref={panelRef}
             className="relative shrink-0 border-l border-border bg-surface"
             style={{ width: panelW }}
           >
@@ -312,6 +352,7 @@ export function App() {
               side="left"
               width={panelW}
               onResize={setPanelW}
+              onLive={(w) => setWidth(panelRef.current, w, 280, 760)}
               onReset={() => setPanelW(400)}
             />
             {selection?.type === 'commit' ? (
@@ -367,6 +408,7 @@ export function App() {
       <RebaseDialog />
       <MergePreviewHost />
       <PullMergeDialog />
+      <Spotlight />
       <CleanDialog open={dialog === 'clean'} onClose={() => openDialog(null)} />
       <MaintenanceDialog open={dialog === 'maintenance'} onClose={() => openDialog(null)} />
       <PromptDialog />

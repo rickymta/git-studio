@@ -38,6 +38,16 @@ const info = (path: string): RepoInfo =>
 
 let remote = history(10);
 const api = vi.hoisted(() => ({
+  // `load` is log + refs + worktrees in one call: built from the mocks above so each test can
+  // keep driving those.
+  load: vi.fn(async (repo: string, limit: number, skip?: number, view?: unknown) => ({
+    commits: await (api.log as (...a: unknown[]) => Promise<unknown>)(repo, limit, skip, view),
+    refs: await (api.refs as (...a: unknown[]) => Promise<unknown>)(repo),
+    worktrees: (await (api.worktrees as (...a: unknown[]) => Promise<unknown>)(repo)) ?? [],
+  })),
+  loadPage: vi.fn(async () => null),
+  savePage: vi.fn(async () => null),
+  historyAppend: vi.fn(async () => null),
   open: vi.fn(),
   info: vi.fn(),
   log: vi.fn(),
@@ -47,7 +57,8 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock('@/lib/ipc', () => ({ api, isTauri: false }));
 
-import { keepOlder, useRepo } from './repo';
+import { hashIndex, layoutGraph, withStashes } from '@/lib/graph';
+import { keepOlder, setGraphScrolling, useRepo } from './repo';
 
 describe('keepOlder', () => {
   it('puts the new page on top of the older commits it reaches', () => {
@@ -99,5 +110,73 @@ describe('paging', () => {
     // One page read, not the whole history again.
     expect(api.log).toHaveBeenCalledTimes(1);
     expect(api.log.mock.calls[0]![1]).toBe(4);
+  });
+});
+
+describe('long histories', () => {
+  it('appends pages without a full pass, the same as laying out the whole list', async () => {
+    remote = history(4600);
+    api.refs.mockResolvedValue({ refs: [], stashes: [], remotes: [] } as never);
+    await useRepo.getState().open('/long');
+    await vi.waitFor(() => expect(useRepo.getState().commits).toHaveLength(4600), {
+      timeout: 10000,
+    });
+    const { commits, graph } = useRepo.getState();
+    expect(commits.map((c) => c.hash)).toEqual(remote.map((c) => c.hash));
+    expect(graph).toEqual(layoutGraph(commits));
+    expect(hashIndex(commits).get('c0')).toBe(4599);
+  });
+
+  it('waits while the list scrolls, then goes on', async () => {
+    remote = history(4600);
+    setGraphScrolling(true);
+    await useRepo.getState().open('/scrolling');
+    await new Promise((r) => setTimeout(r, 600));
+    expect(useRepo.getState().commits.length).toBeLessThan(4600);
+    setGraphScrolling(false);
+    await vi.waitFor(() => expect(useRepo.getState().commits).toHaveLength(4600), {
+      timeout: 10000,
+    });
+  });
+
+  it('re-places a stash whose base arrives in a later page', async () => {
+    remote = history(4600);
+    const stash = { hash: 's1', base: 'c5', time: 0, message: 'On main: wip', index: 0 };
+    api.refs.mockResolvedValue({ refs: [], stashes: [stash], remotes: [] } as never);
+    await useRepo.getState().open('/stashed');
+    await vi.waitFor(() => expect(useRepo.getState().commits).toHaveLength(4601), {
+      timeout: 10000,
+    });
+    const { commits } = useRepo.getState();
+    expect(commits.map((c) => c.hash)).toEqual(
+      withStashes(remote, [stash as never]).map((c) => c.hash),
+    );
+    api.refs.mockResolvedValue({ refs: [], stashes: [], remotes: [] } as never);
+  });
+});
+
+describe('status polling', () => {
+  it('keeps the same info object when nothing changed, so nothing re-renders', async () => {
+    remote = history(10);
+    api.log.mockImplementation(async (_p: string, limit: number, skip = 0) =>
+      remote.slice(skip, skip + limit),
+    );
+    api.open.mockImplementation(async (p: string) => info(p));
+    api.info.mockImplementation(async (p: string) => info(p));
+    await useRepo.getState().open('/polled');
+    await vi.waitFor(() => expect(useRepo.getState().info).not.toBeNull());
+    const before = useRepo.getState().info;
+    await useRepo.getState().refreshStatus();
+    expect(useRepo.getState().info).toBe(before);
+
+    // A real change (one more commit ahead) does replace it.
+    api.info.mockImplementation(async (p: string) => {
+      const i = info(p);
+      i.status.ahead = 1;
+      return i;
+    });
+    await useRepo.getState().refreshStatus();
+    expect(useRepo.getState().info).not.toBe(before);
+    expect(useRepo.getState().info?.status.ahead).toBe(1);
   });
 });

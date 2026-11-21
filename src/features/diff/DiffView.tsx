@@ -75,8 +75,11 @@ export function DiffView() {
   const [layout, setLayout] = usePersisted<DiffLayout>('gitstudio.diff.layout', 'hunk');
   const [ignoreWs, setIgnoreWs] = usePersisted('gitstudio.diff.ignoreWs', false);
   const [wrap, setWrap] = usePersisted('gitstudio.diff.wrap', false);
-  const [view, setView] = useState<'diff' | 'file'>('diff');
-  const [tool, setTool] = useState<'blame' | 'history' | null>(null);
+  // Remounted (keyed by `diff.view.id`) when opened straight into one of these.
+  const [view, setView] = useState<'diff' | 'file'>(diff.view?.mode === 'file' ? 'file' : 'diff');
+  const [tool, setTool] = useState<'blame' | 'history' | null>(
+    diff.view?.mode === 'history' || diff.view?.mode === 'blame' ? diff.view.mode : null,
+  );
   const [editing, setEditing] = useState(false);
   const [encOverride, setEncOverride] = useState<string | undefined>(undefined);
   const [file, setFile] = useState<DecodedText | null>(null);

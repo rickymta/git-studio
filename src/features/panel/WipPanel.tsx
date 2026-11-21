@@ -54,7 +54,19 @@ function usePersisted<T>(key: string, initial: T): [T, (v: T) => void] {
 }
 
 /** Vertical drag handle; reports the pointer's Y delta from the drag start. */
-function RowHandle({ onStart, onDrag }: { onStart: () => void; onDrag: (dy: number) => void }) {
+/**
+ * A horizontal drag handle. `onDrag` should only touch the DOM (no React state): it runs on every
+ * pointer move, and re-rendering the panel each time made dragging stutter. `onEnd` saves.
+ */
+function RowHandle({
+  onStart,
+  onDrag,
+  onEnd,
+}: {
+  onStart: () => void;
+  onDrag: (dy: number) => void;
+  onEnd: () => void;
+}) {
   return (
     <div
       role="separator"
@@ -68,6 +80,7 @@ function RowHandle({ onStart, onDrag }: { onStart: () => void; onDrag: (dy: numb
           window.removeEventListener('pointermove', move);
           window.removeEventListener('pointerup', up);
           document.body.style.cursor = '';
+          onEnd();
         };
         document.body.style.cursor = 'row-resize';
         window.addEventListener('pointermove', move);
@@ -80,21 +93,102 @@ function RowHandle({ onStart, onDrag }: { onStart: () => void; onDrag: (dy: numb
   );
 }
 
+const EMPTY_DRAFT = { summary: '', body: '' };
+
+/**
+ * A title and description, with their own state: typing re-renders these two fields only. `draft`
+ * mirrors what is typed for the panel's actions; remount (change the key) to replace the text.
+ */
+function MessageFields({
+  draftRef,
+  initial,
+  titlePlaceholder,
+  titleId,
+  counter = false,
+  onHasTitle,
+  onKeyDown,
+}: {
+  draftRef: React.RefObject<{ summary: string; body: string }>;
+  /** The text to start with (read when the fields mount). */
+  initial: { summary: string; body: string };
+  titlePlaceholder: string;
+  titleId?: string;
+  counter?: boolean;
+  /** Called when the title turns empty or non-empty. */
+  onHasTitle?: (has: boolean) => void;
+  onKeyDown?: (e: React.KeyboardEvent) => void;
+}) {
+  const [summary, setSummary] = useState(initial.summary);
+  const [body, setBody] = useState(initial.body);
+  return (
+    <div className="flex min-h-0 flex-1 flex-col rounded-md bg-background">
+      <div className="flex items-center">
+        <input
+          className="h-10 min-w-0 flex-1 bg-transparent px-3 text-[16px] font-semibold outline-none placeholder:text-muted-foreground"
+          id={titleId}
+          placeholder={titlePlaceholder}
+          value={summary}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (!!v.trim() !== !!draftRef.current.summary.trim()) onHasTitle?.(!!v.trim());
+            draftRef.current = { ...draftRef.current, summary: v };
+            setSummary(v);
+          }}
+          onKeyDown={onKeyDown}
+        />
+        {counter && (
+          <span
+            className={cn(
+              'pr-3 text-xs tabular-nums',
+              SUMMARY_MAX - summary.length < 0 ? 'text-danger' : 'text-muted-foreground',
+            )}
+            title={t('Characters left before the 72-character guideline')}
+          >
+            {SUMMARY_MAX - summary.length}
+          </span>
+        )}
+      </div>
+      <textarea
+        className="min-h-0 w-full flex-1 resize-none bg-transparent px-3 py-1 outline-none placeholder:text-muted-foreground"
+        placeholder={t('Description')}
+        value={body}
+        onChange={(e) => {
+          draftRef.current = { ...draftRef.current, body: e.target.value };
+          setBody(e.target.value);
+        }}
+        onKeyDown={onKeyDown}
+      />
+    </div>
+  );
+}
+
 export function WipPanel() {
   const info = useRepo((s) => s.info);
-  const diff = useRepo((s) => s.diff);
+  // The request only: the same object while the diff loads, so one render per file opened.
+  const diffReq = useRepo((s) => s.diff?.request ?? null);
   const openDiff = useRepo((s) => s.openDiff);
   const run = useRepo((s) => s.run);
   const busy = useRepo((s) => s.busy);
   const path = useRepo((s) => s.path)!;
   const [mode, setMode] = useViewMode();
   const [sort, setSort] = useFileSort();
-  const [summary, setSummary] = useState('');
-  const [body, setBody] = useState('');
+  // The message being typed lives in `MessageFields` (typing re-renders only the fields, not the
+  // file lists); the panel keeps a copy and whether there is a summary (the button's state).
+  const draft = useRef({ summary: '', body: '' });
+  const [draftKey, setDraftKey] = useState(0);
+  const [draftInit, setDraftInit] = useState({ summary: '', body: '' });
+  const [hasSummary, setHasSummary] = useState(false);
+  /** Replace the message (amend fills it in, a commit clears it). */
+  const setDraft = (summary: string, body: string) => {
+    draft.current = { summary, body };
+    setDraftInit({ summary, body });
+    setHasSummary(!!summary.trim());
+    setDraftKey((k) => k + 1);
+  };
   /** Bottom composer: commit the staged files, or stash them (GitKraken's Stash tab). */
   const [composer, setComposer] = useState<'commit' | 'stash'>('commit');
-  const [stashTitle, setStashTitle] = useState('');
-  const [stashBody, setStashBody] = useState('');
+  const stashDraft = useRef({ summary: '', body: '' });
+  const [stashKey, setStashKey] = useState(0);
   const [amend, setAmend] = useState(false);
   const [identity, setIdentity] = useState<{ name: string; email: string } | null>(null);
   const [selection, setSelection] = useState<{
@@ -115,6 +209,9 @@ export function WipPanel() {
   const areaRef = useRef<HTMLDivElement>(null);
   // Values at the start of a handle drag.
   const dragStart = useRef({ split: 0.55, commit: 300 });
+  /** The size being dragged, applied to the DOM until the drag ends. */
+  const dragNow = useRef({ split: 0.55, commit: 300 });
+  const commitBox = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     api
@@ -165,7 +262,7 @@ export function WipPanel() {
   };
 
   const isActive = (source: ListId) => (f: FileChange) =>
-    diff?.request.source === source && diff.request.path === f.path;
+    diffReq?.source === source && diffReq.path === f.path;
 
   const show = (source: ListId) => (f: FileChange) =>
     openDiff({ source, path: f.path, origPath: f.origPath, untracked: f.status === '?' });
@@ -191,25 +288,24 @@ export function WipPanel() {
 
   const toggleAmend = async (on: boolean) => {
     setAmend(on);
-    if (on && !summary.trim()) {
+    if (on && !draft.current.summary.trim()) {
       try {
         const msg = await api.headMessage(path);
         const [first, ...rest] = msg.split('\n');
-        setSummary(first ?? '');
-        setBody(rest.join('\n').trim());
+        setDraft(first ?? '', rest.join('\n').trim());
       } catch {
         /* no HEAD */
       }
     }
   };
 
-  const message = body.trim() ? `${summary.trim()}\n\n${body.trim()}` : summary.trim();
-  const canCommit = !!summary.trim() && (staged.length > 0 || amend) && conflicted.length === 0;
+  const canCommit = hasSummary && (staged.length > 0 || amend) && conflicted.length === 0;
 
   const commit = async () => {
+    const { summary, body } = draft.current;
+    const message = body.trim() ? `${summary.trim()}\n\n${body.trim()}` : summary.trim();
     if (!(await commitChanges(message, amend))) return;
-    setSummary('');
-    setBody('');
+    setDraft('', '');
     setAmend(false);
     if (pushAfter) await push();
   };
@@ -220,7 +316,7 @@ export function WipPanel() {
   const onCommitKey = (e: React.KeyboardEvent) => {
     if (e.key !== 'Enter' || !(e.ctrlKey || e.metaKey)) return;
     e.preventDefault();
-    if (e.shiftKey && summary.trim() && conflicted.length === 0) {
+    if (e.shiftKey && draft.current.summary.trim() && conflicted.length === 0) {
       void (async () => {
         if (await run('Stage', (p) => api.stage(p, []))) await commit();
       })();
@@ -230,7 +326,7 @@ export function WipPanel() {
   let commitLabel: string;
   if (conflicted.length > 0) commitLabel = t('Resolve Conflicts to Commit');
   else if (staged.length === 0 && !amend) commitLabel = t('Stage Changes to Commit');
-  else if (!summary.trim()) commitLabel = t('Type a Message to Commit');
+  else if (!hasSummary) commitLabel = t('Type a Message to Commit');
   else if (amend)
     commitLabel = andPush ? t('Amend Previous Commit and Push') : t('Amend Previous Commit');
   else if (staged.length === 1)
@@ -339,7 +435,11 @@ export function WipPanel() {
       drop={dropTarget === 'unstaged'}
       dropProps={dropProps('unstaged')}
       style={
-        bothOpen ? { flexBasis: `${split * 100}%` } : openLists.unstaged ? { flex: 1 } : undefined
+        bothOpen
+          ? { flexBasis: 'calc(var(--wip-split) * 100%)' }
+          : openLists.unstaged
+            ? { flex: 1 }
+            : undefined
       }
       action={
         unstagedSel.size > 1 ? (
@@ -433,7 +533,7 @@ export function WipPanel() {
       dropProps={dropProps('staged')}
       style={
         bothOpen
-          ? { flexBasis: `${(1 - split) * 100}%` }
+          ? { flexBasis: 'calc((1 - var(--wip-split)) * 100%)' }
           : openLists.staged
             ? { flex: 1 }
             : undefined
@@ -507,15 +607,23 @@ export function WipPanel() {
       </div>
 
       {/* File lists */}
-      <div ref={areaRef} className="flex min-h-0 flex-1 flex-col">
+      <div
+        ref={areaRef}
+        className="flex min-h-0 flex-1 flex-col"
+        style={{ '--wip-split': split } as React.CSSProperties}
+      >
         {unstagedPane}
         {bothOpen && (
           <RowHandle
-            onStart={() => (dragStart.current.split = split)}
+            onStart={() => (dragStart.current.split = dragNow.current.split = split)}
             onDrag={(dy) => {
-              const h = areaRef.current?.clientHeight ?? 400;
-              setSplit(Math.min(0.85, Math.max(0.15, dragStart.current.split + dy / h)));
+              const el = areaRef.current;
+              const h = el?.clientHeight ?? 400;
+              const v = Math.min(0.85, Math.max(0.15, dragStart.current.split + dy / h));
+              dragNow.current.split = v;
+              el?.style.setProperty('--wip-split', String(v));
             }}
+            onEnd={() => setSplit(dragNow.current.split)}
           />
         )}
         {stagedPane}
@@ -523,10 +631,16 @@ export function WipPanel() {
 
       {/* Commit */}
       <RowHandle
-        onStart={() => (dragStart.current.commit = commitH)}
-        onDrag={(dy) => setCommitH(Math.min(560, Math.max(190, dragStart.current.commit - dy)))}
+        onStart={() => (dragStart.current.commit = dragNow.current.commit = commitH)}
+        onDrag={(dy) => {
+          const v = Math.min(560, Math.max(190, dragStart.current.commit - dy));
+          dragNow.current.commit = v;
+          if (commitBox.current) commitBox.current.style.height = `${v}px`;
+        }}
+        onEnd={() => setCommitH(dragNow.current.commit)}
       />
       <div
+        ref={commitBox}
         className="flex shrink-0 flex-col border-t border-border px-3 pt-2 pb-3"
         style={{ height: commitH }}
       >
@@ -554,20 +668,12 @@ export function WipPanel() {
         </div>
         {composer === 'stash' ? (
           <>
-            <div className="flex min-h-0 flex-1 flex-col rounded-md bg-background">
-              <input
-                className="h-10 min-w-0 bg-transparent px-3 text-[16px] font-semibold outline-none placeholder:text-muted-foreground"
-                placeholder={t('Stash title')}
-                value={stashTitle}
-                onChange={(e) => setStashTitle(e.target.value)}
-              />
-              <textarea
-                className="min-h-0 w-full flex-1 resize-none bg-transparent px-3 py-1 outline-none placeholder:text-muted-foreground"
-                placeholder={t('Description')}
-                value={stashBody}
-                onChange={(e) => setStashBody(e.target.value)}
-              />
-            </div>
+            <MessageFields
+              key={`stash${stashKey}`}
+              draftRef={stashDraft}
+              initial={EMPTY_DRAFT}
+              titlePlaceholder={t('Stash title')}
+            />
             <Button
               variant={staged.length ? 'primary' : 'ghost'}
               className={cn(
@@ -576,10 +682,10 @@ export function WipPanel() {
               )}
               disabled={!staged.length || !!busy}
               onClick={async () => {
-                const ok = await stashStaged(stashTitle, stashBody);
+                const ok = await stashStaged(stashDraft.current.summary, stashDraft.current.body);
                 if (ok) {
-                  setStashTitle('');
-                  setStashBody('');
+                  stashDraft.current = { summary: '', body: '' };
+                  setStashKey((k) => k + 1);
                 }
               }}
             >
@@ -604,38 +710,16 @@ export function WipPanel() {
               <Checkbox checked={amend} onChange={(v) => toggleAmend(v)} />
               {t('Amend previous commit')}
             </label>
-            <div className="flex min-h-0 flex-1 flex-col rounded-md bg-background">
-              <div className="flex items-center">
-                <input
-                  className="h-10 min-w-0 flex-1 bg-transparent px-3 text-[16px] font-semibold outline-none placeholder:text-muted-foreground"
-                  id="commit-summary"
-                  placeholder={t('Commit summary')}
-                  value={summary}
-                  onChange={(e) => setSummary(e.target.value)}
-                  onKeyDown={(e) => {
-                    onCommitKey(e);
-                  }}
-                />
-                <span
-                  className={cn(
-                    'pr-3 text-xs tabular-nums',
-                    SUMMARY_MAX - summary.length < 0 ? 'text-danger' : 'text-muted-foreground',
-                  )}
-                  title={t('Characters left before the 72-character guideline')}
-                >
-                  {SUMMARY_MAX - summary.length}
-                </span>
-              </div>
-              <textarea
-                className="min-h-0 w-full flex-1 resize-none bg-transparent px-3 py-1 outline-none placeholder:text-muted-foreground"
-                placeholder={t('Description')}
-                value={body}
-                onChange={(e) => setBody(e.target.value)}
-                onKeyDown={(e) => {
-                  onCommitKey(e);
-                }}
-              />
-            </div>
+            <MessageFields
+              key={`commit${draftKey}`}
+              draftRef={draft}
+              initial={draftInit}
+              titlePlaceholder={t('Commit summary')}
+              titleId="commit-summary"
+              counter
+              onHasTitle={setHasSummary}
+              onKeyDown={onCommitKey}
+            />
             <button
               type="button"
               onClick={() => setOptionsOpen(!optionsOpen)}

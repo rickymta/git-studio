@@ -33,7 +33,8 @@ function Side({ side, tone }: { side: CompareSide; tone: 'base' | 'target' }) {
  */
 export function ComparePanel({ base, target }: { base: CompareSide; target: CompareSide }) {
   const repo = useRepo((s) => s.path)!;
-  const diff = useRepo((s) => s.diff);
+  // The request only: the same object while the diff loads, so one render per file opened.
+  const diffReq = useRepo((s) => s.diff?.request ?? null);
   const openDiff = useRepo((s) => s.openDiff);
   const select = useRepo((s) => s.select);
   // Branch names follow their refs: list again when the repository changes.
@@ -61,10 +62,10 @@ export function ComparePanel({ base, target }: { base: CompareSide; target: Comp
   );
 
   const isActive = (f: FileChange) =>
-    diff?.request.source === 'commit' &&
-    diff.request.commit === target.rev &&
-    diff.request.parent === base.rev &&
-    diff.request.path === f.path;
+    diffReq?.source === 'commit' &&
+    diffReq.commit === target.rev &&
+    diffReq.parent === base.rev &&
+    diffReq.path === f.path;
   const open = (f: FileChange) =>
     openDiff({
       source: 'commit',

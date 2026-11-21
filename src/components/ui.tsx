@@ -340,12 +340,18 @@ export function ResizeHandle({
   onResize,
   side = 'right',
   onReset,
+  onLive,
   className,
 }: {
   width: number;
   onResize: (w: number) => void;
   side?: 'left' | 'right';
   onReset?: () => void;
+  /**
+   * Shows the width while dragging (touch the DOM only, e.g. a CSS variable); `onResize` then
+   * runs once, on release. Without it `onResize` runs on every move.
+   */
+  onLive?: (w: number) => void;
   className?: string;
 }) {
   const start = (e: React.PointerEvent) => {
@@ -353,14 +359,18 @@ export function ResizeHandle({
     e.stopPropagation();
     const x0 = e.clientX;
     const w0 = width;
+    let last = w0;
     const move = (ev: PointerEvent) => {
       const dx = ev.clientX - x0;
-      onResize(side === 'right' ? w0 + dx : w0 - dx);
+      last = side === 'right' ? w0 + dx : w0 - dx;
+      if (onLive) onLive(last);
+      else onResize(last);
     };
     const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       document.body.style.cursor = '';
+      if (onLive && last !== w0) onResize(last);
     };
     document.body.style.cursor = 'col-resize';
     window.addEventListener('pointermove', move);

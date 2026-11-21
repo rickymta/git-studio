@@ -5,9 +5,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/cn';
 import { t } from '@/lib/i18n';
 import { tabsByRecent, useRepo, type RepoTab } from '@/stores/repo';
+import { tabMarkOf, useTabMarks } from '@/stores/tabMarks';
 import { useUi } from '@/stores/ui';
 import { samePath, summaryKey, useWorkspaces } from '@/stores/workspace';
 import { TabBadges } from './RepoTabs';
+import { TabColorDot, TabTag } from './TabTag';
 
 const baseName = (p: string) => p.split(/[\\/]/).filter(Boolean).pop() ?? p;
 
@@ -19,17 +21,23 @@ interface PickItem {
   group: 'tabs' | 'workspace' | 'recent';
 }
 
-/** Every word of the query appears in the name or the path. Name matches rank first. */
+/**
+ * Every word of the query appears in the name, the path or the tab's tag. A tag equal to the
+ * query ranks first, then name matches.
+ */
 function filterItems(items: PickItem[], query: string): PickItem[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return items;
+  const tagOf = (it: PickItem) => (tabMarkOf(it.path).tag ?? '').toLowerCase();
   const hit = items.filter((it) => {
     const name = it.name.toLowerCase();
     const path = it.path.toLowerCase();
-    return words.every((w) => name.includes(w) || path.includes(w));
+    const tag = tagOf(it);
+    return words.every((w) => name.includes(w) || path.includes(w) || tag.includes(w));
   });
   const score = (it: PickItem) => {
     const name = it.name.toLowerCase();
+    if (tagOf(it) === query.trim().toLowerCase()) return -1;
     if (name.startsWith(words[0]!)) return 0;
     if (words.every((w) => name.includes(w))) return 1;
     return 2;
@@ -98,7 +106,9 @@ export function TabPicker({
     return out;
   }, [mode, tabs, wsRepos, recent, summaries]);
 
-  const shown = useMemo(() => filterItems(items, query), [items, query]);
+  const marks = useTabMarks((s) => s.marks);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- tags are read through tabMarkOf
+  const shown = useMemo(() => filterItems(items, query), [items, query, marks]);
 
   // Ctrl+P starts on the previous tab (Ctrl+P, Enter goes back); the ▾ list on the shown one.
   const startAt = (q: string, list: PickItem[]) => {
@@ -206,6 +216,8 @@ export function TabPicker({
                 ) : (
                   <History className="size-3.5 shrink-0 opacity-70" />
                 )}
+                <TabColorDot path={it.path} />
+                <TabTag path={it.path} plain={i === cursor} />
                 <span className={cn('shrink-0 truncate', isCurrent && 'font-semibold')}>
                   {it.name}
                 </span>
@@ -298,6 +310,8 @@ function RecentSwitcher({ list, index }: { list: RepoTab[]; index: number }) {
             ) : (
               <FolderGit2 className="size-3.5 shrink-0" />
             )}
+            <TabColorDot path={tab.path} />
+            <TabTag path={tab.path} plain={i === index} />
             <span className="min-w-0 flex-1 truncate">{tab.name}</span>
             <TabBadges path={tab.path} active={!!current && samePath(current, tab.path)} />
           </div>

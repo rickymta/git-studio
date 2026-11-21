@@ -143,6 +143,16 @@ export interface RepoInfo {
   status: Status;
 }
 
+/** The first screen of a repository kept on disk (see `api.savePage`). */
+export interface SavedPage {
+  /** Commits of the first page, without stash rows. */
+  commits: Commit[];
+  refs: Refs;
+  worktrees: Worktree[];
+  /** When it was saved (ms). */
+  at: number;
+}
+
 export interface Identity {
   name: string;
   email: string;
@@ -388,11 +398,23 @@ export interface AppError {
   message: string;
 }
 
+export interface WorkspaceFolder {
+  id: string;
+  name: string;
+  /** Parent folder id; '' for the workspace's root. */
+  parent: string;
+  collapsed: boolean;
+}
+
 export interface Workspace {
   id: string;
   name: string;
   color: string;
   repos: string[];
+  /** Folders grouping the repositories, at most three levels deep. */
+  folders?: WorkspaceFolder[];
+  /** Normalised repository path → folder id; a repository not listed sits at the root. */
+  placement?: Record<string, string>;
 }
 
 export interface Workspaces {

@@ -40,6 +40,8 @@ export interface Field {
   options?: { value: string; label: string }[];
   required?: boolean;
   help?: string;
+  /** Text fields: longest value, in characters. */
+  maxLength?: number;
 }
 
 export interface PromptSpec {

@@ -1,9 +1,9 @@
-import type { GraphRow } from '@/lib/graph';
+import { hashIndex, type GraphRow } from '@/lib/graph';
 import type { Commit } from '@/lib/types';
 
 /** Row index of every commit, so a hover walks the chain without scanning the list. */
 export function rowIndex(commits: Commit[]): Map<string, number> {
-  return new Map(commits.map((c, i) => [c.hash, i]));
+  return hashIndex(commits);
 }
 
 /**

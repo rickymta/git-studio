@@ -25,6 +25,7 @@ import { openSession, toggleTerminal } from '@/features/terminal/runtime';
 import { useRepoHost } from '@/features/pulls/hosting';
 import { usePullAction, type PullAction } from '@/stores/pullAction';
 import { useRepo } from '@/stores/repo';
+import { useSpotlight } from '@/stores/spotlight';
 import { headOffBranch } from '../graph/refGroups';
 import { openDialog, toast } from '@/stores/ui';
 import { samePath, useWorkspaces } from '@/stores/workspace';
@@ -37,6 +38,7 @@ function ToolButton({
   badge,
   disabled,
   title,
+  className,
 }: {
   icon: ReactNode;
   label: string;
@@ -44,6 +46,7 @@ function ToolButton({
   badge?: number;
   disabled?: boolean;
   title?: string;
+  className?: string;
 }) {
   return (
     <button
@@ -51,7 +54,10 @@ function ToolButton({
       onClick={onClick}
       disabled={disabled}
       title={title ?? label}
-      className="relative flex h-12 min-w-12 flex-col items-center justify-center gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground hover:bg-surface-hover hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
+      className={cn(
+        'relative flex h-12 min-w-12 flex-col items-center justify-center gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground hover:bg-surface-hover hover:text-foreground disabled:pointer-events-none disabled:opacity-35',
+        className,
+      )}
     >
       <span>{label}</span>
       <span className="flex items-center gap-1">
@@ -68,6 +74,51 @@ function ToolButton({
 }
 
 const Divider = () => <div className="mx-1.5 h-8 w-px bg-border" />;
+
+/**
+ * A tool button with a menu (GitKraken's layout): two columns, the button and a narrow ▾ column
+ * as tall as the block, lit up together on hover (and while the menu is open).
+ */
+function SplitTool({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex rounded-md hover:bg-surface-hover has-[[data-state=open]]:bg-surface-hover [&>button:first-child]:pr-0.5 [&>button:first-child]:hover:bg-transparent">
+      {children}
+    </div>
+  );
+}
+
+/** The ▾ of a `SplitTool` (the menu trigger; Radix passes its props and ref through). */
+function Caret({
+  label,
+  ...rest
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  label: string;
+  ref?: React.Ref<HTMLButtonElement>;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      {...rest}
+      className="group/caret flex h-12 w-4 flex-col items-center justify-center gap-1 rounded-r-md pr-1 text-[11px] text-muted-foreground hover:text-foreground data-[state=open]:text-foreground"
+    >
+      {/* Same rows as the button beside it, so the ▾ sits level with its icon. */}
+      <span aria-hidden className="invisible">
+        ·
+      </span>
+      <span className="flex h-[18px] items-center">
+        <svg
+          viewBox="0 0 8 5"
+          aria-hidden
+          className="w-2 transition-transform group-data-[state=open]/caret:rotate-180"
+        >
+          <path d="M0 0h8L4 5z" fill="currentColor" />
+        </svg>
+      </span>
+    </button>
+  );
+}
 
 function Selector({ label, value, items }: { label: string; value: string; items: MenuItem[] }) {
   return (
@@ -209,7 +260,7 @@ export function Toolbar() {
           disabled={!redoTop || !!busy}
         />
         <Divider />
-        <div className="flex">
+        <SplitTool>
           <ToolButton
             icon={<ArrowDownToLine className="size-[18px]" />}
             label={t('Pull')}
@@ -224,8 +275,8 @@ export function Toolbar() {
             tracked={tracked}
             canPull={!!st.branch}
           />
-        </div>
-        <div className="flex">
+        </SplitTool>
+        <SplitTool>
           <ToolButton
             icon={<ArrowUpFromLine className="size-[18px]" />}
             label={t('Push')}
@@ -241,15 +292,9 @@ export function Toolbar() {
             disabled={!!busy || !st.branch}
           />
           <Dropdown items={pushMenu}>
-            <button
-              type="button"
-              aria-label={t('Push options')}
-              className="flex h-12 w-4 items-start justify-center rounded-md pt-2 text-muted-foreground hover:bg-surface-hover"
-            >
-              <ChevronDown className="size-3" />
-            </button>
+            <Caret label={t('Push options')} />
           </Dropdown>
-        </div>
+        </SplitTool>
         <Divider />
         <ToolButton
           icon={<GitBranchPlus className="size-[18px]" />}
@@ -291,7 +336,7 @@ export function Toolbar() {
           </>
         )}
         <Divider />
-        <div className="flex">
+        <SplitTool>
           <ToolButton
             icon={<SquareTerminal className="size-[18px]" />}
             label={t('Terminal')}
@@ -312,15 +357,9 @@ export function Toolbar() {
               },
             ]}
           >
-            <button
-              type="button"
-              aria-label={t('Terminal options')}
-              className="flex h-12 w-4 items-start justify-center rounded-md pt-2 text-muted-foreground hover:bg-surface-hover"
-            >
-              <ChevronDown className="size-3" />
-            </button>
+            <Caret label={t('Terminal options')} />
           </Dropdown>
-        </div>
+        </SplitTool>
       </div>
 
       <div className="flex w-[22%] items-center justify-end gap-1">
@@ -332,10 +371,8 @@ export function Toolbar() {
         <ToolButton
           icon={<Search className="size-[18px]" />}
           label={t('Search')}
-          title={t('Search commits (Ctrl+F)')}
-          onClick={() =>
-            window.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', ctrlKey: true }))
-          }
+          title={t('Search this repository (Ctrl+K)')}
+          onClick={() => useSpotlight.getState().setOpen(true)}
         />
       </div>
     </div>
@@ -370,13 +407,7 @@ function PullMenu({
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <button
-          type="button"
-          aria-label={t('Pull options')}
-          className="flex h-12 w-4 items-start justify-center rounded-md pt-2 text-muted-foreground hover:bg-surface-hover data-[state=open]:bg-surface-hover"
-        >
-          <ChevronDown className="size-3" />
-        </button>
+        <Caret label={t('Pull options')} />
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content
