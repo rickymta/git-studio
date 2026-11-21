@@ -2,6 +2,13 @@
 
 Các thay đổi đáng chú ý của GitStudio. File này do `pnpm release` cập nhật.
 
+## v1.0.0 - 2026-11-21
+
+Thay đổi từ v0.3.8.
+
+- feat: workspace folders, Spotlight search, tab colours and tags; smoother app (6d9dd61)
+- perf(core): open huge repositories fast; folders in workspaces (4212eeb)
+
 ## v0.3.8 - 2026-11-21
 
 Thay đổi từ v0.3.7.
