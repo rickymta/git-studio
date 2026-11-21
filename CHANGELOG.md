@@ -2,6 +2,13 @@
 
 Các thay đổi đáng chú ý của GitStudio. File này do `pnpm release` cập nhật.
 
+## v0.3.7 - 2026-11-21
+
+Thay đổi từ v0.3.6.
+
+- fix(graph): link the WIP row to HEAD when newer commits sit in between (108df6c)
+- fix(overlay): notice status files rewritten within one clock tick (a71c38b)
+
 ## v0.3.6 - 2026-11-21
 
 Thay đổi từ v0.3.5.
