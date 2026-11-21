@@ -5,6 +5,7 @@ import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import { useRepo } from '@/stores/repo';
 import { toast, useUi } from '@/stores/ui';
+import { useLaunchpad } from '@/stores/launchpad';
 
 const typing = (e: KeyboardEvent) => {
   const el = e.target as HTMLElement | null;
@@ -65,7 +66,8 @@ export function GlobalShortcuts({
         onActivity();
         return;
       }
-      if (!r.path) return;
+      // The Launchpad has its own keys (J/K, S, …) while it covers the repository.
+      if (!r.path || useLaunchpad.getState().open) return;
 
       if (ctrl && e.shiftKey && key === 'm') {
         e.preventDefault();

@@ -81,6 +81,7 @@ export const SHORTCUTS: ShortcutGroup[] = [
       { label: 'Reset zoom', keys: [['Ctrl', '0']] },
       { label: 'Keyboard Shortcuts', keys: [['Ctrl', '/']] },
       { label: 'Activity Logs', keys: [['Ctrl', 'Shift', 'L']] },
+      { label: 'Launchpad', keys: [['Ctrl', 'Shift', 'K']] },
     ],
   },
 ];

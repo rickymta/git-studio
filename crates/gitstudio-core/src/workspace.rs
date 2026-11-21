@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
 use crate::git::Repo;
-use crate::git::model::{GitHubSlug, RepoState};
+use crate::git::model::{FileChange, GitHubSlug, GitLabSlug, RepoState};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", default)]
@@ -123,6 +123,44 @@ pub struct RepoSummary {
     pub state: Option<RepoState>,
     pub last_commit: Option<LastCommit>,
     pub github: Option<GitHubSlug>,
+    pub gitlab: Option<GitLabSlug>,
+    /// Uncommitted files by kind (Launchpad's WIPs).
+    pub wip: WipCounts,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WipCounts {
+    pub modified: u32,
+    pub added: u32,
+    pub deleted: u32,
+    pub renamed: u32,
+}
+
+/// Each changed path counted once, staged or not: renamed, else deleted, else added
+/// (untracked included), else modified.
+pub fn wip_counts<'a>(files: impl Iterator<Item = &'a FileChange>) -> WipCounts {
+    let mut by_path: std::collections::BTreeMap<&str, u8> = std::collections::BTreeMap::new();
+    for f in files {
+        let rank = match f.status {
+            'R' | 'C' => 4,
+            'D' => 3,
+            'A' | '?' => 2,
+            _ => 1,
+        };
+        let e = by_path.entry(f.path.as_str()).or_insert(0);
+        *e = (*e).max(rank);
+    }
+    let mut c = WipCounts::default();
+    for rank in by_path.values() {
+        match rank {
+            4 => c.renamed += 1,
+            3 => c.deleted += 1,
+            2 => c.added += 1,
+            _ => c.modified += 1,
+        }
+    }
+    c
 }
 
 async fn summarise(path: String) -> RepoSummary {
@@ -143,6 +181,8 @@ async fn summarise(path: String) -> RepoSummary {
         state: None,
         last_commit: None,
         github: None,
+        gitlab: None,
+        wip: WipCounts::default(),
     };
     let repo = match Repo::open(Path::new(&path)).await {
         Ok(r) => r,
@@ -162,6 +202,7 @@ async fn summarise(path: String) -> RepoSummary {
             paths.sort_unstable();
             paths.dedup();
             s.changes = paths.len() as u32;
+            s.wip = wip_counts(st.staged.iter().chain(&st.unstaged));
             s.conflicts = st.conflicted.len() as u32;
             s.branch = st.branch;
             s.upstream = st.upstream;
@@ -190,6 +231,12 @@ async fn summarise(path: String) -> RepoSummary {
             .find(|x| x.name == "origin" && x.github.is_some())
             .or_else(|| r.remotes.iter().find(|x| x.github.is_some()));
         s.github = gh.and_then(|x| x.github.clone());
+        let gl = r
+            .remotes
+            .iter()
+            .find(|x| x.name == "origin" && x.gitlab.is_some())
+            .or_else(|| r.remotes.iter().find(|x| x.gitlab.is_some()));
+        s.gitlab = gl.and_then(|x| x.gitlab.clone());
     }
     s
 }
@@ -217,6 +264,33 @@ pub async fn status(paths: Vec<String>) -> Vec<RepoSummary> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wip_counts_each_path_once() {
+        let f = |path: &str, status: char| FileChange {
+            path: path.into(),
+            orig_path: None,
+            status,
+        };
+        let files = [
+            f("a.rs", 'M'),
+            f("a.rs", 'M'),
+            f("new.rs", '?'),
+            f("staged.rs", 'A'),
+            f("staged.rs", 'M'),
+            f("gone.rs", 'D'),
+            f("moved.rs", 'R'),
+        ];
+        assert_eq!(
+            wip_counts(files.iter()),
+            WipCounts {
+                modified: 1,
+                added: 2,
+                deleted: 1,
+                renamed: 1
+            }
+        );
+    }
 
     #[test]
     fn scan_finds_nested_repos_and_skips_noise() {

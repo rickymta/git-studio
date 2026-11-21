@@ -82,9 +82,15 @@ async fn main() {
             post(call).options(|| async { StatusCode::NO_CONTENT }),
         )
         .layer(axum::middleware::from_fn(cors));
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:1421")
+    // GITSTUDIO_BRIDGE_PORT runs a second bridge beside one already on 1421 (pair it with
+    // VITE_BRIDGE_PORT for the UI).
+    let port: u16 = std::env::var("GITSTUDIO_BRIDGE_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(1421);
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
         .await
-        .expect("bind 1421");
-    println!("GitStudio dev bridge on http://127.0.0.1:1421");
+        .unwrap_or_else(|e| panic!("bind {port}: {e}"));
+    println!("GitStudio dev bridge on http://127.0.0.1:{port}");
     axum::serve(listener, app).await.expect("serve");
 }
