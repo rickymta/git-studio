@@ -82,6 +82,97 @@ pub fn ensure(root: &Path, git_dir: &Path) -> bool {
     true
 }
 
+/// The repository has a commit-graph (one file or a split chain).
+pub fn has_graph(git_dir: &Path) -> bool {
+    let info = objects_dir(git_dir).join("info");
+    info.join("commit-graph").exists()
+        || info
+            .join("commit-graphs")
+            .join("commit-graph-chain")
+            .exists()
+}
+
+/// Packs bigger than this mean a history long enough that `--date-order` without a
+/// commit-graph would read for seconds (about 4.5 s per million commits) before printing.
+const BIG_PACKS: u64 = 64 * 1024 * 1024;
+
+/// Total size of the repository's packs is over `BIG_PACKS`.
+pub fn big_history(git_dir: &Path) -> bool {
+    let mut total = 0u64;
+    if let Ok(entries) = std::fs::read_dir(objects_dir(git_dir).join("pack")) {
+        for e in entries.flatten() {
+            if e.file_name().to_string_lossy().ends_with(".pack") {
+                total += e.metadata().map(|m| m.len()).unwrap_or(0);
+                if total > BIG_PACKS {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Loose ref files past this many slow every ref listing down (one file each); `git pack-refs`
+/// puts them in one `packed-refs` file, as `git gc` would.
+const MANY_LOOSE_REFS: usize = 1000;
+
+fn count_files(dir: &Path, limit: usize, n: &mut usize) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for e in entries.flatten() {
+        if *n > limit {
+            return;
+        }
+        match e.file_type() {
+            Ok(t) if t.is_dir() => count_files(&e.path(), limit, n),
+            Ok(_) => *n += 1,
+            Err(_) => {}
+        }
+    }
+}
+
+/// Pack the loose refs in the background when there are many (once per session per repository).
+/// Returns whether it started.
+pub fn pack_refs_if_many(root: &Path, git_dir: &Path) -> bool {
+    static PACKED: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
+    let common = objects_dir(git_dir)
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| git_dir.to_path_buf());
+    if !PACKED
+        .get_or_init(|| Mutex::new(HashSet::new()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(common.clone())
+    {
+        return false;
+    }
+    let mut n = 0;
+    count_files(&common.join("refs"), MANY_LOOSE_REFS, &mut n);
+    if n <= MANY_LOOSE_REFS {
+        return false;
+    }
+    let root = root.to_path_buf();
+    std::thread::spawn(move || {
+        let mut cmd = Command::new("git");
+        cmd.arg("-C")
+            .arg(&root)
+            .args(["pack-refs", "--all"])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            // CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS
+            cmd.creation_flags(0x0800_0000 | 0x0000_4000);
+        }
+        let _ = cmd.status();
+    });
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

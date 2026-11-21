@@ -8,6 +8,17 @@ use tokio::process::Command;
 
 use crate::error::{Error, Result};
 
+tokio::task_local! {
+    /// Set around background work (the workspace overview's summaries…): the git processes it
+    /// starts run below normal priority, so what the user is doing right now goes first.
+    static LOW_PRIORITY: bool;
+}
+
+/// Run `f` with its git processes at low priority (see `LOW_PRIORITY`).
+pub async fn low_priority<F: std::future::Future>(f: F) -> F::Output {
+    LOW_PRIORITY.scope(true, f).await
+}
+
 /// Raw result of a `git` invocation.
 #[derive(Debug)]
 pub struct Output {
@@ -59,7 +70,9 @@ pub async fn raw(cwd: Option<&Path>, args: &[&str], opts: Opts<'_>) -> Result<Ou
     #[cfg(windows)]
     {
         // CREATE_NO_WINDOW: no console flashing up for every git call.
-        cmd.creation_flags(0x0800_0000);
+        // BELOW_NORMAL_PRIORITY_CLASS for background work.
+        let low = LOW_PRIORITY.try_with(|v| *v).unwrap_or(false);
+        cmd.creation_flags(0x0800_0000 | if low { 0x0000_4000 } else { 0 });
     }
 
     let mut child = cmd.spawn().map_err(|e| Error::GitMissing(e.to_string()))?;

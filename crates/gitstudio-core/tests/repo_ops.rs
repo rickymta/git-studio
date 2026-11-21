@@ -370,6 +370,24 @@ async fn reword_drop_worktree_and_files() {
     assert_eq!(list.len(), 2);
     assert!(list[0].is_main && list[0].is_current);
     assert_eq!(list[1].branch.as_deref(), Some("side"));
+    // Read from `.git/worktrees`, it matches `git worktree list` (from the main worktree and
+    // from the linked one), and so does the quick info's HEAD.
+    let as_json = |l: &Vec<gitstudio_core::git::files::Worktree>| serde_json::to_value(l).unwrap();
+    assert_eq!(as_json(&list), as_json(&r.worktrees_git().await.unwrap()));
+    let linked = Repo::open(&wt).await.unwrap();
+    assert_eq!(
+        as_json(&linked.worktrees().await.unwrap()),
+        as_json(&linked.worktrees_git().await.unwrap())
+    );
+    let quick = linked.info_quick().await.unwrap();
+    let full = linked.info().await.unwrap();
+    assert_eq!(quick.status.branch, full.status.branch);
+    assert_eq!(quick.status.head, full.status.head);
+    // Opening again reuses the repository (no `git rev-parse`).
+    assert_eq!(Repo::open(&wt).await.unwrap().root, linked.root);
+    let loaded = r.load(10, 0, &Default::default()).await.unwrap();
+    assert!(!loaded.commits.is_empty());
+    assert_eq!(loaded.worktrees.len(), 2);
     r.remove_worktree(&wt.display().to_string(), false)
         .await
         .unwrap();

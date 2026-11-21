@@ -337,7 +337,8 @@ impl Repo {
 
     // ---- worktrees ----
 
-    pub async fn worktrees(&self) -> Result<Vec<Worktree>> {
+    /// `git worktree list` (see `worktrees`, which reads the same from files).
+    pub async fn worktrees_git(&self) -> Result<Vec<Worktree>> {
         let out = run::ok(
             &self.root,
             &["worktree", "list", "--porcelain"],

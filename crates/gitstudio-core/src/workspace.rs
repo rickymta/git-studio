@@ -18,6 +18,20 @@ pub struct Workspace {
     pub color: String,
     /// Repository working-tree paths.
     pub repos: Vec<String>,
+    /// Folders grouping the repositories (at most three levels; the UI keeps them valid).
+    pub folders: Vec<WorkspaceFolder>,
+    /// Normalised repository path → folder id; a repository not listed sits at the root.
+    pub placement: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct WorkspaceFolder {
+    pub id: String,
+    pub name: String,
+    /// Parent folder id; empty for the workspace's root.
+    pub parent: String,
+    pub collapsed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -212,30 +226,26 @@ async fn summarise(path: String) -> RepoSummary {
         Err(e) => s.error = Some(e.to_string()),
     }
     s.state = Some(repo.state());
-    if let Ok(log) = repo.log(1, 0).await {
-        // `log` walks --all; the first entry is the newest commit anywhere, which is what an
-        // overview wants ("last activity").
-        if let Some(c) = log.into_iter().next() {
-            s.last_commit = Some(LastCommit {
-                hash: c.hash,
-                subject: c.subject,
-                author: c.author_name,
-                time: c.commit_time,
-            });
-        }
+    // The newest commit anywhere, which is what an overview wants ("last activity").
+    if let Ok(Some(c)) = repo.newest_commit().await {
+        s.last_commit = Some(LastCommit {
+            hash: c.hash,
+            subject: c.subject,
+            author: c.author_name,
+            time: c.commit_time,
+        });
     }
-    if let Ok(r) = repo.refs().await {
-        let gh = r
-            .remotes
+    // Only the remotes are needed here (GitHub / GitLab links), not every ref.
+    if let Ok(remotes) = repo.remotes().await {
+        let gh = remotes
             .iter()
             .find(|x| x.name == "origin" && x.github.is_some())
-            .or_else(|| r.remotes.iter().find(|x| x.github.is_some()));
+            .or_else(|| remotes.iter().find(|x| x.github.is_some()));
         s.github = gh.and_then(|x| x.github.clone());
-        let gl = r
-            .remotes
+        let gl = remotes
             .iter()
             .find(|x| x.name == "origin" && x.gitlab.is_some())
-            .or_else(|| r.remotes.iter().find(|x| x.gitlab.is_some()));
+            .or_else(|| remotes.iter().find(|x| x.gitlab.is_some()));
         s.gitlab = gl.and_then(|x| x.gitlab.clone());
     }
     s
@@ -243,7 +253,9 @@ async fn summarise(path: String) -> RepoSummary {
 
 /// Summaries of `paths`, computed concurrently (bounded), in the input order.
 pub async fn status(paths: Vec<String>) -> Vec<RepoSummary> {
-    const PARALLEL: usize = 6;
+    // Background work: a few repositories at a time, at low priority, so opening a repository
+    // meanwhile is not slowed down by dozens of git processes.
+    const PARALLEL: usize = 4;
     let mut out: Vec<Option<RepoSummary>> = vec![None; paths.len()];
     let mut set = tokio::task::JoinSet::new();
     let mut next = 0;
@@ -251,7 +263,9 @@ pub async fn status(paths: Vec<String>) -> Vec<RepoSummary> {
         while next < paths.len() && set.len() < PARALLEL {
             let i = next;
             let p = paths[i].clone();
-            set.spawn(async move { (i, summarise(p).await) });
+            set.spawn(crate::git::run::low_priority(async move {
+                (i, summarise(p).await)
+            }));
             next += 1;
         }
         if let Some(Ok((i, s))) = set.join_next().await {

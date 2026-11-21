@@ -50,6 +50,12 @@ fn flatten_body(b: &str) -> String {
 
 /// `git for-each-ref` format matching [`parse_refs`].
 pub const REF_FORMAT: &str = "--format=%(refname)%1f%(objectname)%1f%(*objectname)%1f%(upstream:short)%1f%(upstream:track,nobracket)%1f%(HEAD)%1f%(symref)";
+/// `REF_FORMAT` for remote branches: no peeling, no upstream (they have none).
+pub const REF_FORMAT_REMOTE: &str =
+    "--format=%(refname)%1f%(objectname)%1f%1f%1f%1f%(HEAD)%1f%(symref)";
+/// `REF_FORMAT` for tags: peeled (annotated tags), no upstream.
+pub const REF_FORMAT_TAG: &str =
+    "--format=%(refname)%1f%(objectname)%1f%(*objectname)%1f%1f%1f%(HEAD)%1f%(symref)";
 
 pub fn parse_refs(text: &str) -> Vec<GitRef> {
     let mut out = Vec::new();

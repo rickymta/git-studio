@@ -3,6 +3,7 @@
 
 pub mod commit_graph;
 pub mod extras;
+pub mod fast;
 pub mod files;
 pub mod merge;
 pub mod model;
@@ -76,8 +77,12 @@ pub struct Repo {
 }
 
 impl Repo {
-    /// Open the repository containing `path`.
+    /// Open the repository containing `path` (once per session: later calls reuse it while its
+    /// `.git` is still there, saving a `git rev-parse` on every command).
     pub async fn open(path: &Path) -> Result<Repo> {
+        if let Some(r) = fast::cached(path) {
+            return Ok(r);
+        }
         if !path.is_dir() {
             return Err(Error::Invalid(format!(
                 "Folder not found: {}",
@@ -103,10 +108,12 @@ impl Repo {
                 "Bare repositories are not supported".to_string(),
             ));
         };
-        Ok(Repo {
+        let repo = Repo {
             root: PathBuf::from(root),
             git_dir: PathBuf::from(git_dir),
-        })
+        };
+        fast::remember(path, &repo);
+        Ok(repo)
     }
 
     async fn git(&self, args: &[&str]) -> Result<String> {
@@ -167,6 +174,7 @@ impl Repo {
     }
 
     pub async fn status(&self) -> Result<Status> {
+        let started = std::time::Instant::now();
         let out = run::ok(
             &self.root,
             &[
@@ -180,6 +188,7 @@ impl Repo {
             Opts::default(),
         )
         .await?;
+        fast::status_took(&self.root, &self.git_dir, started.elapsed());
         Ok(parse::parse_status(&out.stdout))
     }
 
@@ -200,6 +209,25 @@ impl Repo {
         self.log_view(limit, skip, &LogView::default()).await
     }
 
+    /// The remotes (`git remote -v`), without the refs: one git process instead of five.
+    pub async fn remotes(&self) -> Result<Vec<model::Remote>> {
+        Ok(parse::parse_remotes(&self.git(&["remote", "-v"]).await?))
+    }
+
+    /// The newest commit on any ref (git's default order: no full walk on long histories).
+    pub async fn newest_commit(&self) -> Result<Option<Commit>> {
+        let out = self
+            .git(&[
+                "log",
+                "-1",
+                parse::LOG_FORMAT,
+                "--exclude=refs/stash",
+                "--all",
+            ])
+            .await?;
+        Ok(parse::parse_log(&out).into_iter().next())
+    }
+
     /// History for the graph. `view.solo`: only these refs; `view.hidden`: every ref but these.
     pub async fn log_view(&self, limit: u32, skip: u32, view: &LogView) -> Result<Vec<Commit>> {
         let n = format!("-n{limit}");
@@ -207,13 +235,11 @@ impl Repo {
         for r in view.solo.iter().chain(&view.hidden) {
             check_rev(r)?;
         }
-        let mut a: Vec<String> = vec![
-            "log".into(),
-            "--date-order".into(),
-            n,
-            s,
-            parse::LOG_FORMAT.to_string(),
-        ];
+        let mut a: Vec<String> = vec!["log".into()];
+        if fast::date_order(&self.git_dir, skip == 0) {
+            a.push("--date-order".into());
+        }
+        a.extend([n, s, parse::LOG_FORMAT.to_string()]);
         if view.solo.is_empty() && view.hidden.is_empty() {
             a.extend(["--exclude=refs/stash".into(), "--all".into(), "HEAD".into()]);
         } else if view.solo.is_empty() {
@@ -405,22 +431,24 @@ impl Repo {
     // ---- refs ---------------------------------------------------------------------------------
 
     pub async fn refs(&self) -> Result<Refs> {
-        let refs_text = self
-            .git(&[
-                "for-each-ref",
-                parse::REF_FORMAT,
-                "refs/heads",
-                "refs/remotes",
-                "refs/tags",
-            ])
-            .await?;
-        let stash_out = run::raw(
-            Some(&self.root),
-            &["stash", "list", parse::STASH_FORMAT],
-            Opts::default(),
-        )
-        .await?;
-        let remotes_text = self.git(&["remote", "-v"]).await?;
+        // Three independent reads: run them at the same time.
+        // Each ref kind asks only for what it needs: ahead/behind counts (a walk per branch) for
+        // local branches, peeling (an object read per ref) for tags. Asking both for every ref
+        // costs ~0.4 s per 2,000 refs, and old repositories have thousands of remote branches and
+        // tags. Same fields in the same order, so one parser reads all three.
+        let (heads, remote_refs, tags, stash_out, remotes_text) = tokio::join!(
+            self.git(&["for-each-ref", parse::REF_FORMAT, "refs/heads"]),
+            self.git(&["for-each-ref", parse::REF_FORMAT_REMOTE, "refs/remotes"]),
+            self.git(&["for-each-ref", parse::REF_FORMAT_TAG, "refs/tags"]),
+            run::raw(
+                Some(&self.root),
+                &["stash", "list", parse::STASH_FORMAT],
+                Opts::default(),
+            ),
+            self.git(&["remote", "-v"]),
+        );
+        let refs_text = format!("{}{}{}", heads?, remote_refs?, tags?);
+        let (stash_out, remotes_text) = (stash_out?, remotes_text?);
         Ok(Refs {
             refs: parse::parse_refs(&refs_text),
             stashes: if stash_out.code == 0 {

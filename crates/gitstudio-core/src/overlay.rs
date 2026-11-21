@@ -274,6 +274,7 @@ fn repo_status(root: &Path, details: Option<&Path>) -> Option<(Level, Option<Str
     ]
     .iter()
     .any(|m| gd.join(m).exists());
+    let started = std::time::Instant::now();
     let out = git(root)
         .args([
             "status",
@@ -284,6 +285,8 @@ fn repo_status(root: &Path, details: Option<&Path>) -> Option<(Level, Option<Str
         ])
         .output()
         .ok()?;
+    // A slow status means stale file times in the index: refresh it now and then.
+    crate::git::fast::status_took(root, &gd, started.elapsed());
     if !out.status.success() {
         return None;
     }

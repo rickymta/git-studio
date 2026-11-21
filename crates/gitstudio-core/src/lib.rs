@@ -12,6 +12,7 @@ pub mod launch;
 pub mod launchpad;
 pub mod overlay;
 pub mod overlay_install;
+pub mod page_cache;
 pub mod settings;
 pub mod shell_menu;
 pub mod ssh;
@@ -279,7 +280,15 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
             let r = repo(a).await?;
             // Large histories page slowly without git's commit-graph: write it in the background.
             git::commit_graph::ensure(&r.root, &r.git_dir);
-            let info = r.info().await?;
+            // Thousands of loose ref files slow every ref listing: pack them, like `git gc`.
+            git::commit_graph::pack_refs_if_many(&r.root, &r.git_dir);
+            // `quick`: branch and HEAD from files, no `git status` (the UI reads it next).
+            let quick: Option<bool> = opt(a, "quick")?;
+            let info = if quick == Some(true) {
+                r.info_quick().await?
+            } else {
+                r.info().await?
+            };
             settings::touch_recent(&info.path, &info.name)?;
             serde_json::to_value(info)?
         }
@@ -330,6 +339,26 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
             )?
         }
         "repo.refs" => serde_json::to_value(repo(a).await?.refs().await?)?,
+        // The first screen kept on disk, shown at once while git catches up.
+        "page.load" => page_cache::load(&arg::<String>(a, "repo")?),
+        "page.save" => {
+            page_cache::save(&arg::<String>(a, "repo")?, arg::<Value>(a, "page")?)?;
+            return done();
+        }
+        "repo.load" => {
+            let limit: Option<u32> = opt(a, "limit")?;
+            let skip: Option<u32> = opt(a, "skip")?;
+            serde_json::to_value(
+                repo(a)
+                    .await?
+                    .load(
+                        limit.unwrap_or(1000).min(20_000),
+                        skip.unwrap_or(0),
+                        &opt::<git::LogView>(a, "view")?.unwrap_or_default(),
+                    )
+                    .await?,
+            )?
+        }
         "repo.reflog" => {
             let limit: Option<u32> = opt(a, "limit")?;
             let skip: Option<u32> = opt(a, "skip")?;
