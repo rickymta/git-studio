@@ -3,16 +3,17 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   Archive,
+  Check,
   ChevronDown,
   ChevronRight,
   GitBranchPlus,
   GitPullRequest,
   Redo2,
-  RefreshCw,
   Search,
   SquareTerminal,
   Undo2,
 } from 'lucide-react';
+import { DropdownMenu } from 'radix-ui';
 import type { ReactNode } from 'react';
 
 import { Dropdown, Spinner, type MenuItem } from '@/components/ui';
@@ -22,6 +23,7 @@ import { api } from '@/lib/ipc';
 import { pickFolder, revealPath } from '@/lib/native';
 import { openSession, toggleTerminal } from '@/features/terminal/runtime';
 import { useRepoHost } from '@/features/pulls/hosting';
+import { usePullAction, type PullAction } from '@/stores/pullAction';
 import { useRepo } from '@/stores/repo';
 import { headOffBranch } from '../graph/refGroups';
 import { openDialog, toast } from '@/stores/ui';
@@ -87,6 +89,7 @@ function Selector({ label, value, items }: { label: string; value: string; items
 export function Toolbar() {
   const info = useRepo((s) => s.info);
   const settings = useRepo((s) => s.settings);
+  const pullAction = usePullAction((s) => s.action);
   const refs = useRepo((s) => s.refs);
   const busy = useRepo((s) => s.busy);
   const open = useRepo((s) => s.open);
@@ -104,7 +107,6 @@ export function Toolbar() {
     [...remotes]
       .sort((a, b) => b.name.length - a.name.length)
       .find((r) => st.upstream?.startsWith(`${r.name}/`))?.name ?? null;
-  const run = useRepo.getState().run;
 
   const repoMenu: MenuItem[] = [
     ...(settings?.recent ?? [])
@@ -164,35 +166,9 @@ export function Toolbar() {
     { label: t('Create branch…'), onSelect: () => A.newBranch() },
   ];
 
-  const pullMenu: MenuItem[] = [
-    { label: t('Fetch all'), onSelect: () => A.fetchAll() },
-    {
-      label: t('Pull (merge)'),
-      onSelect: () => run('Pull', (p) => api.pull(p, 'merge'), t('Pulled')),
-    },
-    {
-      label: t('Pull (fast-forward only)'),
-      onSelect: () => run('Pull', (p) => api.pull(p, 'ff-only'), t('Pulled')),
-    },
-    {
-      label: t('Pull (rebase)'),
-      onSelect: () => run('Pull', (p) => api.pull(p, 'rebase'), t('Pulled')),
-    },
-    ...(remotes.length > 0
-      ? ([
-          'sep',
-          {
-            label: t('Pull from'),
-            disabled: !st.branch,
-            items: remotes.map((r) => ({
-              label: r.name,
-              icon: r.name === tracked ? '✓' : undefined,
-              onSelect: () => A.pull({ remote: r.name }),
-            })),
-          },
-        ] satisfies MenuItem[])
-      : []),
-  ];
+  // The Pull button runs the operation picked in its menu (else the Pull Strategy setting).
+  const action: PullAction = pullAction ?? settings?.pullMode ?? 'merge';
+  const doPull = () => (action === 'fetch' ? A.fetchAll() : A.pull({ mode: action }));
 
   const pushMenu: MenuItem[] = [
     ...remotes.map((r) => ({
@@ -237,20 +213,17 @@ export function Toolbar() {
           <ToolButton
             icon={<ArrowDownToLine className="size-[18px]" />}
             label={t('Pull')}
-            title={st.upstream ? t('Pull from {name}', { name: st.upstream }) : t('Pull')}
+            title={PULL_LABEL[action]()}
             badge={st.behind}
-            onClick={() => A.pull()}
+            onClick={() => void doPull()}
             disabled={!!busy}
           />
-          <Dropdown items={pullMenu}>
-            <button
-              type="button"
-              aria-label={t('Pull options')}
-              className="flex h-12 w-4 items-start justify-center rounded-md pt-2 text-muted-foreground hover:bg-surface-hover"
-            >
-              <ChevronDown className="size-3" />
-            </button>
-          </Dropdown>
+          <PullMenu
+            action={action}
+            remotes={remotes.map((r) => r.name)}
+            tracked={tracked}
+            canPull={!!st.branch}
+          />
         </div>
         <div className="flex">
           <ToolButton
@@ -357,12 +330,6 @@ export function Toolbar() {
           </div>
         )}
         <ToolButton
-          icon={<RefreshCw className={cn('size-[18px]')} />}
-          label={t('Fetch')}
-          onClick={() => A.fetchAll()}
-          disabled={!!busy}
-        />
-        <ToolButton
           icon={<Search className="size-[18px]" />}
           label={t('Search')}
           title={t('Search commits (Ctrl+F)')}
@@ -372,5 +339,98 @@ export function Toolbar() {
         />
       </div>
     </div>
+  );
+}
+
+const PULL_LABEL: Record<PullAction, () => string> = {
+  fetch: () => t('Fetch all'),
+  merge: () => t('Pull (fast-forward if possible)'),
+  'ff-only': () => t('Pull (fast-forward only)'),
+  rebase: () => t('Pull (rebase)'),
+};
+
+/**
+ * The arrow next to Pull (like GitKraken): pick what clicking Pull does (it is remembered), or
+ * pull from a particular remote now.
+ */
+function PullMenu({
+  action,
+  remotes,
+  tracked,
+  canPull,
+}: {
+  action: PullAction;
+  remotes: string[];
+  tracked: string | null;
+  canPull: boolean;
+}) {
+  const setAction = usePullAction((s) => s.set);
+  const item =
+    'flex h-8 cursor-default items-center gap-2.5 rounded px-2 outline-none data-[disabled]:opacity-40 data-[highlighted]:bg-surface-hover';
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <button
+          type="button"
+          aria-label={t('Pull options')}
+          className="flex h-12 w-4 items-start justify-center rounded-md pt-2 text-muted-foreground hover:bg-surface-hover data-[state=open]:bg-surface-hover"
+        >
+          <ChevronDown className="size-3" />
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          align="start"
+          sideOffset={4}
+          onCloseAutoFocus={(e) => e.preventDefault()}
+          className="z-50 w-64 rounded-md border border-border bg-surface p-1 text-[13px] shadow-xl"
+        >
+          <DropdownMenu.Label className="px-2 pt-1.5 pb-2 text-xs leading-snug text-muted-foreground">
+            {t('Select a default pull/fetch operation to execute when clicking this button')}
+          </DropdownMenu.Label>
+          <DropdownMenu.RadioGroup value={action} onValueChange={(v) => setAction(v as PullAction)}>
+            {(Object.keys(PULL_LABEL) as PullAction[]).map((a) => (
+              <DropdownMenu.RadioItem
+                key={a}
+                value={a}
+                className={cn(
+                  item,
+                  a === action && 'bg-accent-soft data-[highlighted]:bg-accent-soft',
+                )}
+              >
+                <span
+                  className={cn(
+                    'flex size-3.5 shrink-0 items-center justify-center rounded-full border',
+                    a === action ? 'border-accent' : 'border-muted-foreground/60',
+                  )}
+                >
+                  {a === action && <span className="size-1.5 rounded-full bg-accent" />}
+                </span>
+                {PULL_LABEL[a]()}
+              </DropdownMenu.RadioItem>
+            ))}
+          </DropdownMenu.RadioGroup>
+          {remotes.length > 0 && (
+            <>
+              <DropdownMenu.Separator className="my-1 h-px bg-border" />
+              {remotes.map((r) => (
+                <DropdownMenu.Item
+                  key={r}
+                  disabled={!canPull}
+                  onSelect={() => void A.pull({ remote: r })}
+                  className={item}
+                >
+                  <ArrowDownToLine className="size-3.5 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate">
+                    {t('Pull from {name}', { name: r })}
+                  </span>
+                  {r === tracked && <Check className="size-3.5 shrink-0 text-muted-foreground" />}
+                </DropdownMenu.Item>
+              ))}
+            </>
+          )}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
   );
 }

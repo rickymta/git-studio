@@ -325,7 +325,7 @@ export function LaunchpadView({ onSignIn }: { onSignIn: () => void }) {
       tabIndex={-1}
       className="flex h-full min-h-0 flex-col overflow-auto outline-none"
     >
-      <div className="mx-auto w-full max-w-7xl px-6 py-5">
+      <div className="mx-auto w-full max-w-[1800px] px-6 py-5">
         {/* Header */}
         <div className="flex flex-wrap items-center gap-3">
           <Rocket className="size-5 text-accent" />
@@ -564,7 +564,8 @@ function TabButton({
       {children}
       <span
         className={cn(
-          'rounded-full px-1.5 text-[11px] tabular-nums',
+          // One width for every count, so a tab does not grow when its count gets digits.
+          'min-w-8 rounded-full px-1.5 text-center text-[11px] tabular-nums',
           active ? 'bg-accent-soft text-foreground' : 'bg-surface-muted',
         )}
       >

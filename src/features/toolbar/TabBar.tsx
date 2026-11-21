@@ -61,6 +61,34 @@ export function TabBar({
 
   return (
     <div className="flex h-[34px] shrink-0 items-stretch border-b border-border bg-background">
+      <button
+        type="button"
+        title={t('Launchpad (Ctrl+Shift+K)')}
+        aria-label={t('Launchpad')}
+        aria-pressed={launchpadOpen}
+        onClick={() => {
+          onNavigate();
+          useLaunchpad.getState().setOpen(true);
+        }}
+        className={cn(
+          'relative flex shrink-0 items-center gap-1.5 border-r border-border px-3',
+          launchpadOpen
+            ? 'bg-surface font-semibold text-foreground'
+            : 'text-muted-foreground hover:bg-surface-hover hover:text-foreground',
+        )}
+      >
+        {launchpadOpen && <span className="absolute inset-x-0 top-0 h-0.5 bg-accent" />}
+        <Rocket className={cn('size-3.5', launchpadOpen && 'text-accent')} />
+        <span className="hidden xl:inline">{t('Launchpad')}</span>
+        {badge > 0 && (
+          <span
+            className="min-w-4 rounded-full bg-accent px-1 text-center text-[10px] leading-4 font-semibold text-accent-foreground tabular-nums"
+            title={t('{n} waiting for you (review requests and assigned)', { n: badge })}
+          >
+            {badge > 99 ? '99+' : badge}
+          </span>
+        )}
+      </button>
       <Dropdown
         items={[
           // Grow the active workspace from anywhere, not only from its overview.
@@ -147,34 +175,6 @@ export function TabBar({
           <LayoutGrid className="size-4" />
         </button>
       )}
-      <button
-        type="button"
-        title={t('Launchpad (Ctrl+Shift+K)')}
-        aria-label={t('Launchpad')}
-        aria-pressed={launchpadOpen}
-        onClick={() => {
-          onNavigate();
-          useLaunchpad.getState().setOpen(true);
-        }}
-        className={cn(
-          'relative flex shrink-0 items-center gap-1.5 border-r border-border px-3',
-          launchpadOpen
-            ? 'bg-surface font-semibold text-foreground'
-            : 'text-muted-foreground hover:bg-surface-hover hover:text-foreground',
-        )}
-      >
-        {launchpadOpen && <span className="absolute inset-x-0 top-0 h-0.5 bg-accent" />}
-        <Rocket className={cn('size-3.5', launchpadOpen && 'text-accent')} />
-        <span className="hidden xl:inline">{t('Launchpad')}</span>
-        {badge > 0 && (
-          <span
-            className="min-w-4 rounded-full bg-accent px-1 text-center text-[10px] leading-4 font-semibold text-accent-foreground tabular-nums"
-            title={t('{n} waiting for you (review requests and assigned)', { n: badge })}
-          >
-            {badge > 99 ? '99+' : badge}
-          </span>
-        )}
-      </button>
       <RepoTabs
         onNavigate={onNavigate}
         showNewTabPlaceholder={!path && !ws}

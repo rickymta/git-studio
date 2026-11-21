@@ -280,6 +280,8 @@ export const core: Record<string, string> = {
   Redo: 'Làm lại',
   'Nothing to redo': 'Không có gì để làm lại',
   'Pull options': 'Tuỳ chọn pull',
+  'Select a default pull/fetch operation to execute when clicking this button':
+    'Chọn thao tác pull/fetch mặc định sẽ chạy khi bấm nút này',
   Branch: 'Nhánh',
   'Pull Request': 'Pull Request',
   'Connect GitHub to create pull requests': 'Kết nối GitHub để tạo pull request',

@@ -241,7 +241,7 @@ export function WorkspaceView() {
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-auto">
-      <div className="mx-auto w-full max-w-6xl px-6 py-5">
+      <div className="mx-auto w-full max-w-[1800px] px-6 py-5">
         {/* Header */}
         <div className="flex flex-wrap items-center gap-3">
           <span className="size-3.5 rounded-full" style={{ background: ws.color }} />

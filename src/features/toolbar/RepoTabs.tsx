@@ -150,7 +150,7 @@ const Tab = memo(function Tab({
           'group relative flex cursor-default items-center gap-1.5 border-r border-border',
           tab.pinned
             ? 'max-w-36 shrink-0 px-2.5'
-            : 'max-w-52 min-w-[7.5rem] flex-[1_1_12rem] pr-1.5 pl-2.5',
+            : 'max-w-[24rem] min-w-[7.5rem] flex-[1_1_12rem] pr-1.5 pl-2.5',
           active
             ? 'bg-surface text-foreground'
             : 'text-muted-foreground hover:bg-surface-hover hover:text-foreground',
@@ -318,7 +318,7 @@ export function RepoTabs({
         ref={strip}
         role="tablist"
         onScroll={measure}
-        className="no-scrollbar flex min-w-0 flex-[0_1_auto] items-stretch overflow-x-auto overflow-y-hidden"
+        className="no-scrollbar flex min-w-0 flex-1 items-stretch overflow-x-auto overflow-y-hidden"
       >
         {tabs.map((tab, i) => !tab.pinned && renderTab(tab, i))}
         {showNewTabPlaceholder && (
