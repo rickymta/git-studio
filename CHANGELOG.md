@@ -2,6 +2,13 @@
 
 Các thay đổi đáng chú ý của GitStudio. File này do `pnpm release` cập nhật.
 
+## v0.3.5 - 2026-11-21
+
+Thay đổi từ v0.3.4.
+
+- feat(launchpad): pull requests, issues and WIPs across repositories (6b60fce)
+- feat(tabs): repository tab bar that scales to many open repositories (9488a89)
+
 ## v0.3.4 - 2026-11-21
 
 Thay đổi từ v0.3.3.
