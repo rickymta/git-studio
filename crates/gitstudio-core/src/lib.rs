@@ -361,6 +361,37 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
                     .await?,
             )?
         }
+        "merge.preview" => {
+            let ours: Option<String> = opt(a, "ours")?;
+            serde_json::to_value(
+                repo(a)
+                    .await?
+                    .merge_preview(&arg::<String>(a, "theirs")?, ours.as_deref())
+                    .await?,
+            )?
+        }
+        "merge.previewFile" => {
+            let o = |k: &str| opt::<String>(a, k);
+            let (base, ours, theirs) = (o("base")?, o("ours")?, o("theirs")?);
+            serde_json::to_value(
+                repo(a)
+                    .await?
+                    .merge_preview_file(
+                        base.as_deref(),
+                        ours.as_deref(),
+                        theirs.as_deref(),
+                        &arg::<String>(a, "oursLabel")?,
+                        &arg::<String>(a, "theirsLabel")?,
+                    )
+                    .await?,
+            )?
+        }
+        "conflict.versions" => serde_json::to_value(
+            repo(a)
+                .await?
+                .conflict_versions(&arg::<String>(a, "path")?)
+                .await?,
+        )?,
         "file.write" => {
             let format: text::TextFormat = arg(a, "format")?;
             repo(a).await?.write_file(
@@ -1093,6 +1124,26 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
                 .pulls(&arg::<String>(a, "owner")?, &arg::<String>(a, "repo")?)
                 .await?,
         )?,
+        "github.mergeInfo" => serde_json::to_value(
+            github::Api::stored()?
+                .pull_merge_info(
+                    &arg::<String>(a, "owner")?,
+                    &arg::<String>(a, "repo")?,
+                    arg::<u64>(a, "number")?,
+                )
+                .await?,
+        )?,
+        "github.mergePull" => {
+            let m: github::MergeRequestArgs = arg(a, "merge")?;
+            serde_json::to_value(github::Api::stored()?.merge_pull(&m).await?)?
+        }
+        "gitlab.mergeInfo" => serde_json::to_value(
+            gitlab::merge_info(&arg::<String>(a, "path")?, arg::<u64>(a, "iid")?).await?,
+        )?,
+        "gitlab.mergeMergeRequest" => {
+            let m: github::MergeRequestArgs = arg(a, "merge")?;
+            serde_json::to_value(gitlab::merge_merge_request(&m).await?)?
+        }
         "github.createPull" => {
             let pr: github::NewPullRequest = arg(a, "pr")?;
             serde_json::to_value(github::Api::stored()?.create_pull(&pr).await?)?

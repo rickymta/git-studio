@@ -301,6 +301,95 @@ pub async fn merge_requests(path: &str) -> Result<Vec<crate::github::PullRequest
         .unwrap_or_default())
 }
 
+/// Mergeability of merge request `iid` of the project at `path`.
+pub async fn merge_info(path: &str, iid: u64) -> Result<crate::github::MergeInfo> {
+    let v = get(
+        &stored_token()?,
+        &format!("/projects/{}/merge_requests/{iid}", project_id(path)?),
+    )
+    .await?;
+    Ok(merge_info_from(&v, iid))
+}
+
+fn merge_info_from(v: &Value, iid: u64) -> crate::github::MergeInfo {
+    let s = |p: &str| {
+        v.pointer(p)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    let status = s("/detailed_merge_status");
+    let conflicts = v
+        .get("has_conflicts")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    // Still being checked: GitLab reports "checking" / "unchecked" / "preparing".
+    let pending =
+        ["checking", "unchecked", "preparing", "approvals_syncing"].contains(&status.as_str());
+    crate::github::MergeInfo {
+        number: iid,
+        title: s("/title"),
+        html_url: s("/web_url"),
+        state: s("/state"),
+        draft: v.get("draft").and_then(Value::as_bool).unwrap_or(false),
+        head_ref: s("/source_branch"),
+        head_sha: s("/sha"),
+        head_repo: (v.get("source_project_id") == v.get("target_project_id"))
+            .then(|| v.pointer("/references/full").and_then(Value::as_str))
+            .flatten()
+            .and_then(|r| r.split_once('!'))
+            .map(|(p, _)| p.to_string()),
+        base_ref: s("/target_branch"),
+        mergeable: if pending {
+            None
+        } else {
+            Some(status == "mergeable")
+        },
+        merge_state: status,
+        conflicts,
+    }
+}
+
+/// Merge merge request `iid` on GitLab (squash when `method` is "squash"), optionally removing
+/// its source branch.
+pub async fn merge_merge_request(
+    m: &crate::github::MergeRequestArgs,
+) -> Result<crate::github::MergeOutcome> {
+    if !["merge", "squash"].contains(&m.method.as_str()) {
+        return Err(Error::Invalid(format!(
+            "GitLab merges with merge or squash, not {}",
+            m.method
+        )));
+    }
+    let token = stored_token()?;
+    let info = merge_info(&m.project, m.number).await?;
+    let v = request(
+        &token,
+        reqwest::Method::PUT,
+        &format!(
+            "/projects/{}/merge_requests/{}/merge",
+            project_id(&m.project)?,
+            m.number
+        ),
+        Some(serde_json::json!({
+            "squash": m.method == "squash",
+            "should_remove_source_branch": m.delete_branch,
+            "sha": info.head_sha,
+        })),
+    )
+    .await?;
+    let state = v.get("state").and_then(Value::as_str).unwrap_or_default();
+    Ok(crate::github::MergeOutcome {
+        merged: state == "merged",
+        sha: v
+            .get("merge_commit_sha")
+            .or_else(|| v.get("squash_commit_sha"))
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        message: state.to_string(),
+    })
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NewMergeRequest {
@@ -344,6 +433,24 @@ pub async fn create_merge_request(mr: &NewMergeRequest) -> Result<crate::github:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn merge_info_reads_gitlab_status() {
+        let v = serde_json::json!({
+            "title": "Login", "web_url": "https://gitlab.com/a/b/-/merge_requests/3", "state": "opened",
+            "source_branch": "login", "target_branch": "main", "sha": "abc",
+            "source_project_id": 1, "target_project_id": 1, "references": { "full": "a/b!3" },
+            "detailed_merge_status": "broken_status", "has_conflicts": true
+        });
+        let m = merge_info_from(&v, 3);
+        assert_eq!(m.mergeable, Some(false));
+        assert!(m.conflicts);
+        assert_eq!(m.head_repo.as_deref(), Some("a/b"));
+        let checking = serde_json::json!({ "detailed_merge_status": "checking" });
+        assert_eq!(merge_info_from(&checking, 1).mergeable, None);
+        let ok = serde_json::json!({ "detailed_merge_status": "mergeable" });
+        assert_eq!(merge_info_from(&ok, 1).mergeable, Some(true));
+    }
 
     #[test]
     fn project_ids() {

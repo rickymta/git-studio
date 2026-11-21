@@ -116,4 +116,78 @@ export const diff: Record<string, string> = {
   'Unstage {n} line(s)': 'Unstage {n} dòng',
   'Click to pick this line, Shift + click for a range':
     'Click để chọn dòng này, Shift + click để chọn một dải',
+
+  // Merge tool (three panes)
+  'Commit {sha} on': 'Commit {sha} trên',
+  'Clear every pick': 'Bỏ mọi lựa chọn',
+  'conflict {n} of {total}': 'xung đột {n}/{total}',
+  'Edit by hand': 'Sửa tay',
+  'Type in the result yourself': 'Tự gõ nội dung kết quả',
+  'Pick all lines of this side': 'Chọn mọi dòng của bên này',
+  'Pick line': 'Chọn dòng',
+  'Drop line': 'Bỏ dòng',
+  'Some conflicts have no choice': 'Một số xung đột chưa được chọn',
+  '{n} conflict(s) have nothing picked; their base version will be saved.':
+    '{n} xung đột chưa chọn dòng nào; phiên bản gốc (base) của chúng sẽ được lưu.',
+  'Save anyway': 'Vẫn lưu',
+  'Could not read {path}': 'Không đọc được {path}',
+
+  // Merge preview
+  'Merge preview: {name} into {branch}': 'Xem trước merge: {name} vào {branch}',
+  'Already up to date: nothing to merge.': 'Đã cập nhật: không có gì để merge.',
+  'Fast-forward: {branch} moves to {name} without a merge commit.':
+    'Fast-forward: {branch} tiến tới {name}, không cần commit merge.',
+  '{files} file(s) change · {conflicts} conflict(s)': '{files} tệp thay đổi · {conflicts} xung đột',
+  '{n} of {total} conflicts resolved': 'Đã giải quyết {n}/{total} xung đột',
+  'Git notes': 'Ghi chú của git',
+  'No conflicts: this merge goes through cleanly.':
+    'Không có xung đột: merge này sẽ chạy trơn tru.',
+  'Every conflict is resolved. Merge to apply them.':
+    'Đã giải quyết hết xung đột. Bấm Merge để áp dụng.',
+  'Pick a conflicted file on the left to resolve it.':
+    'Chọn một tệp bị xung đột ở bên trái để giải quyết.',
+  '{path}: {kind} conflict. Choose a whole side after merging, in the changes panel.':
+    '{path}: xung đột kiểu {kind}. Chọn nguyên một bên sau khi merge, trong khung thay đổi.',
+  'Save resolution': 'Lưu cách giải quyết',
+  'Merge with conflicts left?': 'Merge khi vẫn còn xung đột?',
+  '{n} file(s) are not resolved yet. The merge will stop with them conflicted, to finish in the changes panel.':
+    'Còn {n} tệp chưa giải quyết. Merge sẽ dừng lại với các tệp đó đang xung đột, để bạn xử lý tiếp trong khung thay đổi.',
+  '{n} file(s) still conflicted': 'Còn {n} tệp đang xung đột',
+  'Resolve them in the changes panel, then continue the merge.':
+    'Giải quyết chúng trong khung thay đổi, rồi tiếp tục merge.',
+  'Commit merge': 'Commit merge',
+
+  // Merging pull / merge requests
+  'Merge pull request…': 'Merge pull request…',
+  'Merge merge request…': 'Merge merge request…',
+  'Merge pull request {ref}': 'Merge pull request {ref}',
+  'Merge merge request {ref}': 'Merge merge request {ref}',
+  'Checking with {host}…': 'Đang kiểm tra với {host}…',
+  'This request is {state}.': 'Yêu cầu này đang ở trạng thái {state}.',
+  'Ready to merge on {host}.': 'Sẵn sàng merge trên {host}.',
+  '{head} conflicts with {base}.': '{head} bị xung đột với {base}.',
+  'Resolve it here: GitStudio merges {base} into {head} with a preview to resolve the conflicts, pushes {head}, then merges the request on {host}.':
+    'Giải quyết ngay tại đây: GitStudio merge {base} vào {head} kèm bản xem trước để xử lý xung đột, push {head}, rồi merge yêu cầu trên {host}.',
+  'The branch lives in a fork, so only its author can push the resolution. Ask them to merge {base} into it, or merge it on {host}.':
+    'Nhánh này nằm ở một fork nên chỉ tác giả mới push được bản đã giải quyết. Hãy nhờ họ merge {base} vào nhánh, hoặc merge trên {host}.',
+  '{host} is still checking whether it can be merged.':
+    '{host} vẫn đang kiểm tra xem có merge được không.',
+  'Not mergeable yet ({state}): checks, approvals or branch rules.':
+    'Chưa merge được ({state}): còn chờ kiểm tra, phê duyệt hoặc quy tắc nhánh.',
+  'Merge method': 'Cách merge',
+  'Create a merge commit': 'Tạo commit merge',
+  'Squash and merge': 'Squash rồi merge',
+  'Rebase and merge': 'Rebase rồi merge',
+  'Squash commits': 'Gộp các commit (squash)',
+  'Delete {branch} after merging': 'Xoá {branch} sau khi merge',
+  'Resolve conflicts here': 'Giải quyết xung đột tại đây',
+  'Merge on {host}': 'Merge trên {host}',
+  'Merge, push and merge the PR': 'Merge, push rồi merge PR',
+  'Merge, push and merge the MR': 'Merge, push rồi merge MR',
+  'Merged {ref} into {base}': 'Đã merge {ref} vào {base}',
+  'Could not merge {ref}': 'Không merge được {ref}',
+  'The host did not merge it.': 'Máy chủ không merge yêu cầu này.',
+  '{name} was not found after fetching': 'Không tìm thấy {name} sau khi fetch',
+  'Pushed {branch}; {ref} cannot be merged yet': 'Đã push {branch}; {ref} chưa merge được',
+  'Status on {host}: {state}': 'Trạng thái trên {host}: {state}',
 };

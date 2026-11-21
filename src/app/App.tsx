@@ -20,6 +20,8 @@ import { MaintenanceDialog } from '@/features/maintenance/MaintenanceDialog';
 import { MultiCommitPanel } from '@/features/panel/MultiCommitPanel';
 import { WipPanel } from '@/features/panel/WipPanel';
 import { Preferences, type PrefSection } from '@/features/preferences/Preferences';
+import { MergePreviewHost } from '@/features/merge/MergePreview';
+import { PullMergeDialog } from '@/features/merge/PullMergeDialog';
 import { RebaseDialog } from '@/features/rebase/RebaseDialog';
 import { Sidebar } from '@/features/sidebar/Sidebar';
 import { TerminalPanel } from '@/features/terminal/TerminalPanel';
@@ -363,6 +365,8 @@ export function App() {
       <NewWorkspaceDialog open={newWs} onClose={() => setNewWs(false)} />
       <ScanDialog open={dialog === 'scanWorkspace'} onClose={() => openDialog(null)} />
       <RebaseDialog />
+      <MergePreviewHost />
+      <PullMergeDialog />
       <CleanDialog open={dialog === 'clean'} onClose={() => openDialog(null)} />
       <MaintenanceDialog open={dialog === 'maintenance'} onClose={() => openDialog(null)} />
       <PromptDialog />

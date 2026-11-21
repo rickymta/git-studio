@@ -43,6 +43,15 @@ export async function call<R>(cmd: string, args: Record<string, unknown> = {}): 
 
 export const isTauri = inTauri;
 
+/** Merging a pull / merge request on its host. */
+export interface MergeArgs {
+  /** GitHub `owner/repo`, or GitLab project path. */
+  project: string;
+  number: number;
+  method: 'merge' | 'squash' | 'rebase';
+  deleteBranch: boolean;
+}
+
 /** Typed wrappers. Every repo-scoped call takes the repo path first. */
 export const api = {
   gitVersion: () => call<string>('app.gitVersion'),
@@ -53,6 +62,17 @@ export const api = {
   // files, blame, history
   readFile: (repo: string, path: string, rev?: string, encoding?: string) =>
     call<T.DecodedText>('file.read', { repo, path, rev, encoding }),
+  conflictVersions: (repo: string, path: string) =>
+    call<T.ConflictVersions>('conflict.versions', { repo, path }),
+  /** What merging `theirs` into `ours` (default HEAD) would do; nothing on disk changes. */
+  mergePreview: (repo: string, theirs: string, ours?: string) =>
+    call<T.MergePreview>('merge.preview', { repo, theirs, ours }),
+  mergePreviewFile: (
+    repo: string,
+    c: { base: string | null; ours: string | null; theirs: string | null },
+    oursLabel: string,
+    theirsLabel: string,
+  ) => call<T.PreviewFile>('merge.previewFile', { repo, ...c, oursLabel, theirsLabel }),
   repoStats: (repo: string) => call<T.RepoStats>('maintenance.stats', { repo }),
   /** Run a housekeeping task; `ok: false` with git's output when it reports a problem. */
   maintenance: (repo: string, task: T.MaintenanceTask) =>
@@ -342,6 +362,14 @@ export const api = {
   ghSignOut: () => call<null>('github.signOut'),
   ghRepos: (page = 1) => call<T.GitHubRepo[]>('github.repos', { page }),
   ghPulls: (owner: string, repo: string) => call<T.PullRequest[]>('github.pulls', { owner, repo }),
+  ghMergeInfo: (owner: string, repo: string, number: number) =>
+    call<T.MergeInfo>('github.mergeInfo', { owner, repo, number }),
+  /** `project` = owner/repo; method merge, squash or rebase. */
+  ghMergePull: (merge: MergeArgs) => call<T.MergeOutcome>('github.mergePull', { merge }),
+  glMergeInfo: (path: string, iid: number) => call<T.MergeInfo>('gitlab.mergeInfo', { path, iid }),
+  /** `project` = project path; method merge or squash. */
+  glMergeMergeRequest: (merge: MergeArgs) =>
+    call<T.MergeOutcome>('gitlab.mergeMergeRequest', { merge }),
   ghCreatePull: (pr: {
     owner: string;
     repo: string;

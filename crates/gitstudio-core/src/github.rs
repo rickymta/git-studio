@@ -230,6 +230,48 @@ fn pr_from(v: &Value) -> PullRequest {
     }
 }
 
+/// Whether a pull / merge request can be merged now, for the merge dialog (GitHub and GitLab).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeInfo {
+    pub number: u64,
+    pub title: String,
+    pub html_url: String,
+    pub state: String,
+    pub draft: bool,
+    pub head_ref: String,
+    pub head_sha: String,
+    /// `owner/repo` (GitHub) or project path (GitLab) the head branch lives in.
+    pub head_repo: Option<String>,
+    pub base_ref: String,
+    /// `None` while the host is still working it out.
+    pub mergeable: Option<bool>,
+    /// The host's own status word (GitHub `mergeable_state`, GitLab `detailed_merge_status`).
+    pub merge_state: String,
+    /// The head branch conflicts with the base.
+    pub conflicts: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeOutcome {
+    pub merged: bool,
+    pub sha: Option<String>,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeRequestArgs {
+    /// GitHub: `owner/repo`; GitLab: project path.
+    pub project: String,
+    pub number: u64,
+    /// "merge", "squash" or "rebase" (GitLab: merge or squash).
+    pub method: String,
+    #[serde(default)]
+    pub delete_branch: bool,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NewPullRequest {
@@ -396,6 +438,96 @@ impl Api {
         Ok(v.as_array()
             .map(|a| a.iter().map(pr_from).collect())
             .unwrap_or_default())
+    }
+
+    /// Mergeability of pull request `number` (GitHub computes it in the background: `mergeable`
+    /// is `None` until it is done, so callers ask again shortly).
+    pub async fn pull_merge_info(&self, owner: &str, repo: &str, number: u64) -> Result<MergeInfo> {
+        let v = self
+            .request(
+                reqwest::Method::GET,
+                &format!("/repos/{}/{}/pulls/{number}", seg(owner)?, seg(repo)?),
+                None,
+            )
+            .await?;
+        let s = |p: &str| {
+            v.pointer(p)
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string()
+        };
+        let merge_state = s("/mergeable_state");
+        Ok(MergeInfo {
+            number,
+            title: s("/title"),
+            html_url: s("/html_url"),
+            state: if v.get("merged").and_then(Value::as_bool) == Some(true) {
+                "merged".into()
+            } else {
+                s("/state")
+            },
+            draft: v.get("draft").and_then(Value::as_bool).unwrap_or(false),
+            head_ref: s("/head/ref"),
+            head_sha: s("/head/sha"),
+            head_repo: v
+                .pointer("/head/repo/full_name")
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            base_ref: s("/base/ref"),
+            mergeable: v.get("mergeable").and_then(Value::as_bool),
+            conflicts: merge_state == "dirty",
+            merge_state,
+        })
+    }
+
+    /// Merge pull request `number` on GitHub with `method` (merge, squash or rebase), then
+    /// delete its branch when asked and it lives in the same repository.
+    pub async fn merge_pull(&self, m: &MergeRequestArgs) -> Result<MergeOutcome> {
+        let (owner, repo) = m
+            .project
+            .split_once('/')
+            .ok_or_else(|| Error::Invalid(format!("Not owner/repo: {}", m.project)))?;
+        if !["merge", "squash", "rebase"].contains(&m.method.as_str()) {
+            return Err(Error::Invalid(format!("Unknown merge method {}", m.method)));
+        }
+        let info = self.pull_merge_info(owner, repo, m.number).await?;
+        let v = self
+            .request(
+                reqwest::Method::PUT,
+                &format!(
+                    "/repos/{}/{}/pulls/{}/merge",
+                    seg(owner)?,
+                    seg(repo)?,
+                    m.number
+                ),
+                Some(json!({ "merge_method": m.method, "sha": info.head_sha })),
+            )
+            .await?;
+        let merged = v.get("merged").and_then(Value::as_bool).unwrap_or(false);
+        if merged && m.delete_branch && info.head_repo.as_deref() == Some(m.project.as_str()) {
+            // The branch may be protected or already gone: merging still succeeded.
+            let _ = self
+                .request(
+                    reqwest::Method::DELETE,
+                    &format!(
+                        "/repos/{}/{}/git/refs/heads/{}",
+                        seg(owner)?,
+                        seg(repo)?,
+                        info.head_ref
+                    ),
+                    None,
+                )
+                .await;
+        }
+        Ok(MergeOutcome {
+            merged,
+            sha: v.get("sha").and_then(Value::as_str).map(str::to_string),
+            message: v
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
+        })
     }
 
     pub async fn create_pull(&self, pr: &NewPullRequest) -> Result<PullRequest> {

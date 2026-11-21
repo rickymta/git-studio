@@ -4,6 +4,7 @@
 pub mod commit_graph;
 pub mod extras;
 pub mod files;
+pub mod merge;
 pub mod model;
 pub mod parse;
 pub mod run;

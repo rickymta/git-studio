@@ -11,6 +11,7 @@ import { useRebaseDialog } from '@/stores/rebase';
 import { moveBlock, planRows, rebaseProblem, toSteps, type RebasePreset } from './rebase/plan';
 import { useGitHub } from '@/stores/github';
 import { useGitLab } from '@/stores/gitlab';
+import { useMergePreview } from '@/stores/mergePreview';
 import { hostingOf, hostWords, openRequestFor, type HostKind } from './pulls/hosting';
 import { useRemotePanel } from '@/stores/remotePanel';
 import { useRepo, type CompareSide } from '@/stores/repo';
@@ -502,37 +503,24 @@ export async function setUpstream(ref: GitRef) {
   if (v) await run('Set upstream', (p) => api.setUpstream(p, ref.name, v.up as string));
 }
 
-export async function mergeInto(target: string) {
-  const cur = currentBranch() ?? 'HEAD';
-  const v = await ask({
-    title: t('Merge'),
-    description: t('Merge {source} into {target}.', { source: target, target: cur }),
-    fields: [
-      {
-        name: 'how',
-        label: t('Merge as'),
-        type: 'select',
-        initial: 'merge',
-        options: [
-          { value: 'merge', label: t('Fast-forward if possible, else a merge commit') },
-          { value: 'noFf', label: t('Always create a merge commit (--no-ff)') },
-          { value: 'squash', label: t('Squash: stage all changes, commit them yourself') },
-        ],
-      },
-    ],
-    confirmLabel: t('Merge'),
-  });
-  if (!v) return;
-  if (v.how === 'squash') {
+/** Merge `target` into the current branch: first a preview of what changes and conflicts. */
+export function mergeInto(target: string) {
+  useMergePreview.getState().show({ theirs: target, label: target });
+}
+
+/** Merge without conflicts (from the preview): undoable, then show the result. */
+export async function mergeClean(target: string, how: 'merge' | 'noFf' | 'squash') {
+  if (how === 'squash') {
     await squashMerge(target);
-    return;
+    return true;
   }
   const ok = await journaledHead(
     'Merge',
-    (p) => api.merge(p, target, v.how === 'noFf'),
+    (p) => api.merge(p, target, how === 'noFf'),
     t('Merged {name}', { name: target }),
   );
   if (ok) await showMergeResult(null);
+  return ok;
 }
 
 /** `git merge --squash`: `target`'s changes end up staged on the current branch, uncommitted. */

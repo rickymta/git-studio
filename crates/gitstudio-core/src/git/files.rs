@@ -70,6 +70,24 @@ pub struct Worktree {
     pub prunable: bool,
 }
 
+/// The three versions git keeps for a conflicted file, merged again with the base shown
+/// (`git merge-file --diff3`), for the conflict tool.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictVersions {
+    /// The file with `<<<<<<< ours` / `||||||| base` / `=======` / `>>>>>>> theirs` markers.
+    /// `None` when a side is missing (deleted on one side) or a version is binary.
+    pub merged: Option<String>,
+    /// Encoding and line endings of the current branch's version, to save the result with.
+    pub format: Option<TextFormat>,
+    /// Branch (or short name) of each side, as shown on the markers.
+    pub ours_label: String,
+    pub theirs_label: String,
+    /// Commit of each side: HEAD, and the commit being merged / picked / reverted / rebased.
+    pub ours_commit: Option<String>,
+    pub theirs_commit: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NewWorktree {
@@ -101,6 +119,172 @@ impl Repo {
             }
         };
         text::decode(&bytes, encoding)
+    }
+
+    /// Base / ours / theirs of a conflicted file (index stages 1–3) and their diff3 merge.
+    pub async fn conflict_versions(&self, path: &str) -> Result<ConflictVersions> {
+        let rel = safe_rel(path)?;
+        let rel = rel.to_string_lossy().replace('\\', "/");
+        let stage = |n: u8| {
+            let spec = format!(":{n}:{rel}");
+            async move {
+                run::raw(Some(&self.root), &["show", &spec], Opts::default())
+                    .await
+                    .ok()
+                    .filter(|o| o.code == 0)
+                    .map(|o| o.stdout)
+            }
+        };
+        let (base, ours, theirs) = tokio::join!(stage(1), stage(2), stage(3));
+        let rev = |r: &'static str| async move {
+            run::raw(
+                Some(&self.root),
+                &["rev-parse", "-q", "--verify", &format!("{r}^{{commit}}")],
+                Opts::default(),
+            )
+            .await
+            .ok()
+            .filter(|o| o.code == 0)
+            .map(|o| o.text().trim().to_string())
+            .filter(|s| !s.is_empty())
+        };
+        let ours_commit = rev("HEAD").await;
+        let mut theirs_commit = None;
+        for r in [
+            "MERGE_HEAD",
+            "CHERRY_PICK_HEAD",
+            "REVERT_HEAD",
+            "REBASE_HEAD",
+        ] {
+            if let Some(c) = rev(r).await {
+                theirs_commit = Some(c);
+                break;
+            }
+        }
+        let name = |commit: Option<String>, fallback: &'static str| async move {
+            let Some(c) = commit else {
+                return fallback.to_string();
+            };
+            run::raw(
+                Some(&self.root),
+                &[
+                    "name-rev",
+                    "--name-only",
+                    "--no-undefined",
+                    "--exclude=tags/*",
+                    &c,
+                ],
+                Opts::default(),
+            )
+            .await
+            .ok()
+            .filter(|o| o.code == 0)
+            .map(|o| o.text().trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| c.chars().take(7).collect())
+        };
+        // The current branch by its own name; the other side by the branch that points at it.
+        let head_branch = run::raw(
+            Some(&self.root),
+            &["symbolic-ref", "--short", "-q", "HEAD"],
+            Opts::default(),
+        )
+        .await
+        .ok()
+        .filter(|o| o.code == 0)
+        .map(|o| o.text().trim().to_string())
+        .filter(|s| !s.is_empty());
+        let ours_label = match head_branch {
+            Some(b) => b,
+            None => name(ours_commit.clone(), "HEAD").await,
+        };
+        let theirs_label = name(theirs_commit.clone(), "incoming").await;
+
+        let mut out = ConflictVersions {
+            merged: None,
+            format: None,
+            ours_label,
+            theirs_label,
+            ours_commit,
+            theirs_commit,
+        };
+        let (Some(ours), Some(theirs)) = (ours, theirs) else {
+            return Ok(out);
+        };
+        let (merged, format) = self
+            .diff3(
+                base.unwrap_or_default(),
+                ours,
+                theirs,
+                &out.ours_label.clone(),
+                &out.theirs_label.clone(),
+            )
+            .await?;
+        out.merged = merged;
+        out.format = format;
+        Ok(out)
+    }
+
+    /// Merge three versions of a file with `git merge-file --diff3`, decoded in the encoding of
+    /// `ours`. `(None, None)` when a version is binary.
+    pub(super) async fn diff3(
+        &self,
+        base: Vec<u8>,
+        ours: Vec<u8>,
+        theirs: Vec<u8>,
+        ours_label: &str,
+        theirs_label: &str,
+    ) -> Result<(Option<String>, Option<TextFormat>)> {
+        let decoded = text::decode(&ours, None)?;
+        if decoded.binary || text::decode(&theirs, None)?.binary {
+            return Ok((None, None));
+        }
+        // git merge-file works on files: three temporary ones, removed afterwards.
+        let dir = std::env::temp_dir().join(format!(
+            "gitstudio-merge-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or_default()
+        ));
+        std::fs::create_dir_all(&dir)?;
+        let files = [
+            (dir.join("ours"), ours),
+            (dir.join("base"), base),
+            (dir.join("theirs"), theirs),
+        ];
+        for (p, b) in &files {
+            std::fs::write(p, b)?;
+        }
+        let arg = |i: usize| files[i].0.to_string_lossy().into_owned();
+        let merged = run::raw(
+            Some(&self.root),
+            &[
+                "merge-file",
+                "-p",
+                "--diff3",
+                "-L",
+                ours_label,
+                "-L",
+                "base",
+                "-L",
+                theirs_label,
+                &arg(0),
+                &arg(1),
+                &arg(2),
+            ],
+            Opts::default(),
+        )
+        .await;
+        let _ = std::fs::remove_dir_all(&dir);
+        // The exit code is the number of conflicts; only a negative one is a failure.
+        let merged = merged?;
+        if merged.code < 0 {
+            return Err(Error::Git(merged.stderr));
+        }
+        let text = text::decode(&merged.stdout, Some(&decoded.format.encoding))?.text;
+        Ok((Some(text), Some(decoded.format)))
     }
 
     /// Write a working-tree file, encoded with `format` (encoding, BOM, line endings).

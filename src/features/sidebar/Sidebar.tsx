@@ -9,6 +9,7 @@ import {
   GitBranch,
   GitCommitHorizontal,
   GitPullRequest,
+  GitMerge,
   GitPullRequestDraft,
   History,
   House,
@@ -32,6 +33,7 @@ import { api } from '@/lib/ipc';
 import { copyText, openUrl, revealPath } from '@/lib/native';
 import type { GitRef, PullRequest, ReflogEntry, Worktree } from '@/lib/types';
 import { useGitHub } from '@/stores/github';
+import { usePullMerge } from '@/stores/mergePreview';
 import { useRepo } from '@/stores/repo';
 import { hostWords, useRepoPulls } from '../pulls/hosting';
 import * as A from '../actions';
@@ -374,6 +376,19 @@ export function Sidebar() {
                   {
                     label: t('Check out {name}', { name: pr.headRef }),
                     onSelect: () => checkoutPr(pr),
+                  },
+                  'sep',
+                  {
+                    label:
+                      host.kind === 'github' ? t('Merge pull request…') : t('Merge merge request…'),
+                    icon: <GitMerge className="size-3.5" />,
+                    onSelect: () =>
+                      usePullMerge.getState().show({
+                        kind: host.kind,
+                        project: host.project,
+                        number: pr.number,
+                        remote: host.remote.name,
+                      }),
                   },
                 ]}
               >

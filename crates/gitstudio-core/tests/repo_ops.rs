@@ -125,9 +125,51 @@ async fn hunk_patch_and_conflicts() {
     std::fs::write(dir.join("f.txt"), "a\nMAIN\nc\n").unwrap();
     r.stage(&[]).await.unwrap();
     r.commit("main", false).await.unwrap();
+    // Preview first: the conflict is found without touching the working tree.
+    let p = r.merge_preview("other", None).await.unwrap();
+    assert!(!p.up_to_date && !p.fast_forward);
+    assert_eq!(p.conflicts.len(), 1);
+    assert_eq!(p.conflicts[0].path, "f.txt");
+    assert_eq!(p.conflicts[0].kind, "contents");
+    assert_eq!(r.state(), RepoState::Clean);
+    let c = &p.conflicts[0];
+    let f = r
+        .merge_preview_file(
+            c.base.as_deref(),
+            c.ours.as_deref(),
+            c.theirs.as_deref(),
+            "main",
+            "other",
+        )
+        .await
+        .unwrap();
+    assert!(
+        f.merged
+            .unwrap()
+            .contains("<<<<<<< main\nMAIN\n||||||| base\nb\n")
+    );
+    // A branch already merged is up to date.
+    assert!(r.merge_preview("main~1", None).await.unwrap().up_to_date);
     assert!(r.merge("other", false).await.is_err());
     assert_eq!(r.state(), RepoState::Merging);
     assert_eq!(r.status().await.unwrap().conflicted.len(), 1);
+    // The conflict tool's view: both sides, the base, branch names and commits.
+    let v = r.conflict_versions("f.txt").await.unwrap();
+    let merged = v.merged.unwrap().replace("\r\n", "\n");
+    assert_eq!(
+        merged,
+        "a\n<<<<<<< main\nMAIN\n||||||| base\nb\n=======\nOTHER\n>>>>>>> other\nc\n"
+    );
+    assert_eq!(v.ours_label, "main");
+    assert_eq!(v.theirs_label, "other");
+    assert!(v.ours_commit.is_some() && v.theirs_commit.is_some());
+    assert_ne!(v.ours_commit, v.theirs_commit);
+    // The working file is left as it was.
+    assert!(
+        std::fs::read_to_string(dir.join("f.txt"))
+            .unwrap()
+            .contains("<<<<<<< HEAD")
+    );
     r.resolve(&["f.txt".into()], "theirs").await.unwrap();
     r.continue_op().await.unwrap();
     assert_eq!(r.state(), RepoState::Clean);

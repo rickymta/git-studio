@@ -463,6 +463,67 @@ export interface TextFormat {
   eol: 'lf' | 'crlf' | 'mixed';
 }
 
+/** One file that would conflict in a merge preview (blob ids of its three versions). */
+export interface PreviewConflict {
+  path: string;
+  base: string | null;
+  ours: string | null;
+  theirs: string | null;
+  /** git's kind: "contents", "modify/delete", "add/add", … */
+  kind: string;
+}
+
+/** What merging a branch would do, computed without touching the working tree. */
+export interface MergePreview {
+  ours: string;
+  theirs: string;
+  upToDate: boolean;
+  fastForward: boolean;
+  tree: string | null;
+  files: FileChange[];
+  conflicts: PreviewConflict[];
+  messages: string[];
+}
+
+export interface PreviewFile {
+  merged: string | null;
+  format: TextFormat | null;
+}
+
+/** Whether a pull / merge request can be merged now (GitHub or GitLab). */
+export interface MergeInfo {
+  number: number;
+  title: string;
+  htmlUrl: string;
+  state: string;
+  draft: boolean;
+  headRef: string;
+  headSha: string;
+  headRepo: string | null;
+  baseRef: string;
+  /** null while the host is still checking. */
+  mergeable: boolean | null;
+  mergeState: string;
+  conflicts: boolean;
+}
+
+export interface MergeOutcome {
+  merged: boolean;
+  sha: string | null;
+  message: string;
+}
+
+/** A conflicted file's versions for the merge tool (see `conflict.versions`). */
+export interface ConflictVersions {
+  /** The file merged again with the base shown (`|||||||`), or null when a side is missing. */
+  merged: string | null;
+  format: TextFormat | null;
+  oursLabel: string;
+  theirsLabel: string;
+  oursCommit: string | null;
+  theirsCommit: string | null;
+}
+
 export interface DecodedText {
   text: string;
   format: TextFormat;
