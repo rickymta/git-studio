@@ -2,6 +2,12 @@
 
 Các thay đổi đáng chú ý của GitStudio. File này do `pnpm release` cập nhật.
 
+## v0.3.6 - 2026-11-21
+
+Thay đổi từ v0.3.5.
+
+- feat(merge): GitKraken-style conflict tool, merge preview and PR/MR merging (a31aec2)
+
 ## v0.3.5 - 2026-11-21
 
 Thay đổi từ v0.3.4.
