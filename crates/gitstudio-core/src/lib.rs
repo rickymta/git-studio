@@ -9,6 +9,7 @@ pub mod gitkraken;
 pub mod gitlab;
 pub mod history;
 pub mod launch;
+pub mod launchpad;
 pub mod overlay;
 pub mod overlay_install;
 pub mod settings;
@@ -1084,6 +1085,9 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
             let page: Option<u32> = opt(a, "page")?;
             serde_json::to_value(github::Api::stored()?.repos(page.unwrap_or(1)).await?)?
         }
+        // ---- Launchpad ----
+        "launchpad.github" => serde_json::to_value(launchpad::github().await?)?,
+        "launchpad.gitlab" => serde_json::to_value(launchpad::gitlab().await?)?,
         "github.pulls" => serde_json::to_value(
             github::Api::stored()?
                 .pulls(&arg::<String>(a, "owner")?, &arg::<String>(a, "repo")?)

@@ -413,6 +413,48 @@ export interface RepoSummary {
   state: RepoState | null;
   lastCommit: { hash: string; subject: string; author: string; time: number } | null;
   github: GitHubSlug | null;
+  gitlab: { path: string } | null;
+  /** Uncommitted files by kind (each path once). */
+  wip: WipCounts;
+}
+
+export interface WipCounts {
+  modified: number;
+  added: number;
+  deleted: number;
+  renamed: number;
+}
+
+export interface LaunchPerson {
+  login: string;
+  avatarUrl: string;
+}
+
+export type LaunchReason = 'authored' | 'assigned' | 'reviewRequested' | 'mentioned';
+
+/** A pull / merge request or issue in the Launchpad (see crates/gitstudio-core/src/launchpad.rs). */
+export interface LaunchItem {
+  id: string;
+  host: 'github' | 'gitlab';
+  kind: 'pr' | 'issue';
+  project: string;
+  number: number;
+  title: string;
+  url: string;
+  author: LaunchPerson | null;
+  assignees: LaunchPerson[];
+  labels: { name: string; color: string | null }[];
+  reasons: LaunchReason[];
+  comments: number;
+  reactions: number;
+  createdAt: string;
+  updatedAt: string;
+  draft: boolean;
+  headRef: string | null;
+  baseRef: string | null;
+  ci: 'success' | 'failure' | 'pending' | null;
+  mergeable: 'clean' | 'conflicts' | 'blocked' | 'unknown' | null;
+  review: 'approved' | 'changesRequested' | 'reviewRequired' | null;
 }
 
 export interface TextFormat {

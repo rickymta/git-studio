@@ -8,6 +8,7 @@ import * as A from '@/features/actions';
 import { BisectBanner } from '@/features/bisect/BisectBanner';
 import { DiffView } from '@/features/diff/DiffView';
 import { GitHubSignIn } from '@/features/github/GitHubSignIn';
+import { LaunchpadView } from '@/features/launchpad/LaunchpadView';
 import { ensureOverlaySetup } from '@/features/preferences/overlaySetup';
 import { listenLaunchActions, processLaunchActions } from '@/features/launchActions';
 import { RemotePanel } from '@/features/remotes/RemotePanel';
@@ -34,6 +35,7 @@ import { WorkspaceView } from '@/features/workspace/WorkspaceView';
 import { logActivity } from '@/stores/activity';
 import { useGitHub } from '@/stores/github';
 import { ensureGitLabChecked } from '@/stores/gitlab';
+import { startLaunchpadPolling, useLaunchpad } from '@/stores/launchpad';
 import { useRepo } from '@/stores/repo';
 import { useTokens } from '@/stores/tokens';
 import { useUi } from '@/stores/ui';
@@ -76,6 +78,7 @@ export function App() {
   const [sideW, setSideW] = usePersistentWidth('sidebar', 300, 180, 520);
   const [panelW, setPanelW] = usePersistentWidth('panel', 400, 280, 760);
   const ws = useWorkspaces((s) => s.active());
+  const launchpad = useLaunchpad((s) => s.open);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -106,6 +109,8 @@ export function App() {
       void useGitHub.getState().check();
       // Also reads both tokens' expiry for the status bar (and warns when it is close).
       ensureGitLabChecked();
+      // Launchpad's items (and the badge on its tab) refresh in the background.
+      startLaunchpadPolling();
       // Long paths on by default (Windows), unless the user already chose either way.
       void api
         .ensureGitDefaults()
@@ -199,6 +204,10 @@ export function App() {
       } else if (mod && key === '0') {
         e.preventDefault();
         setZoom(1);
+      } else if (mod && e.shiftKey && key === 'k') {
+        e.preventDefault();
+        setPrefs(null);
+        useLaunchpad.getState().setOpen(!useLaunchpad.getState().open);
       } else if (mod && key === 't') {
         e.preventDefault();
         useRepo.getState().newTab();
@@ -220,6 +229,12 @@ export function App() {
         onExit={() => setPrefs(null)}
         onSignIn={() => setSignIn(true)}
       />
+    );
+  } else if (launchpad) {
+    body = (
+      <div className="min-h-0 flex-1">
+        <LaunchpadView onSignIn={() => setSignIn(true)} />
+      </div>
     );
   } else if (!booted || (loading && !info)) {
     body = (
@@ -327,7 +342,10 @@ export function App() {
       <TabBar
         onSignIn={() => setSignIn(true)}
         onSettings={() => setPrefs((p) => (p ? null : 'general'))}
-        onNavigate={() => setPrefs(null)}
+        onNavigate={() => {
+          setPrefs(null);
+          useLaunchpad.getState().setOpen(false);
+        }}
         prefsOpen={!!prefs}
         onNewWorkspace={() => setNewWs(true)}
       />

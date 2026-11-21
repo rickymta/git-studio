@@ -8,6 +8,7 @@ import {
   LogOut,
   Moon,
   Plus,
+  Rocket,
   Settings as SettingsIcon,
   Sun,
   X,
@@ -18,7 +19,9 @@ import { Avatar, Dropdown, Github } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { t } from '@/lib/i18n';
 import { openUrl } from '@/lib/native';
+import { badgeCount } from '@/features/launchpad/model';
 import { useGitHub } from '@/stores/github';
+import { allItems, useLaunchpad } from '@/stores/launchpad';
 import { useRepo } from '@/stores/repo';
 import { openDialog, useUi } from '@/stores/ui';
 import { samePath, useWorkspaces } from '@/stores/workspace';
@@ -56,6 +59,8 @@ export function TabBar({
   const activate = useWorkspaces((s) => s.activate);
   const ws = workspaces.items.find((w) => w.id === workspaces.active) ?? null;
   const inWorkspace = (p: string) => !ws || ws.repos.some((r) => samePath(r, p));
+  const launchpadOpen = useLaunchpad((s) => s.open);
+  const badge = useLaunchpad((s) => badgeCount(allItems(s.items), s.prefs, Date.now()));
 
   const iconBtn =
     'flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-surface-hover hover:text-foreground';
@@ -148,6 +153,34 @@ export function TabBar({
           <LayoutGrid className="size-4" />
         </button>
       )}
+      <button
+        type="button"
+        title={t('Launchpad (Ctrl+Shift+K)')}
+        aria-label={t('Launchpad')}
+        aria-pressed={launchpadOpen}
+        onClick={() => {
+          onNavigate();
+          useLaunchpad.getState().setOpen(true);
+        }}
+        className={cn(
+          'relative flex shrink-0 items-center gap-1.5 border-r border-border px-3',
+          launchpadOpen
+            ? 'bg-surface font-semibold text-foreground'
+            : 'text-muted-foreground hover:bg-surface-hover hover:text-foreground',
+        )}
+      >
+        {launchpadOpen && <span className="absolute inset-x-0 top-0 h-0.5 bg-accent" />}
+        <Rocket className={cn('size-3.5', launchpadOpen && 'text-accent')} />
+        <span className="hidden xl:inline">{t('Launchpad')}</span>
+        {badge > 0 && (
+          <span
+            className="min-w-4 rounded-full bg-accent px-1 text-center text-[10px] leading-4 font-semibold text-accent-foreground tabular-nums"
+            title={t('{n} waiting for you (review requests and assigned)', { n: badge })}
+          >
+            {badge > 99 ? '99+' : badge}
+          </span>
+        )}
+      </button>
       <div
         className="flex min-w-0 flex-1 items-stretch overflow-x-auto"
         onClickCapture={onNavigate}

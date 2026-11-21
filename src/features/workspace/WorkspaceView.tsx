@@ -95,6 +95,8 @@ export function WorkspaceView() {
           state: null,
           lastCommit: null,
           github: null,
+          gitlab: null,
+          wip: { modified: 0, added: 0, deleted: 0, renamed: 0 },
         },
     );
   }, [ws, summaries]);

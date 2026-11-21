@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type * as T from './types';
 
 const inTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-const BRIDGE = 'http://127.0.0.1:1421/call';
+const BRIDGE = `http://127.0.0.1:${import.meta.env.VITE_BRIDGE_PORT || 1421}/call`;
 
 export class IpcError extends Error {
   kind: string;
@@ -224,6 +224,8 @@ export const api = {
     call<T.Workspaces>('workspace.save', { workspaces }),
   scanRepos: (root: string, depth = 3) => call<string[]>('workspace.scan', { root, depth }),
   workspaceStatus: (repos: string[]) => call<T.RepoSummary[]>('workspace.status', { repos }),
+  launchpadGitHub: () => call<T.LaunchItem[]>('launchpad.github'),
+  launchpadGitLab: () => call<T.LaunchItem[]>('launchpad.gitlab'),
   settings: () => call<T.Settings>('settings.get'),
   saveSettings: (settings: T.Settings) => call<T.Settings>('settings.set', { settings }),
   forgetRecent: (path: string) => call<T.Settings>('settings.forgetRecent', { path }),
