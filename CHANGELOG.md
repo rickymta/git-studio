@@ -2,6 +2,12 @@
 
 Các thay đổi đáng chú ý của GitStudio. File này do `pnpm release` cập nhật.
 
+## v0.3.8 - 2026-11-21
+
+Thay đổi từ v0.3.7.
+
+- feat(ui): Launchpad first, full-width tabs, GitKraken-style Pull menu, brighter dark theme (c6f1c6a)
+
 ## v0.3.7 - 2026-11-21
 
 Thay đổi từ v0.3.6.

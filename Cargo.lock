@@ -1508,7 +1508,7 @@ dependencies = [
 
 [[package]]
 name = "gitstudio"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "axum",
  "gitstudio-core",
@@ -1523,7 +1523,7 @@ dependencies = [
 
 [[package]]
 name = "gitstudio-core"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "base64 0.22.1",
  "chardetng",
@@ -1541,7 +1541,7 @@ dependencies = [
 
 [[package]]
 name = "gitstudio-overlay-win"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "serde",
  "serde_json",
