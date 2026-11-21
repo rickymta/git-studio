@@ -377,6 +377,14 @@ function pinnedTips(view: GraphView, refs: Refs | null): string[] {
 }
 
 const logView = (v: GraphView) => ({ solo: v.solo, hidden: v.hidden });
+/** HEAD's commit when there are uncommitted changes: the graph gives them a row of their own. */
+export function wipHead(info: RepoInfo | null): string | null {
+  const st = info?.status;
+  if (!st?.head) return null;
+  const n = (st.staged?.length ?? 0) + (st.unstaged?.length ?? 0) + (st.conflicted?.length ?? 0);
+  return n > 0 ? st.head : null;
+}
+
 /** Stashes drawn in the graph: none while soloing a branch, and never the hidden ones. */
 const shownStashes = (v: GraphView, refs: Refs | null) =>
   v.solo.length ? [] : (refs?.stashes ?? []).filter((s) => !v.hiddenStashes.includes(s.hash));
@@ -443,7 +451,7 @@ async function loadRepo(path: string, first: boolean, fresh = false) {
       info,
       commits: rows,
       view,
-      graph: layoutGraph(rows, pinnedTips(view, refs)),
+      graph: layoutGraph(rows, pinnedTips(view, refs), wipHead(info)),
       refs,
       worktrees,
       hasMore: kept ? before.hasMore : commits.length >= limit,
@@ -489,7 +497,7 @@ function appendCommits(
     commits[n - 1]?.hash === prev.commits[n - 1]?.hash;
   const graph =
     (samePrefix && n > 0 && extendGraph(prev.graph, commits.slice(n))) ||
-    layoutGraph(commits, pinnedTips(view, refs));
+    layoutGraph(commits, pinnedTips(view, refs), wipHead(useRepo.getState().info));
   return { commits, graph };
 }
 
@@ -782,7 +790,11 @@ export const useRepo = create<RepoStore>((set, get) => ({
         prev.status.head === info.status.head &&
         prev.status.branch === info.status.branch
       ) {
-        set({ info });
+        // Changes appeared or were all committed / discarded: the WIP row comes or goes.
+        if (wipHead(prev) !== wipHead(info)) {
+          const { commits, view, refs } = get();
+          set({ info, graph: layoutGraph(commits, pinnedTips(view, refs), wipHead(info)) });
+        } else set({ info });
       } else {
         await get().refresh();
       }

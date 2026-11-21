@@ -96,6 +96,11 @@ interface LayoutState {
 
 /** State at the end of each laid-out row list, so later pages continue it (`extendGraph`). */
 const finalState = new WeakMap<GraphRow[], LayoutState>();
+/** The WIP row laid out above the commits (see `layoutGraph`'s `wip`). */
+const wipRows = new WeakMap<GraphRow[], GraphRow>();
+
+/** Row of the uncommitted changes laid out with `rows`, if they were laid out with one. */
+export const wipRowOf = (rows: GraphRow[]): GraphRow | null => wipRows.get(rows) ?? null;
 
 const cloneState = (st: LayoutState): LayoutState => ({
   lanes: [...st.lanes],
@@ -109,8 +114,17 @@ const cloneState = (st: LayoutState): LayoutState => ({
 /**
  * Assign every commit (children before parents, as `git log --date-order` emits them) a lane and
  * the line segments to draw in its row. Lanes keep their colour from tip to fork point.
+ *
+ * `wip`: HEAD's commit when there are uncommitted changes. Their row sits above all commits with a
+ * lane of its own, dotted down to HEAD however far below it is (other branches' newer commits in
+ * between), like a stash hanging from its base; HEAD's line then carries on in that lane. The row
+ * is read back with `wipRowOf`.
  */
-export function layoutGraph(commits: Commit[], pinned: string[] = []): GraphRow[] {
+export function layoutGraph(
+  commits: Commit[],
+  pinned: string[] = [],
+  wip: string | null = null,
+): GraphRow[] {
   const st: LayoutState = {
     lanes: [],
     colors: [],
@@ -119,10 +133,26 @@ export function layoutGraph(commits: Commit[], pinned: string[] = []): GraphRow[
     waiting: new Set(),
     nextColor: 0,
   };
-  const rows = runLayout(st, commits, [], pinned);
+  const wipRow: GraphRow[] = [];
+  const pre = wip ? [wipCommit(wip)] : [];
+  const rows = runLayout(st, commits, [], pinned, { commits: pre, rows: wipRow });
   finalState.set(rows, st);
+  if (wipRow[0]) wipRows.set(rows, wipRow[0]);
   return rows;
 }
+
+/** The uncommitted changes as a stash-like row hanging from HEAD. */
+const wipCommit = (head: string): Commit => ({
+  hash: '',
+  parents: [head],
+  authorName: '',
+  authorEmail: '',
+  authorTime: 0,
+  committerName: '',
+  commitTime: 0,
+  subject: '',
+  stash: { index: -1, name: '', hash: '', message: '', time: 0, base: head },
+});
 
 /**
  * The rows of `prev` followed by those of `more`, the commits right after the ones `prev` was laid
@@ -135,6 +165,8 @@ export function extendGraph(prev: GraphRow[], more: Commit[]): GraphRow[] | null
   const st = cloneState(end);
   const rows = runLayout(st, more, prev.slice());
   finalState.set(rows, st);
+  const wip = wipRows.get(prev);
+  if (wip) wipRows.set(rows, wip);
   return rows;
 }
 
@@ -143,6 +175,8 @@ function runLayout(
   commits: Commit[],
   rows: GraphRow[],
   pinned: string[] = [],
+  /** Rows laid out before `commits` (after the pinned lanes), kept apart: the WIP row. */
+  pre: { commits: Commit[]; rows: GraphRow[] } = { commits: [], rows: [] },
 ): GraphRow[] {
   const { lanes, colors, origin, dashed, waiting } = st;
 
@@ -207,7 +241,7 @@ function runLayout(
     return any;
   };
 
-  for (const c of commits) {
+  const place = (c: Commit, rows: GraphRow[]) => {
     const segments: Segment[] = [];
     if (c.stash) {
       // Own lane, coloured like the line it hangs from (or the row above), dotted to its base.
@@ -233,7 +267,7 @@ function runLayout(
       dashed.add(lane);
       segments.push({ fromLane: lane, fromY: 1, toLane: lane, toY: 2, color, dashed: true });
       rows.push({ lane, color, segments, width: lanes.length, from: null });
-      continue;
+      return;
     }
     let lane = laneOf(c.hash);
     if (lane === -1) {
@@ -322,7 +356,9 @@ function runLayout(
       origin.length = Math.min(origin.length, lanes.length);
     }
     rows.push({ lane, color, segments, width, from });
-  }
+  };
+  for (const c of pre.commits) place(c, pre.rows);
+  for (const c of commits) place(c, rows);
   return rows;
 }
 

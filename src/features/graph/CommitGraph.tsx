@@ -7,7 +7,7 @@ import { cn } from '@/lib/cn';
 import { usePersistentWidth } from '@/components/usePersistentWidth';
 import { useGravatar } from '@/components/useGravatar';
 import { fullDate, hue, initials, relativeTime, short } from '@/lib/format';
-import { laneColor, type GraphRow, type Segment } from '@/lib/graph';
+import { laneColor, wipRowOf, type GraphRow, type Segment } from '@/lib/graph';
 import { t } from '@/lib/i18n';
 import type { Commit, GitRef } from '@/lib/types';
 import { useRepo } from '@/stores/repo';
@@ -526,6 +526,7 @@ export function CommitGraph() {
                   geom={geom}
                   show={show}
                   headRow={headIdx >= 0 ? graph[headIdx]! : null}
+                  wipRow={wipRowOf(graph)}
                   selected={selection?.type === 'wip'}
                   onSelect={() => select({ type: 'wip' })}
                 />
@@ -604,6 +605,7 @@ function WipRow({
   geom,
   show,
   headRow,
+  wipRow,
   selected,
   onSelect,
 }: {
@@ -612,6 +614,8 @@ function WipRow({
   geom: Geom;
   show: Set<Column>;
   headRow: GraphRow | null;
+  /** Laid out with the commits: a lane of its own, dotted down to HEAD however far it is. */
+  wipRow: GraphRow | null;
   selected: boolean;
   onSelect: () => void;
 }) {
@@ -627,8 +631,9 @@ function WipRow({
     else if (s === 'D') counts.del++;
     else counts.mod++;
   }
-  const color = headRow ? laneColor(headRow.color) : 'var(--muted-foreground)';
-  const cx = laneX(headRow?.lane ?? 0, geom);
+  const at = wipRow ?? headRow;
+  const color = at ? laneColor(at.color) : 'var(--muted-foreground)';
+  const cx = laneX(at?.lane ?? 0, geom);
   const r = geom.node;
   return (
     <div style={style} onClick={onSelect} className="relative flex cursor-default items-center">
@@ -644,8 +649,19 @@ function WipRow({
       />
       <div style={{ width: REFS_W }} className="shrink-0" />
       {show.has('graph') && (
-        <svg width={graphWidth} height={ROW} className="relative shrink-0">
-          {headRow && (
+        <svg width={graphWidth} height={ROW} className="relative shrink-0 overflow-hidden">
+          {/* Its dotted lane down to HEAD (and pinned lanes passing by). */}
+          {wipRow?.segments.map((s, i) => (
+            <path
+              key={i}
+              d={segmentPath(s, geom)}
+              fill="none"
+              stroke={laneColor(s.color)}
+              strokeWidth={2}
+              strokeDasharray={s.dashed ? '2 3' : undefined}
+            />
+          ))}
+          {!wipRow && headRow && (
             <line
               x1={cx}
               x2={cx}

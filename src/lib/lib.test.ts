@@ -1,5 +1,5 @@
 import { hunkPatch, parseDiff } from './diff';
-import { extendGraph, hueGap, layoutGraph, withStashes } from './graph';
+import { extendGraph, hueGap, layoutGraph, wipRowOf, withStashes } from './graph';
 import type { Commit } from './types';
 
 const c = (hash: string, ...parents: string[]): Commit => ({
@@ -115,6 +115,56 @@ describe('layoutGraph', () => {
     const tips = layoutGraph([c('x', 'a'), c('y', 'a'), c('a')]);
     expect(tips[1]!.from).toEqual({ hash: 'y', merge: false });
     expect(tips[2]!.from).toEqual({ hash: 'x', merge: false });
+  });
+
+  it('links uncommitted changes to HEAD however far below it is', () => {
+    // Newer commits of another branch (x, y) sit between the WIP row and HEAD (h).
+    const commits = [c('x', 'y'), c('y', 'a'), c('h', 'a'), c('a')];
+    const rows = layoutGraph(commits, [], 'h');
+    const wip = wipRowOf(rows)!;
+    expect(wip.lane).toBe(0);
+    expect(wip.segments).toEqual([
+      { fromLane: 0, fromY: 1, toLane: 0, toY: 2, color: wip.color, dashed: true },
+    ]);
+    // The dotted lane passes x and y, the other branch takes the next lane.
+    for (const r of rows.slice(0, 2)) {
+      expect(r.lane).toBe(1);
+      expect(r.segments).toContainEqual({
+        fromLane: 0,
+        fromY: 0,
+        toLane: 0,
+        toY: 2,
+        color: wip.color,
+        dashed: true,
+      });
+    }
+    // HEAD carries on in the WIP lane, dotted from the top of its row to its node.
+    expect(rows[2]!.lane).toBe(0);
+    expect(rows[2]!.segments).toContainEqual({
+      fromLane: 0,
+      fromY: 0,
+      toLane: 0,
+      toY: 1,
+      color: wip.color,
+      dashed: true,
+    });
+    // Without changes there is no WIP row.
+    expect(wipRowOf(layoutGraph(commits))).toBeNull();
+    // HEAD not loaded yet (a long history): the dotted lane runs on past the loaded rows.
+    const far = layoutGraph(commits, [], 'older');
+    expect(wipRowOf(far)!.lane).toBe(0);
+    expect(far[3]!.segments.some((s) => s.fromLane === 0 && s.toY === 2 && s.dashed)).toBe(true);
+  });
+
+  it('puts the WIP lane after the pinned ones and keeps it across pages', () => {
+    const commits = [c('x', 'y'), c('y', 'a'), c('h', 'a'), c('a')];
+    const pinned = layoutGraph(commits, ['y'], 'h');
+    expect(wipRowOf(pinned)!.lane).toBe(1);
+    expect(pinned[1]!.lane).toBe(0); // the pinned tip y
+    const first = layoutGraph(commits.slice(0, 2), [], 'h');
+    const paged = extendGraph(first, commits.slice(2))!;
+    expect(wipRowOf(paged)).toEqual(wipRowOf(first));
+    expect(paged).toEqual(layoutGraph(commits, [], 'h'));
   });
 });
 
