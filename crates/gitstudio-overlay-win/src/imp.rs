@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
 use std::path::PathBuf;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicIsize, Ordering};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
 use windows::Win32::Foundation::{
@@ -19,7 +19,7 @@ use windows::Win32::System::Registry::{
 use windows::Win32::System::SystemServices::DLL_PROCESS_ATTACH;
 use windows::Win32::UI::Shell::{
     ISIOI_ICONFILE, ISIOI_ICONINDEX, IShellIconOverlayIdentifier, IShellIconOverlayIdentifier_Impl,
-    SHCNE_ASSOCCHANGED, SHCNF_IDLIST, SHChangeNotify,
+    SHCNE_ASSOCCHANGED, SHCNE_UPDATEDIR, SHCNF_IDLIST, SHCNF_PATHW, SHChangeNotify,
 };
 use windows::core::{BOOL, GUID, HRESULT, HSTRING, Interface, PCWSTR, PWSTR, implement};
 use windows_core::{IUnknown, Ref};
@@ -78,11 +78,19 @@ const HANDLERS: [Handler; 3] = [
 ];
 
 // ---- status file -----------------------------------------------------------------------------------
+//
+// Explorer calls `IsMemberOf` on its UI thread for every icon it draws, so a lookup must never
+// touch the disk, sleep, or wait on anything slow. Lookups only read `SNAPSHOT`, an immutable
+// picture of the status files swapped in whole; a background thread (started on the first
+// lookup, never from DllMain) keeps it current. What a lookup cannot answer yet it notes, and
+// once the loader has the data it asks Explorer to redraw just those folders.
 
 /// A status file nobody refreshed for this long is ignored (GitStudio and its agent are gone).
 const STALE: Duration = Duration::from_secs(10 * 60);
-/// How often Explorer's lookups may re-check the file's modification time.
+/// How often the loader re-checks the files' modification times.
 const RECHECK: Duration = Duration::from_millis(700);
+/// At most this many folders are asked to redraw after one load.
+const MAX_REDRAW: usize = 64;
 
 #[derive(Deserialize)]
 struct StatusFile {
@@ -90,14 +98,6 @@ struct StatusFile {
     repos: HashMap<String, String>,
     /// Repository key → id of its detail files in `overlay/`.
     #[serde(default)]
-    details: HashMap<String, String>,
-}
-
-struct Cache {
-    checked: Instant,
-    modified: Option<SystemTime>,
-    updated_ms: i64,
-    repos: HashMap<String, Level>,
     details: HashMap<String, String>,
 }
 
@@ -109,11 +109,8 @@ struct DetailFile {
 
 /// What is inside one repository, with paths relative to its root in Explorer's form
 /// (lower case, `\`).
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct RepoView {
-    checked: Option<Instant>,
-    json_mtime: Option<SystemTime>,
-    files_mtime: Option<SystemTime>,
     dirty: HashMap<String, Level>,
     /// Folders above changed / conflicted paths, with the most serious level below them.
     dirty_dirs: HashMap<String, Level>,
@@ -121,7 +118,28 @@ struct RepoView {
     tracked_dirs: HashSet<String>,
 }
 
-static DETAILS: Mutex<Option<HashMap<String, RepoView>>> = Mutex::new(None);
+/// What lookups answer from.
+#[derive(Default)]
+struct Snapshot {
+    updated_ms: i64,
+    repos: HashMap<String, Level>,
+    /// Repository root key → id of its detail files.
+    details: HashMap<String, String>,
+    /// Detail id → what is inside that repository (only the ones Explorer asked about).
+    views: HashMap<String, Arc<RepoView>>,
+}
+
+static SNAPSHOT: RwLock<Option<Arc<Snapshot>>> = RwLock::new(None);
+
+/// Asked for by lookups, picked up by the loader: detail ids to load, and the folders Explorer
+/// showed without an answer (to redraw once the data is there).
+#[derive(Default)]
+struct Wanted {
+    ids: HashSet<String>,
+    dirs: HashSet<String>,
+}
+
+static WANTED: Mutex<Option<Wanted>> = Mutex::new(None);
 
 fn worse(a: Level, b: Level) -> Level {
     let rank = |l: Level| match l {
@@ -146,51 +164,33 @@ fn mtime(p: &std::path::Path) -> Option<SystemTime> {
 }
 
 impl RepoView {
-    /// Re-read the detail files when they changed (checked at most every RECHECK).
-    fn refresh(&mut self, dir: &std::path::Path, id: &str) {
-        if self.checked.is_some_and(|c| c.elapsed() < RECHECK) {
-            return;
+    fn set_dirty(&mut self, d: DetailFile) {
+        self.dirty.clear();
+        self.dirty_dirs.clear();
+        for (path, level) in d.dirty {
+            let Some(level) = Level::parse(&level) else {
+                continue;
+            };
+            let k = rel_key(&path);
+            for dir in parents(&k) {
+                let e = self.dirty_dirs.entry(dir.to_string()).or_insert(level);
+                *e = worse(*e, level);
+            }
+            self.dirty.insert(k, level);
         }
-        self.checked = Some(Instant::now());
-        let json = dir.join(format!("{id}.json"));
-        let files = dir.join(format!("{id}.files"));
-        let (jm, fm) = (mtime(&json), mtime(&files));
-        if jm != self.json_mtime {
-            if let Some(d) = std::fs::read(&json)
-                .ok()
-                .and_then(|b| serde_json::from_slice::<DetailFile>(&b).ok())
-            {
-                self.json_mtime = jm;
-                self.dirty.clear();
-                self.dirty_dirs.clear();
-                for (path, level) in d.dirty {
-                    let Some(level) = Level::parse(&level) else {
-                        continue;
-                    };
-                    let k = rel_key(&path);
-                    for dir in parents(&k) {
-                        let e = self.dirty_dirs.entry(dir.to_string()).or_insert(level);
-                        *e = worse(*e, level);
-                    }
-                    self.dirty.insert(k, level);
+    }
+
+    fn set_tracked(&mut self, text: &str) {
+        self.tracked.clear();
+        self.tracked_dirs.clear();
+        for line in text.lines().filter(|l| !l.is_empty()) {
+            let k = rel_key(line);
+            for dir in parents(&k) {
+                if !self.tracked_dirs.contains(dir) {
+                    self.tracked_dirs.insert(dir.to_string());
                 }
             }
-        }
-        if fm != self.files_mtime {
-            if let Ok(text) = std::fs::read_to_string(&files) {
-                self.files_mtime = fm;
-                self.tracked.clear();
-                self.tracked_dirs.clear();
-                for line in text.lines().filter(|l| !l.is_empty()) {
-                    let k = rel_key(line);
-                    for dir in parents(&k) {
-                        if !self.tracked_dirs.contains(dir) {
-                            self.tracked_dirs.insert(dir.to_string());
-                        }
-                    }
-                    self.tracked.insert(k);
-                }
-            }
+            self.tracked.insert(k);
         }
     }
 
@@ -202,18 +202,6 @@ impl RepoView {
         (self.tracked.contains(rel) || self.tracked_dirs.contains(rel)).then_some(Level::Clean)
     }
 }
-
-/// Level of something inside the repository `id` (rooted at `root`, both normalised).
-fn inner_level(id: &str, rel: &str) -> Option<Level> {
-    let dir = status_path()?.parent()?.join("overlay");
-    let mut guard = DETAILS.lock().unwrap_or_else(|p| p.into_inner());
-    let views = guard.get_or_insert_with(HashMap::new);
-    let view = views.entry(id.to_string()).or_default();
-    view.refresh(&dir, id);
-    view.level(rel)
-}
-
-static CACHE: Mutex<Option<Cache>> = Mutex::new(None);
 
 fn status_path() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("GITSTUDIO_OVERLAY_STATUS") {
@@ -246,23 +234,203 @@ pub fn key(path: &str) -> String {
     s.to_lowercase()
 }
 
-/// Troubleshooting: with `overlay-debug.flag` next to the DLL, every call is appended to
-/// `overlay-debug.log` there.
+/// Troubleshooting: with `overlay-debug.flag` next to the DLL when Explorer loads it, every
+/// call is appended to `overlay-debug.log` there. Checked once, not on every icon.
 fn debug_log(msg: &str) {
-    // Next to the DLL: always writable by the user, whatever process loaded it.
-    let Some(dir) = module_path().and_then(|p| p.parent().map(|d| d.to_path_buf())) else {
+    static LOG: OnceLock<Option<PathBuf>> = OnceLock::new();
+    let log = LOG.get_or_init(|| {
+        let dir = module_path()?.parent()?.to_path_buf();
+        dir.join("overlay-debug.flag")
+            .exists()
+            .then(|| dir.join("overlay-debug.log"))
+    });
+    let Some(log) = log else {
         return;
     };
-    if !dir.join("overlay-debug.flag").exists() {
-        return;
-    }
     use std::io::Write;
     if let Ok(mut f) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(dir.join("overlay-debug.log"))
+        .open(log)
     {
         let _ = writeln!(f, "{} pid={} {msg}", now_ms(), std::process::id());
+    }
+}
+
+// ---- loader (background thread) ---------------------------------------------------------------------
+
+/// The loader's own bookkeeping: file times seen, so unchanged files are not read again.
+#[derive(Default)]
+struct LoaderState {
+    status_mtime: Option<SystemTime>,
+    /// Detail id → (json mtime, files mtime).
+    seen: HashMap<String, (Option<SystemTime>, Option<SystemTime>)>,
+}
+
+static LOADER: Mutex<Option<LoaderState>> = Mutex::new(None);
+
+/// Start the loader thread once (on the first lookup: DllMain must not create threads).
+fn ensure_loader() {
+    static STARTED: OnceLock<()> = OnceLock::new();
+    STARTED.get_or_init(|| {
+        let spawned = std::thread::Builder::new()
+            .name("gitstudio-overlay".into())
+            .spawn(|| {
+                loop {
+                    load_now();
+                    std::thread::sleep(RECHECK);
+                }
+            });
+        if let Err(e) = spawned {
+            debug_log(&format!("loader thread failed: {e}"));
+        }
+    });
+}
+
+/// One loader pass: re-read what changed, publish a new snapshot, redraw folders that waited.
+/// A panic is contained here, so the thread keeps running and Explorer is never affected.
+pub fn load_now() {
+    let result = std::panic::catch_unwind(|| {
+        let mut guard = LOADER.lock().unwrap_or_else(|p| p.into_inner());
+        load_pass(guard.get_or_insert_with(LoaderState::default))
+    });
+    match result {
+        Ok(redraw) => redraw_folders(redraw),
+        Err(_) => debug_log("loader pass panicked"),
+    }
+}
+
+fn load_pass(state: &mut LoaderState) -> Vec<String> {
+    let Some(file) = status_path() else {
+        return Vec::new();
+    };
+    let old = current();
+    let (ids_wanted, dirs_waiting) = {
+        let mut w = WANTED.lock().unwrap_or_else(|p| p.into_inner());
+        let w = w.get_or_insert_with(Wanted::default);
+        (std::mem::take(&mut w.ids), std::mem::take(&mut w.dirs))
+    };
+    let mut changed = false;
+
+    // The status file: on a read or parse error keep what was known and retry next pass,
+    // since caching "nothing" would drop every badge.
+    let mut next = Snapshot {
+        updated_ms: old.as_ref().map(|s| s.updated_ms).unwrap_or(0),
+        repos: old.as_ref().map(|s| s.repos.clone()).unwrap_or_default(),
+        details: old.as_ref().map(|s| s.details.clone()).unwrap_or_default(),
+        views: old.as_ref().map(|s| s.views.clone()).unwrap_or_default(),
+    };
+    let m = mtime(&file);
+    if old.is_none() || m != state.status_mtime {
+        match std::fs::read(&file)
+            .ok()
+            .and_then(|b| serde_json::from_slice::<StatusFile>(&b).ok())
+        {
+            Some(f) => {
+                state.status_mtime = m;
+                next.updated_ms = f.updated;
+                next.repos = f
+                    .repos
+                    .into_iter()
+                    .filter_map(|(k, v)| Level::parse(&v).map(|l| (k, l)))
+                    .collect();
+                next.details = f.details;
+                changed = true;
+            }
+            None => debug_log(&format!("cannot read {}", file.display())),
+        }
+    }
+
+    // Detail files: the ones already loaded (kept fresh) and the ones lookups asked for.
+    let dir = file.parent().map(|p| p.join("overlay"));
+    let known: HashSet<&String> = next.details.values().collect();
+    next.views.retain(|id, _| known.contains(id));
+    state.seen.retain(|id, _| known.contains(id));
+    let ids: Vec<String> = next
+        .views
+        .keys()
+        .cloned()
+        .chain(ids_wanted.into_iter().filter(|id| known.contains(id)))
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    if let Some(dir) = dir {
+        for id in ids {
+            let json = dir.join(format!("{id}.json"));
+            let files = dir.join(format!("{id}.files"));
+            let (jm, fm) = (mtime(&json), mtime(&files));
+            let (sj, sf) = state.seen.get(&id).copied().unwrap_or((None, None));
+            let fresh = next.views.contains_key(&id);
+            if fresh && jm == sj && fm == sf {
+                continue;
+            }
+            let mut view = next
+                .views
+                .get(&id)
+                .map(|v| (**v).clone())
+                .unwrap_or_default();
+            let mut seen = (sj, sf);
+            if !fresh || jm != sj {
+                if let Some(d) = std::fs::read(&json)
+                    .ok()
+                    .and_then(|b| serde_json::from_slice::<DetailFile>(&b).ok())
+                {
+                    view.set_dirty(d);
+                    seen.0 = jm;
+                }
+            }
+            if !fresh || fm != sf {
+                if let Ok(text) = std::fs::read_to_string(&files) {
+                    view.set_tracked(&text);
+                    seen.1 = fm;
+                }
+            }
+            state.seen.insert(id.clone(), seen);
+            next.views.insert(id, Arc::new(view));
+            changed = true;
+        }
+    }
+
+    if changed {
+        *SNAPSHOT.write().unwrap_or_else(|p| p.into_inner()) = Some(Arc::new(next));
+    }
+    // Folders Explorer drew without an answer: redraw them now the data is in.
+    dirs_waiting.into_iter().take(MAX_REDRAW).collect()
+}
+
+/// Ask Explorer to redraw these folders (it then asks for their badges again).
+fn redraw_folders(dirs: Vec<String>) {
+    for d in dirs {
+        let w: Vec<u16> = d.encode_utf16().chain(std::iter::once(0)).collect();
+        // SAFETY: SHCNF_PATHW takes a NUL-terminated wide path, alive for the call.
+        unsafe {
+            SHChangeNotify(
+                SHCNE_UPDATEDIR,
+                SHCNF_PATHW,
+                Some(w.as_ptr() as *const c_void),
+                None,
+            )
+        };
+    }
+}
+
+// ---- lookups (Explorer's threads) ---------------------------------------------------------------------
+
+fn current() -> Option<Arc<Snapshot>> {
+    SNAPSHOT.read().unwrap_or_else(|p| p.into_inner()).clone()
+}
+
+/// Note what a lookup could not answer yet: the folder to redraw, and the detail id to load.
+fn want(path_key: &str, id: Option<&str>) {
+    let mut w = WANTED.lock().unwrap_or_else(|p| p.into_inner());
+    let w = w.get_or_insert_with(Wanted::default);
+    if let Some((dir, _)) = path_key.rsplit_once('\\') {
+        if w.dirs.len() < MAX_REDRAW * 4 {
+            w.dirs.insert(dir.to_string());
+        }
+    }
+    if let Some(id) = id {
+        w.ids.insert(id.to_string());
     }
 }
 
@@ -273,66 +441,17 @@ pub fn level_of(path: &str) -> Option<Level> {
     level
 }
 
-/// Read the status file, retrying briefly: GitStudio replaces it every few seconds.
-fn read_status(file: &std::path::Path) -> Option<StatusFile> {
-    for attempt in 0..4 {
-        if attempt > 0 {
-            std::thread::sleep(Duration::from_millis(15));
-        }
-        match std::fs::read(file) {
-            Ok(b) => match serde_json::from_slice(&b) {
-                Ok(f) => return Some(f),
-                Err(e) => debug_log(&format!("parse error {e}")),
-            },
-            Err(e) => debug_log(&format!("read error {} {e}", file.display())),
-        }
-    }
-    None
-}
-
 fn level_of_inner(path: &str) -> Option<Level> {
-    let mut guard = CACHE.lock().unwrap_or_else(|p| p.into_inner());
-    let fresh = guard
-        .as_ref()
-        .is_some_and(|c| c.checked.elapsed() < RECHECK);
-    if !fresh {
-        let file = status_path()?;
-        let modified = std::fs::metadata(&file).and_then(|m| m.modified()).ok();
-        let unchanged = guard.as_ref().is_some_and(|c| c.modified == modified);
-        if unchanged {
-            if let Some(c) = guard.as_mut() {
-                c.checked = Instant::now();
-            }
-        } else {
-            match read_status(&file) {
-                Some(f) => {
-                    *guard = Some(Cache {
-                        checked: Instant::now(),
-                        modified,
-                        updated_ms: f.updated,
-                        repos: f
-                            .repos
-                            .into_iter()
-                            .filter_map(|(k, v)| Level::parse(&v).map(|l| (k, l)))
-                            .collect(),
-                        details: f.details,
-                    });
-                }
-                // Keep what was known and try again on the next lookup: caching "nothing"
-                // would make Explorer remember "no badge" for every folder it asks about now.
-                None => {
-                    if let Some(c) = guard.as_mut() {
-                        c.checked = Instant::now() - RECHECK;
-                    }
-                }
-            }
-        }
-    }
-    let c = guard.as_ref()?;
+    ensure_loader();
+    let k = key(path);
+    let Some(c) = current() else {
+        // Nothing loaded yet (Explorer just started): answer later.
+        want(&k, None);
+        return None;
+    };
     if now_ms() - c.updated_ms > STALE.as_millis() as i64 {
         return None;
     }
-    let k = key(path);
     if let Some(level) = c.repos.get(&k) {
         return Some(*level);
     }
@@ -346,13 +465,26 @@ fn level_of_inner(path: &str) -> Option<Level> {
                 && (root.ends_with('\\') || k.as_bytes()[root.len()] == b'\\')
         })
         .max_by_key(|(root, _)| root.len())?;
-    let rel = k[root.len()..].trim_start_matches('\\').to_string();
-    let id = id.clone();
-    drop(guard);
+    let rel = k[root.len()..].trim_start_matches('\\');
     if rel == ".git" || rel.starts_with(".git\\") {
         return None;
     }
-    inner_level(&id, &rel)
+    match c.views.get(id) {
+        Some(view) => view.level(rel),
+        None => {
+            want(&k, Some(id));
+            None
+        }
+    }
+}
+
+/// Run `f`, turning a panic into `fallback`: a panic unwinding into Explorer would end the
+/// whole process (taskbar, desktop and every window with it).
+fn shielded<T>(fallback: T, f: impl FnOnce() -> T) -> T {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or_else(|_| {
+        debug_log("panic contained");
+        fallback
+    })
 }
 
 // ---- COM objects --------------------------------------------------------------------------------------
@@ -384,15 +516,17 @@ impl IShellIconOverlayIdentifier_Impl for Overlay_Impl {
         // SAFETY: Explorer passes a valid NUL-terminated wide string.
         let path =
             unsafe { pwszpath.to_string() }.map_err(|_| windows::core::Error::from(S_FALSE))?;
-        debug_log(&format!(
-            "IsMemberOf {:?} attrib={dwattrib:#x} {path:?}",
-            self.level
-        ));
-        if level_of(&path) == Some(self.level) {
-            Ok(())
-        } else {
-            Err(S_FALSE.into())
-        }
+        shielded(Err(S_FALSE.into()), || {
+            debug_log(&format!(
+                "IsMemberOf {:?} attrib={dwattrib:#x} {path:?}",
+                self.level
+            ));
+            if level_of(&path) == Some(self.level) {
+                Ok(())
+            } else {
+                Err(S_FALSE.into())
+            }
+        })
     }
 
     fn GetOverlayInfo(
@@ -405,6 +539,24 @@ impl IShellIconOverlayIdentifier_Impl for Overlay_Impl {
         if pwsziconfile.is_null() || pindex.is_null() || pdwflags.is_null() {
             return Err(E_POINTER.into());
         }
+        shielded(Err(E_FAIL.into()), || {
+            self.overlay_info(pwsziconfile, cchmax, pindex, pdwflags)
+        })
+    }
+
+    fn GetPriority(&self) -> windows::core::Result<i32> {
+        Ok(0)
+    }
+}
+
+impl Overlay {
+    fn overlay_info(
+        &self,
+        pwsziconfile: PWSTR,
+        cchmax: i32,
+        pindex: *mut i32,
+        pdwflags: *mut u32,
+    ) -> windows::core::Result<()> {
         let dir = module_path()
             .and_then(|p| p.parent().map(|d| d.to_path_buf()))
             .ok_or_else(|| windows::core::Error::from(E_FAIL))?;
@@ -431,10 +583,6 @@ impl IShellIconOverlayIdentifier_Impl for Overlay_Impl {
         ));
         Ok(())
     }
-
-    fn GetPriority(&self) -> windows::core::Result<i32> {
-        Ok(0)
-    }
 }
 
 #[implement(IClassFactory)]
@@ -457,14 +605,16 @@ impl IClassFactory_Impl for Factory_Impl {
         if !punkouter.is_null() {
             return Err(CLASS_E_NOAGGREGATION.into());
         }
-        let h = &HANDLERS[self.handler];
-        let obj: IShellIconOverlayIdentifier = Overlay {
-            level: h.level,
-            icon: h.icon,
-        }
-        .into();
-        // SAFETY: riid / ppvobject are valid per the COM contract.
-        unsafe { obj.query(riid, ppvobject).ok() }
+        shielded(Err(E_FAIL.into()), || {
+            let h = &HANDLERS[self.handler];
+            let obj: IShellIconOverlayIdentifier = Overlay {
+                level: h.level,
+                icon: h.icon,
+            }
+            .into();
+            // SAFETY: riid / ppvobject are valid per the COM contract.
+            unsafe { obj.query(riid, ppvobject).ok() }
+        })
     }
 
     fn LockServer(&self, _flock: BOOL) -> windows::core::Result<()> {
@@ -495,8 +645,9 @@ pub unsafe extern "system" fn DllMain(
     _reserved: *mut c_void,
 ) -> BOOL {
     if reason == DLL_PROCESS_ATTACH {
+        // Nothing else here: DllMain runs under the loader lock, where file access or
+        // starting threads can deadlock the host process.
         MODULE.store(hinst.0 as isize, Ordering::Relaxed);
-        debug_log("loaded");
     }
     BOOL(1)
 }
@@ -513,19 +664,22 @@ pub unsafe extern "system" fn DllGetClassObject(
         return E_POINTER;
     }
     // SAFETY: checked non-null above.
-    unsafe {
-        *ppv = std::ptr::null_mut();
-        let Some(i) = HANDLERS.iter().position(|h| h.clsid == *rclsid) else {
-            return CLASS_E_CLASSNOTAVAILABLE;
-        };
-        let factory: IClassFactory = Factory { handler: i }.into();
-        let hr = factory.query(riid, ppv);
-        debug_log(&format!(
-            "DllGetClassObject {:?} riid={:?} -> {hr:?}",
-            HANDLERS[i].level, *riid
-        ));
-        hr
-    }
+    unsafe { *ppv = std::ptr::null_mut() };
+    shielded(E_FAIL, || {
+        // SAFETY: checked non-null above.
+        unsafe {
+            let Some(i) = HANDLERS.iter().position(|h| h.clsid == *rclsid) else {
+                return CLASS_E_CLASSNOTAVAILABLE;
+            };
+            let factory: IClassFactory = Factory { handler: i }.into();
+            let hr = factory.query(riid, ppv);
+            debug_log(&format!(
+                "DllGetClassObject {:?} riid={:?} -> {hr:?}",
+                HANDLERS[i].level, *riid
+            ));
+            hr
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -681,6 +835,7 @@ mod tests {
         );
         // SAFETY: tests run single-threaded for this env var (only this test sets it).
         unsafe { std::env::set_var("GITSTUDIO_OVERLAY_STATUS", &file) };
+        load_now();
 
         let clean = overlay_for(&CLSID_CLEAN).unwrap();
         let changed = overlay_for(&CLSID_CHANGED).unwrap();
@@ -708,7 +863,6 @@ mod tests {
         assert_eq!(flags, ISIOI_ICONFILE | ISIOI_ICONINDEX);
 
         // Inside a repository: tracked files and folders, changed and conflicted ones.
-        std::thread::sleep(RECHECK + Duration::from_millis(50));
         let id = "0123456789abcdef";
         let details = dir.path().join("overlay");
         std::fs::create_dir_all(&details).unwrap();
@@ -730,8 +884,12 @@ mod tests {
             "version": 1, "updated": now_ms(), "pid": 1, "repos": repos, "details": ids
         });
         std::fs::write(&file, serde_json::to_vec(&body).unwrap()).unwrap();
-        std::thread::sleep(RECHECK + Duration::from_millis(50));
+        load_now();
         let r = r"H:\Work\Dirty";
+        // The first lookup inside the repository has no answer yet: it asks the loader for the
+        // repository's file list (and never reads it on Explorer's thread).
+        assert_eq!(member(&clean, &format!(r"{r}\README.md"), 0), S_FALSE);
+        load_now();
         assert_eq!(member(&clean, &format!(r"{r}\README.md"), 0), S_OK);
         assert_eq!(member(&clean, &format!(r"{r}\src\main.rs"), 0), S_OK);
         assert_eq!(member(&changed, &format!(r"{r}\src\ui\App.tsx"), 0), S_OK);
@@ -748,14 +906,29 @@ mod tests {
         }
 
         // A stale file (no GitStudio refreshing it) shows nothing.
-        std::thread::sleep(RECHECK + Duration::from_millis(50));
+        std::thread::sleep(Duration::from_millis(20));
         write_status(
             dir.path(),
             &[(r"H:\Work\Clean", "clean")],
             now_ms() - 3_600_000,
         );
-        std::thread::sleep(RECHECK + Duration::from_millis(50));
+        load_now();
         assert_eq!(member(&clean, r"H:\Work\Clean", DIR), S_FALSE);
+
+        // A file that cannot be parsed keeps the last good picture instead of dropping badges.
+        std::thread::sleep(Duration::from_millis(20));
+        write_status(dir.path(), &[(r"H:\Work\Clean", "clean")], now_ms());
+        load_now();
+        std::thread::sleep(Duration::from_millis(20));
+        std::fs::write(&file, b"{ half written").unwrap();
+        load_now();
+        assert_eq!(member(&clean, r"H:\Work\Clean", DIR), S_OK);
+    }
+
+    #[test]
+    fn panics_never_reach_explorer() {
+        assert_eq!(shielded(7, || panic!("boom")), 7);
+        assert_eq!(shielded(7, || 8), 8);
     }
 
     #[test]
