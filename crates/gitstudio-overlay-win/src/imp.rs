@@ -3,7 +3,7 @@ use std::ffi::c_void;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
 use windows::Win32::Foundation::{
@@ -89,6 +89,10 @@ const HANDLERS: [Handler; 3] = [
 const STALE: Duration = Duration::from_secs(10 * 60);
 /// How often the loader re-checks the files' modification times.
 const RECHECK: Duration = Duration::from_millis(700);
+/// The status file is read again at least this often even when it looks unchanged.
+const STATUS_REREAD: Duration = Duration::from_secs(5);
+/// Same for the detail files of the repositories Explorer showed.
+const DETAIL_REREAD: Duration = Duration::from_secs(30);
 /// At most this many folders are asked to redraw after one load.
 const MAX_REDRAW: usize = 64;
 
@@ -159,8 +163,15 @@ fn rel_key(p: &str) -> String {
     p.replace('/', "\\").to_lowercase()
 }
 
-fn mtime(p: &std::path::Path) -> Option<SystemTime> {
-    std::fs::metadata(p).and_then(|m| m.modified()).ok()
+/// What tells a file changed: its modification time and size. Two writes can share one
+/// timestamp (coarse file-system clocks), so the size is compared as well, and files are read
+/// again after a while regardless (see `STATUS_REREAD` / `DETAIL_REREAD`).
+type Stamp = (SystemTime, u64);
+
+fn stamp(p: &std::path::Path) -> Option<Stamp> {
+    std::fs::metadata(p)
+        .ok()
+        .and_then(|m| m.modified().ok().map(|t| (t, m.len())))
 }
 
 impl RepoView {
@@ -259,12 +270,14 @@ fn debug_log(msg: &str) {
 
 // ---- loader (background thread) ---------------------------------------------------------------------
 
-/// The loader's own bookkeeping: file times seen, so unchanged files are not read again.
+/// The loader's own bookkeeping: what each file looked like when it was read, so unchanged
+/// files are not read again (until their re-read interval).
 #[derive(Default)]
 struct LoaderState {
-    status_mtime: Option<SystemTime>,
-    /// Detail id → (json mtime, files mtime).
-    seen: HashMap<String, (Option<SystemTime>, Option<SystemTime>)>,
+    status: Option<Stamp>,
+    status_read: Option<Instant>,
+    /// Detail id → (json stamp, files stamp, when they were read).
+    seen: HashMap<String, (Option<Stamp>, Option<Stamp>, Instant)>,
 }
 
 static LOADER: Mutex<Option<LoaderState>> = Mutex::new(None);
@@ -320,14 +333,18 @@ fn load_pass(state: &mut LoaderState) -> Vec<String> {
         details: old.as_ref().map(|s| s.details.clone()).unwrap_or_default(),
         views: old.as_ref().map(|s| s.views.clone()).unwrap_or_default(),
     };
-    let m = mtime(&file);
-    if old.is_none() || m != state.status_mtime {
+    let m = stamp(&file);
+    let due = state
+        .status_read
+        .is_none_or(|t| t.elapsed() >= STATUS_REREAD);
+    if old.is_none() || m != state.status || due {
         match std::fs::read(&file)
             .ok()
             .and_then(|b| serde_json::from_slice::<StatusFile>(&b).ok())
         {
             Some(f) => {
-                state.status_mtime = m;
+                state.status = m;
+                state.status_read = Some(Instant::now());
                 next.updated_ms = f.updated;
                 next.repos = f
                     .repos
@@ -358,9 +375,13 @@ fn load_pass(state: &mut LoaderState) -> Vec<String> {
         for id in ids {
             let json = dir.join(format!("{id}.json"));
             let files = dir.join(format!("{id}.files"));
-            let (jm, fm) = (mtime(&json), mtime(&files));
-            let (sj, sf) = state.seen.get(&id).copied().unwrap_or((None, None));
-            let fresh = next.views.contains_key(&id);
+            let (jm, fm) = (stamp(&json), stamp(&files));
+            let (sj, sf, read) = match state.seen.get(&id) {
+                Some(&(j, f, t)) => (j, f, Some(t)),
+                None => (None, None, None),
+            };
+            let due = read.is_none_or(|t| t.elapsed() >= DETAIL_REREAD);
+            let fresh = next.views.contains_key(&id) && !due;
             if fresh && jm == sj && fm == sf {
                 continue;
             }
@@ -385,7 +406,9 @@ fn load_pass(state: &mut LoaderState) -> Vec<String> {
                     seen.1 = fm;
                 }
             }
-            state.seen.insert(id.clone(), seen);
+            state
+                .seen
+                .insert(id.clone(), (seen.0, seen.1, Instant::now()));
             next.views.insert(id, Arc::new(view));
             changed = true;
         }
@@ -883,7 +906,16 @@ mod tests {
         let body = serde_json::json!({
             "version": 1, "updated": now_ms(), "pid": 1, "repos": repos, "details": ids
         });
+        // Rewritten within the same file-system clock tick as before (CI machines have coarse
+        // timestamps): the size still tells it changed.
+        let before = std::fs::metadata(&file).unwrap().modified().unwrap();
         std::fs::write(&file, serde_json::to_vec(&body).unwrap()).unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&file)
+            .unwrap()
+            .set_modified(before)
+            .unwrap();
         load_now();
         let r = r"H:\Work\Dirty";
         // The first lookup inside the repository has no answer yet: it asks the loader for the
