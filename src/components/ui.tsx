@@ -199,8 +199,16 @@ export function ContextMenuWrap({
   children: ReactNode;
   onOpenChange?: (open: boolean) => void;
 }) {
+  // The items are only worked out while the menu is open: every graph row and sidebar entry has
+  // a menu, and building them all on each render (some walk the commit graph) slowed tab switches.
+  const [open, setOpen] = useState(false);
   return (
-    <ContextMenu.Root onOpenChange={onOpenChange}>
+    <ContextMenu.Root
+      onOpenChange={(o) => {
+        setOpen(o);
+        onOpenChange?.(o);
+      }}
+    >
       <ContextMenu.Trigger asChild>{children}</ContextMenu.Trigger>
       <ContextMenu.Portal>
         <ContextMenu.Content
@@ -208,7 +216,7 @@ export function ContextMenuWrap({
           // Menu items often open a dialog; don't pull focus back to the trigger over it.
           onCloseAutoFocus={(e) => e.preventDefault()}
         >
-          {renderItems(items(), ContextMenu)}
+          {open && renderItems(items(), ContextMenu)}
         </ContextMenu.Content>
       </ContextMenu.Portal>
     </ContextMenu.Root>

@@ -276,6 +276,8 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
         // ---- repository ----
         "repo.open" => {
             let r = repo(a).await?;
+            // Large histories page slowly without git's commit-graph: write it in the background.
+            git::commit_graph::ensure(&r.root, &r.git_dir);
             let info = r.info().await?;
             settings::touch_recent(&info.path, &info.name)?;
             serde_json::to_value(info)?
@@ -1035,6 +1037,13 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
         "gitlab.repos" => {
             let page: Option<u32> = opt(a, "page")?;
             serde_json::to_value(gitlab::projects(page.unwrap_or(1)).await?)?
+        }
+        "gitlab.mergeRequests" => {
+            serde_json::to_value(gitlab::merge_requests(&arg::<String>(a, "path")?).await?)?
+        }
+        "gitlab.createMergeRequest" => {
+            let mr: gitlab::NewMergeRequest = arg(a, "mr")?;
+            serde_json::to_value(gitlab::create_merge_request(&mr).await?)?
         }
         "github.importToken" => {
             let source: String = arg(a, "source")?;

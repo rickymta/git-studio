@@ -103,11 +103,17 @@ export interface GitHubSlug {
   repo: string;
 }
 
+/** A gitlab.com project, groups included (`group/sub/name`). */
+export interface GitLabSlug {
+  path: string;
+}
+
 export interface Remote {
   name: string;
   url: string;
   pushUrl: string;
   github: GitHubSlug | null;
+  gitlab: GitLabSlug | null;
 }
 
 export interface Refs {

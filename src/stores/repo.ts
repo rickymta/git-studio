@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-import { layoutGraph, withStashes, type GraphRow } from '@/lib/graph';
+import { extendGraph, layoutGraph, withStashes, type GraphRow } from '@/lib/graph';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import type {
@@ -25,7 +25,52 @@ export const FIRST_PAGE = 300;
 /** Tab switches: only the latest one lands, a slower earlier one is dropped. */
 let openSeq = 0;
 /** The refresh in flight. Overlapping calls share it instead of starting more git processes. */
-let pending: { path: string; again: boolean; done: Promise<void> } | null = null;
+let pending: { path: string; again: boolean; fresh: boolean; done: Promise<void> } | null = null;
+/** The "load more" in flight, so scrolling to the end does not ask for the same page twice. */
+let morePending: Promise<void> | null = null;
+/** Repository whose remaining history is being loaded in the background. */
+let restFor: string | null = null;
+
+/** Background pages grow with what is loaded (half of it), within these bounds. */
+const REST_MIN = 2000;
+const REST_MAX = 20000;
+/**
+ * Background loading stops here: the graph is one scrolling list, and browsers cap an element's
+ * height at about 33.5 million pixels (≈ 1.2 million rows). Older commits still load on scroll.
+ */
+const REST_LIMIT = 1_000_000;
+/** A tab snapshot keeps at most this many commits; the rest loads again in the background. */
+const SNAPSHOT_COMMITS = 5000;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * After the newest page shows, load the rest of the history in the background, page after page,
+ * so the whole graph is there without "Load more" (histories of hundreds of thousands of commits).
+ * Pages grow with what is loaded, so the total work stays in proportion to the history. Stops
+ * when the tab changes (and resumes when it comes back) and waits while an operation runs.
+ */
+async function loadRest(path: string) {
+  if (restFor && samePath(restFor, path)) return;
+  restFor = path;
+  try {
+    for (;;) {
+      await sleep(150);
+      const s = useRepo.getState();
+      if (!s.path || !samePath(s.path, path) || !s.hasMore || s.commits.length >= REST_LIMIT) break;
+      if (s.busy || pending) {
+        await sleep(500);
+        continue;
+      }
+      const loaded = s.commits.length;
+      await s.loadMore(Math.min(REST_MAX, Math.max(REST_MIN, Math.round(loaded / 2))));
+    }
+  } catch {
+    /* the "Load more" row stays; scrolling to it or clicking it tries again */
+  } finally {
+    if (restFor && samePath(restFor, path)) restFor = null;
+  }
+}
 /** When the open repository was last fully loaded (ms). */
 let loadedAt = 0;
 /** Each workspace keeps its own open tabs; '' is "no workspace". */
@@ -125,11 +170,14 @@ interface RepoStore {
   addTabs: (tabs: RepoTab[]) => void;
   close: () => void;
   /** Reload the repository. `first`: right after opening, a short first page and no status. */
-  refresh: (opts?: { first?: boolean }) => Promise<void>;
+  /** Reload from git. `first`: the short first page after opening. `fresh`: drop the older
+   *  commits loaded so far instead of keeping them below the newest page (the graph view changed). */
+  refresh: (opts?: { first?: boolean; fresh?: boolean }) => Promise<void>;
   /** On window focus: a full refresh, or only the status when the last one is recent. */
   refreshOnFocus: () => Promise<void>;
   refreshStatus: () => Promise<void>;
-  loadMore: () => Promise<void>;
+  /** Load the next `count` commits (default: a page) below the loaded ones. */
+  loadMore: (count?: number) => Promise<void>;
   select: (s: Selection | null) => Promise<void>;
   /** Select `hash` in the graph, loading older pages if it is not loaded yet. */
   reveal: (hash: string) => Promise<void>;
@@ -175,10 +223,55 @@ const samePath = (a: string, b: string) => pathKey(a) === pathKey(b);
  */
 const journals = new Map<string, { undoStack: JournalEntry[]; redoStack: JournalEntry[] }>();
 
-/** Put the shown repository's Undo / Redo history aside before another one replaces it. */
+/** What a tab had loaded, so switching back to it shows at once (refreshed in the background). */
+interface TabSnapshot {
+  info: RepoInfo;
+  commits: Commit[];
+  graph: GraphRow[];
+  refs: Refs | null;
+  worktrees: Worktree[];
+  view: GraphView;
+  hasMore: boolean;
+  selection: Selection | null;
+  /** When it was last loaded from git (ms). */
+  at: number;
+}
+
+/** Snapshots of the most recently used tabs; older ones load from git again when opened. */
+const MAX_SNAPSHOTS = 16;
+const snapshots = new Map<string, TabSnapshot>();
+/** A snapshot this recent only gets a status check when its tab comes back. */
+const SNAPSHOT_FRESH_MS = 60_000;
+
+/**
+ * Put the shown repository aside before another one replaces it: its Undo / Redo history, and
+ * what it had loaded (unless it was still loading).
+ */
 function keepJournal() {
-  const { path, undoStack, redoStack } = useRepo.getState();
-  if (path) journals.set(pathKey(path), { undoStack, redoStack });
+  const s = useRepo.getState();
+  if (!s.path) return;
+  const key = pathKey(s.path);
+  journals.set(key, { undoStack: s.undoStack, redoStack: s.redoStack });
+  if (!s.info || s.loading) return;
+  snapshots.delete(key);
+  // Rows are laid out from the top, so the first ones keep their lanes on their own.
+  const cut = s.commits.length > SNAPSHOT_COMMITS;
+  snapshots.set(key, {
+    info: s.info,
+    commits: cut ? s.commits.slice(0, SNAPSHOT_COMMITS) : s.commits,
+    graph: cut ? s.graph.slice(0, SNAPSHOT_COMMITS) : s.graph,
+    refs: s.refs,
+    worktrees: s.worktrees,
+    view: s.view,
+    hasMore: cut || s.hasMore,
+    selection: s.selection,
+    at: loadedAt,
+  });
+  while (snapshots.size > MAX_SNAPSHOTS) {
+    const oldest = snapshots.keys().next().value;
+    if (oldest === undefined) break;
+    snapshots.delete(oldest);
+  }
 }
 
 const journalOf = (path: string) => journals.get(pathKey(path)) ?? { undoStack: [], redoStack: [] };
@@ -258,14 +351,28 @@ const emptyRepo = {
 const FOCUS_REFRESH_MS = 10_000;
 
 /**
- * Load the repository at `path` into the store: status, refs, worktrees and the graph's
- * commits (all loaded ones again, at least a page; `first`: a short first page and the status
- * `open` just read).
+ * The newest page just read, followed by the older commits loaded before that it does not
+ * include, so a refresh costs one page however far the graph was scrolled (repositories with
+ * hundreds of thousands of commits). Null when the page does not reach them (history rewritten
+ * or more new commits than a page): then only the new page is kept.
  */
-async function loadRepo(path: string, first: boolean) {
+export function keepOlder(fresh: Commit[], loaded: Commit[]): Commit[] | null {
+  const last = fresh[fresh.length - 1];
+  if (!last) return null;
+  const j = loaded.findIndex((c) => c.hash === last.hash);
+  if (j < 0) return null;
+  const seen = new Set(fresh.map((c) => c.hash));
+  return [...fresh, ...loaded.slice(j + 1).filter((c) => !seen.has(c.hash))];
+}
+
+/**
+ * Load the repository at `path` into the store: status, refs, worktrees and the newest page of
+ * the graph's commits, keeping the older ones already loaded below it (`first`: a short first
+ * page and the status `open` just read; `fresh`: only the new page).
+ */
+async function loadRepo(path: string, first: boolean, fresh = false) {
   try {
-    const loaded = useRepo.getState().commits.filter((c) => !c.stash).length;
-    const limit = first ? Math.min(page(), FIRST_PAGE) : Math.max(page(), loaded);
+    const limit = first ? Math.min(page(), FIRST_PAGE) : page();
     const view = loadView(path);
     const [info, commits, refs, worktrees] = await Promise.all([
       first ? Promise.resolve(useRepo.getState().info!) : api.info(path),
@@ -274,7 +381,15 @@ async function loadRepo(path: string, first: boolean) {
       api.worktrees(path).catch((): Worktree[] => []),
     ]);
     if (useRepo.getState().path !== path) return;
-    const rows = withStashes(commits, shownStashes(view, refs));
+    const before = useRepo.getState();
+    const older = before.commits.filter((c) => !c.stash);
+    // Scrolled further than a page: keep those commits under the new page.
+    const kept =
+      !first && !fresh && commits.length >= limit && older.length > commits.length
+        ? keepOlder(commits, older)
+        : null;
+    const all = kept ?? commits;
+    const rows = withStashes(all, shownStashes(view, refs));
     useRepo.setState({
       info,
       commits: rows,
@@ -282,8 +397,9 @@ async function loadRepo(path: string, first: boolean) {
       graph: layoutGraph(rows, pinnedTips(view, refs)),
       refs,
       worktrees,
-      hasMore: commits.length >= limit,
+      hasMore: kept ? before.hasMore : commits.length >= limit,
     });
+    if (!first && useRepo.getState().hasMore) void loadRest(path);
     const sel = useRepo.getState().selection;
     if (sel?.type === 'commit') {
       if (commits.some((c) => c.hash === sel.hash)) {
@@ -300,9 +416,37 @@ async function loadRepo(path: string, first: boolean) {
   loadedAt = Date.now();
 }
 
+/**
+ * The loaded rows with `more` (older commits) after them. Only the new rows are laid out when
+ * the earlier ones stay as they were (no stash row moved into them, nothing pinned), so a page
+ * costs the same however much history is already loaded.
+ */
+function appendCommits(
+  prev: { commits: Commit[]; graph: GraphRow[] },
+  more: Commit[],
+  view: GraphView,
+  refs: Refs | null,
+): { commits: Commit[]; graph: GraphRow[] } {
+  const real = prev.commits.filter((c) => !c.stash);
+  const seen = new Set(real.map((c) => c.hash));
+  const commits = withStashes(
+    [...real, ...more.filter((c) => !seen.has(c.hash))],
+    shownStashes(view, refs),
+  );
+  const n = prev.commits.length;
+  const samePrefix =
+    view.pinned.length === 0 &&
+    commits.length >= n &&
+    commits[n - 1]?.hash === prev.commits[n - 1]?.hash;
+  const graph =
+    (samePrefix && n > 0 && extendGraph(prev.graph, commits.slice(n))) ||
+    layoutGraph(commits, pinnedTips(view, refs));
+  return { commits, graph };
+}
+
 /** After the first page: load the rest of the page in the background. */
 async function topUp(path: string) {
-  const { commits, view, refs, hasMore } = useRepo.getState();
+  const { commits, graph, view, refs, hasMore } = useRepo.getState();
   const real = commits.filter((c) => !c.stash);
   const want = page() - real.length;
   if (!hasMore || want <= 0) return;
@@ -311,15 +455,34 @@ async function topUp(path: string) {
     const now = useRepo.getState();
     // A refresh meanwhile (it reloads at least a page) or another repository: nothing to add.
     if (now.path !== path || now.commits !== commits) return;
-    const all = withStashes([...real, ...more], shownStashes(view, refs));
     useRepo.setState({
-      commits: all,
-      graph: layoutGraph(all, pinnedTips(view, refs)),
+      ...appendCommits({ commits, graph }, more, view, refs),
       hasMore: more.length >= want,
     });
   } catch {
     /* the "Load more" row stays; clicking it tries again */
   }
+}
+
+/**
+ * Bookkeeping when a repository becomes the shown tab: activity log, the tab list (added or
+ * renamed, saved) and the active workspace. Returns the tab list.
+ */
+function registerTab(info: RepoInfo, opts?: { keepOutOfWorkspace?: boolean }): RepoTab[] {
+  logActivity({
+    repo: null,
+    label: 'Opened repository {name}',
+    vars: { name: info.path },
+    status: 'info',
+  });
+  const tabs = [...useRepo.getState().tabs];
+  const i = tabs.findIndex((t) => samePath(t.path, info.path));
+  if (i >= 0) tabs[i] = { path: info.path, name: info.name };
+  else tabs.push({ path: info.path, name: info.name });
+  saveTabs(tabs, info.path);
+  useRepo.setState({ tabs });
+  if (i < 0 && !opts?.keepOutOfWorkspace) onTabOpened?.(info.path, info.name);
+  return tabs;
 }
 
 export const useRepo = create<RepoStore>((set, get) => ({
@@ -364,6 +527,33 @@ export const useRepo = create<RepoStore>((set, get) => ({
     const seq = ++openSeq;
     const prev = get().path;
     keepJournal();
+    // Seen earlier in this session: show what it had at once, then catch up with git.
+    const snap = snapshots.get(pathKey(path));
+    if (snap) {
+      snapshots.delete(pathKey(path));
+      registerTab(snap.info);
+      set({
+        ...emptyRepo,
+        ...journalOf(snap.info.path),
+        tabs: get().tabs,
+        path: snap.info.path,
+        info: snap.info,
+        commits: snap.commits,
+        graph: snap.graph,
+        refs: snap.refs,
+        worktrees: snap.worktrees,
+        view: snap.view,
+        hasMore: snap.hasMore,
+        selection: { type: 'wip' },
+        loading: false,
+      });
+      loadedAt = snap.at;
+      if (snap.selection && snap.selection.type !== 'wip') void get().select(snap.selection);
+      if (Date.now() - snap.at < SNAPSHOT_FRESH_MS) void get().refreshStatus();
+      else void get().refresh();
+      void loadRest(snap.info.path);
+      return true;
+    }
     // Switch at once: the new tab shows a spinner instead of the previous repository staying
     // on screen (and seemingly frozen) until the new one has loaded.
     set({ ...emptyRepo, path, loading: true });
@@ -382,18 +572,7 @@ export const useRepo = create<RepoStore>((set, get) => ({
   },
 
   adopt: async (info, opts) => {
-    logActivity({
-      repo: null,
-      label: 'Opened repository {name}',
-      vars: { name: info.path },
-      status: 'info',
-    });
-    const tabs = [...get().tabs];
-    const i = tabs.findIndex((t) => samePath(t.path, info.path));
-    if (i >= 0) tabs[i] = { path: info.path, name: info.name };
-    else tabs.push({ path: info.path, name: info.name });
-    saveTabs(tabs, info.path);
-    if (i < 0 && !opts?.keepOutOfWorkspace) onTabOpened?.(info.path, info.name);
+    const tabs = registerTab(info, opts);
     // Called by open() (which already put the previous history aside) or directly.
     if (get().path && !samePath(get().path!, info.path)) keepJournal();
     set({
@@ -410,7 +589,10 @@ export const useRepo = create<RepoStore>((set, get) => ({
     if (get().path !== info.path) return;
     void get().loadSettings();
     await topUp(info.path);
-    if (get().path === info.path) set({ loading: false });
+    if (get().path === info.path) {
+      set({ loading: false });
+      void loadRest(info.path);
+    }
   },
 
   newTab: () => {
@@ -429,6 +611,7 @@ export const useRepo = create<RepoStore>((set, get) => ({
     set({ tabs: rest });
     // A closed repository's history goes with its tab.
     journals.delete(pathKey(path));
+    snapshots.delete(pathKey(path));
     if (!wasCurrent) return;
     const next = rest[Math.min(idx, rest.length - 1)];
     set({ ...emptyRepo });
@@ -463,14 +646,17 @@ export const useRepo = create<RepoStore>((set, get) => ({
     if (!path || !get().info) return Promise.resolve();
     if (pending && samePath(pending.path, path)) {
       pending.again = true;
+      if (opts?.fresh) pending.fresh = true;
       return pending.done;
     }
-    const entry = { path, again: false, done: Promise.resolve() };
+    const entry = { path, again: false, fresh: !!opts?.fresh, done: Promise.resolve() };
     entry.done = (async () => {
       let first = !!opts?.first;
       do {
         entry.again = false;
-        await loadRepo(path, first);
+        const fresh = entry.fresh;
+        entry.fresh = false;
+        await loadRepo(path, first, fresh);
         first = false;
       } while (entry.again && get().path === path);
     })().finally(() => {
@@ -509,18 +695,25 @@ export const useRepo = create<RepoStore>((set, get) => ({
     }
   },
 
-  loadMore: async () => {
-    const { path, commits, view, refs } = get();
+  loadMore: async (count) => {
+    if (morePending) return morePending;
+    const { path, commits, graph, view, refs } = get();
     if (!path) return;
-    // Stash rows are not history: page by real commits only, then re-place the stashes.
-    const real = commits.filter((c) => !c.stash);
-    const more = await api.log(path, page(), real.length, logView(view));
-    const all = withStashes([...real, ...more], shownStashes(view, refs));
-    set({
-      commits: all,
-      graph: layoutGraph(all, pinnedTips(view, refs)),
-      hasMore: more.length >= page(),
+    const want = count ?? page();
+    morePending = (async () => {
+      // Stash rows are not history: page by real commits only, then re-place the stashes.
+      const real = commits.filter((c) => !c.stash);
+      const more = await api.log(path, want, real.length, logView(view));
+      // Another tab, or a refresh replaced the list meanwhile: this page no longer fits.
+      if (get().path !== path || get().commits !== commits) return;
+      set({
+        ...appendCommits({ commits, graph }, more, view, refs),
+        hasMore: more.length >= want,
+      });
+    })().finally(() => {
+      morePending = null;
     });
+    return morePending;
   },
 
   setView: async (v) => {
@@ -528,7 +721,8 @@ export const useRepo = create<RepoStore>((set, get) => ({
     if (!path) return;
     saveView(path, v);
     set({ view: v });
-    await get().refresh();
+    // Other commits show now: the ones loaded below the first page no longer fit.
+    await get().refresh({ fresh: true });
   },
 
   reveal: async (hash) => {

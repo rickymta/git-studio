@@ -2,7 +2,7 @@ import type { MenuItem } from '@/components/ui';
 import { t } from '@/lib/i18n';
 import { copyText } from '@/lib/native';
 import type { GitRef } from '@/lib/types';
-import { useGitHub } from '@/stores/github';
+import { requestHost } from '../pulls/hosting';
 import { useRepo } from '@/stores/repo';
 import * as A from '../actions';
 import { reaches, tidy } from './menuUtils';
@@ -54,7 +54,7 @@ export function refMenu(ref: GitRef): MenuItem[] {
   const { info, refs, commits } = useRepo.getState();
   const cur = info?.status.branch ?? null;
   const head = info?.status.head ?? null;
-  const hasGitHub = !!refs?.remotes.some((r) => r.github) && !!useGitHub.getState().user;
+  const reqHost = requestHost(refs?.remotes);
   const commit = commits.find((c) => c.hash === ref.target && !c.stash);
   const atHead = head === ref.target;
   const detachedHere = !cur && atHead;
@@ -100,8 +100,14 @@ export function refMenu(ref: GitRef): MenuItem[] {
           : []),
         { label: t('Push'), onSelect: () => (isCur ? A.push() : A.push({ branch: ref.name })) },
         { label: t('Set Upstream'), onSelect: () => A.setUpstream(ref) },
-        ...(hasGitHub
-          ? [{ label: t('Create pull request…'), onSelect: () => A.createPullRequest(ref.name) }]
+        ...(reqHost
+          ? [
+              {
+                label:
+                  reqHost === 'github' ? t('Create pull request…') : t('Create merge request…'),
+                onSelect: () => A.createPullRequest(ref.name),
+              },
+            ]
           : []),
       ]
     : [];

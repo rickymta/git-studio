@@ -4,7 +4,7 @@ import type { MenuItem } from '@/components/ui';
 import { t } from '@/lib/i18n';
 import { copyText } from '@/lib/native';
 import type { Commit, GitRef, Stash } from '@/lib/types';
-import { useGitHub } from '@/stores/github';
+import { requestHost } from '../pulls/hosting';
 import { useRepo } from '@/stores/repo';
 import * as A from '../actions';
 import { bisectMenu } from '../repoTools';
@@ -45,7 +45,7 @@ export function commitMenu(c: Commit, picked: Commit[] = []): MenuItem[] {
   const headBranch = locals.find((r) => r.isHead);
   const branches = [...locals, ...remotes];
   const mine = onCurrentBranch(c.hash);
-  const hasGitHub = !!refs?.remotes.some((r) => r.github) && !!useGitHub.getState().user;
+  const reqHost = requestHost(refs?.remotes);
   /** The remote branch a local branch pushes to (its upstream, else origin/<name>). */
   const remoteOf = (l: GitRef) =>
     all.find((r) => r.kind === 'remote' && r.name === (l.upstream ?? `origin/${l.name}`));
@@ -202,14 +202,21 @@ export function commitMenu(c: Commit, picked: Commit[] = []): MenuItem[] {
             : []),
         ]),
     'sep',
-    ...(hasGitHub
+    ...(reqHost
       ? perBranch(
           locals.length === 1
-            ? t('Start a pull request to {remote} from {branch}', {
-                remote: A.prRemoteName() ?? 'origin',
-                branch: remoteOf(locals[0]!)?.name ?? locals[0]!.name,
-              })
-            : t('Start a pull request from…'),
+            ? t(
+                reqHost === 'github'
+                  ? 'Start a pull request to {remote} from {branch}'
+                  : 'Start a merge request to {remote} from {branch}',
+                {
+                  remote: A.prRemoteName() ?? 'origin',
+                  branch: remoteOf(locals[0]!)?.name ?? locals[0]!.name,
+                },
+              )
+            : reqHost === 'github'
+              ? t('Start a pull request from…')
+              : t('Start a merge request from…'),
           locals,
           (r) => A.createPullRequest(r.name),
         )

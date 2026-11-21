@@ -14,30 +14,36 @@ import { GlobalShortcuts } from '@/features/shortcuts/GlobalShortcuts';
 import { ActivityWindow, ShortcutsWindow } from '@/features/shortcuts/Windows';
 import { TokenExpiry } from '@/features/tokens/TokenExpiry';
 import { t } from '@/lib/i18n';
-import { useGitHub } from '@/stores/github';
+import { useRepoHost } from '@/features/pulls/hosting';
 import { useRepo } from '@/stores/repo';
 
 export function StatusBar({ zoom, setZoom }: { zoom: number; setZoom: (z: number) => void }) {
   const [win, setWindow] = useState<'activity' | 'shortcuts' | 'help' | null>(null);
   const path = useRepo((s) => s.path);
-  const refs = useRepo((s) => s.refs);
-  const pulls = useGitHub((s) => s.pulls);
-  const user = useGitHub((s) => s.user);
-  const hasGitHub = refs?.remotes.some((r) => r.github);
+  const { host, signedIn, pulls } = useRepoHost();
   const n = pulls?.length ?? 0;
+  const gitlab = host?.kind === 'gitlab';
 
   return (
     <div className="flex h-[26px] shrink-0 items-center gap-[12.6px] border-t border-border bg-surface px-[12.6px] text-[14.2px] text-muted-foreground">
-      {path && hasGitHub && (
+      {path && host && (
         <span className="flex items-center gap-[6.3px]">
           <GitPullRequest className="size-[15.3px]" />
-          {!user
-            ? t('GitHub not connected')
-            : n === 0
-              ? t('No Pull Requests')
-              : n === 1
-                ? t('{n} Pull Request', { n })
-                : t('{n} Pull Requests', { n })}
+          {!signedIn
+            ? gitlab
+              ? t('GitLab not connected')
+              : t('GitHub not connected')
+            : gitlab
+              ? n === 0
+                ? t('No Merge Requests')
+                : n === 1
+                  ? t('{n} Merge Request', { n })
+                  : t('{n} Merge Requests', { n })
+              : n === 0
+                ? t('No Pull Requests')
+                : n === 1
+                  ? t('{n} Pull Request', { n })
+                  : t('{n} Pull Requests', { n })}
         </span>
       )}
       <span className="min-w-0 flex-1 truncate">{path ?? ''}</span>
@@ -65,7 +71,8 @@ export function StatusBar({ zoom, setZoom }: { zoom: number; setZoom: (z: number
         onActivity={() => setWindow((w) => (w === 'activity' ? null : 'activity'))}
       />
       <ShortcutsWindow open={win === 'shortcuts'} onClose={() => setWindow(null)} />
-      <ActivityWindow open={win === 'activity'} onClose={() => setWindow(null)} />
+      {/* Mounted only while open: it lists every log line and re-renders on each new one. */}
+      {win === 'activity' && <ActivityWindow open onClose={() => setWindow(null)} />}
       <span className="flex items-center gap-[4.5px]">
         <button
           type="button"

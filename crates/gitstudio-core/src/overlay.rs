@@ -10,11 +10,12 @@
 //! the tracked files (`git ls-files`, rewritten only when the index changes). Ignored and
 //! untracked files get no badge.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -23,6 +24,18 @@ use crate::{settings, workspace};
 
 /// How often the status file is rebuilt.
 pub const INTERVAL: Duration = Duration::from_secs(5);
+
+/// Repositories not opened lately and whose `.git` did not change get `git status` this often
+/// (edits in their working tree show within this delay). With a few hundred repositories, checking
+/// all of them every round kept git busy non-stop and slowed down the app itself.
+const QUIET_INTERVAL: Duration = Duration::from_secs(60);
+
+/// How many of the most recently opened repositories are checked every round.
+const HOT_REPOS: usize = 12;
+
+/// A hot repository is checked again once its last check is this old: below `INTERVAL`, so a
+/// round that runs a little early still includes it.
+const HOT_AGE: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -118,7 +131,8 @@ fn git(dir: &Path) -> Command {
     {
         use std::os::windows::process::CommandExt;
         // CREATE_NO_WINDOW: the background refresher must not flash consoles.
-        cmd.creation_flags(0x0800_0000);
+        // BELOW_NORMAL_PRIORITY_CLASS: the app's own git commands go first.
+        cmd.creation_flags(0x0800_0000 | 0x0000_4000);
     }
     cmd
 }
@@ -318,26 +332,125 @@ pub fn roots() -> Vec<PathBuf> {
 
 /// Levels for `roots`, a few repositories at a time.
 pub fn compute(roots: &[PathBuf]) -> BTreeMap<String, Level> {
-    compute_with(roots, None).0
+    compute_with(roots, None, None).0
 }
 
 type Computed = (BTreeMap<String, Level>, BTreeMap<String, String>);
 
-/// Levels, and with `details` the detail files of every repository (key → id).
-fn compute_with(roots: &[PathBuf], details: Option<&Path>) -> Computed {
+/// What the last round found for a repository, to skip `git status` while nothing changed.
+struct Seen {
+    stamp: u64,
+    at: Instant,
+    level: Level,
+    id: Option<String>,
+}
+
+fn seen() -> &'static Mutex<BTreeMap<String, Seen>> {
+    static SEEN: OnceLock<Mutex<BTreeMap<String, Seen>>> = OnceLock::new();
+    SEEN.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+
+/// Changes whenever git changes the repository's state: commit, checkout, stage, fetch, merge,
+/// rebase… (modification times and sizes of a few files in `.git`; a handful of `stat` calls).
+fn stamp(root: &Path) -> u64 {
+    let Some(gd) = git_dir(root) else {
+        return 0;
+    };
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut mix = |v: u64| {
+        h ^= v;
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    };
+    for name in [
+        "index",
+        "HEAD",
+        "ORIG_HEAD",
+        "FETCH_HEAD",
+        "MERGE_HEAD",
+        "CHERRY_PICK_HEAD",
+        "REVERT_HEAD",
+        "packed-refs",
+        "logs/HEAD",
+        "refs/heads",
+        "refs/remotes",
+        "rebase-merge",
+        "rebase-apply",
+    ] {
+        match fs::metadata(gd.join(name)) {
+            Ok(m) => {
+                let t = m
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                    .map(|d| d.as_nanos() as u64)
+                    .unwrap_or(0);
+                mix(t);
+                mix(m.len());
+            }
+            Err(_) => mix(1),
+        }
+    }
+    h
+}
+
+/// Levels, and with `details` the detail files of every repository (key → id). With `hot`
+/// (incremental rounds), a repository is only checked again when its `.git` changed, when it is
+/// one of the `hot` (recently opened) ones, or after `QUIET_INTERVAL`; otherwise the last result
+/// is reused.
+fn compute_with(
+    roots: &[PathBuf],
+    details: Option<&Path>,
+    hot: Option<&BTreeSet<String>>,
+) -> Computed {
     let mut levels = BTreeMap::new();
     let mut ids = BTreeMap::new();
-    for chunk in roots.chunks(6) {
+    let mut due: Vec<(PathBuf, u64)> = Vec::new();
+    {
+        let cache = seen().lock().unwrap_or_else(|e| e.into_inner());
+        for r in roots {
+            let k = key(r);
+            let st = stamp(r);
+            let reuse = hot.and_then(|hot| {
+                let s = cache.get(&k)?;
+                let wait = if hot.contains(&k) {
+                    HOT_AGE
+                } else {
+                    QUIET_INTERVAL
+                };
+                (s.stamp == st && s.at.elapsed() < wait).then_some(s)
+            });
+            match reuse {
+                Some(s) => {
+                    if let Some(id) = &s.id {
+                        ids.insert(k.clone(), id.clone());
+                    }
+                    levels.insert(k, s.level);
+                }
+                None => due.push((r.clone(), st)),
+            }
+        }
+    }
+    for chunk in due.chunks(6) {
         let handles: Vec<_> = chunk
             .iter()
-            .map(|r| {
+            .map(|(r, _)| {
                 let r = r.clone();
                 let d = details.map(Path::to_path_buf);
                 std::thread::spawn(move || (key(&r), repo_status(&r, d.as_deref())))
             })
             .collect();
-        for h in handles {
+        for (h, (_, st)) in handles.into_iter().zip(chunk) {
             if let Ok((k, Some((level, id)))) = h.join() {
+                // The stamp from before `git status`: a change during the run shows next round.
+                seen().lock().unwrap_or_else(|e| e.into_inner()).insert(
+                    k.clone(),
+                    Seen {
+                        stamp: *st,
+                        at: Instant::now(),
+                        level,
+                        id: id.clone(),
+                    },
+                );
                 if let Some(id) = id {
                     ids.insert(k.clone(), id);
                 }
@@ -346,6 +459,16 @@ fn compute_with(roots: &[PathBuf], details: Option<&Path>) -> Computed {
         }
     }
     (levels, ids)
+}
+
+/// The most recently opened repositories, checked every round.
+fn hot_repos() -> BTreeSet<String> {
+    settings::load()
+        .recent
+        .iter()
+        .take(HOT_REPOS)
+        .map(|r| key(Path::new(&r.path)))
+        .collect()
 }
 
 pub fn read() -> Option<StatusFile> {
@@ -375,9 +498,19 @@ fn write_to(
     Ok(())
 }
 
-/// Rebuild the status file now. Returns the number of repositories found.
+/// Rebuild the status file now, checking every repository. Returns the number found.
 pub fn refresh() -> Result<usize> {
-    let (repos, details) = compute_with(&roots(), Some(&details_dir()));
+    rebuild(None)
+}
+
+/// One background round: only the repositories that changed, the recently opened ones and the
+/// ones not checked for `QUIET_INTERVAL` run `git status`.
+fn refresh_changed() -> Result<usize> {
+    rebuild(Some(&hot_repos()))
+}
+
+fn rebuild(hot: Option<&BTreeSet<String>>) -> Result<usize> {
+    let (repos, details) = compute_with(&roots(), Some(&details_dir()), hot);
     let n = repos.len();
     write_to(&status_file(), repos, details)?;
     Ok(n)
@@ -405,7 +538,7 @@ pub fn serve() {
             return;
         }
         if !other_writer_active() {
-            let _ = refresh();
+            let _ = refresh_changed();
         }
         std::thread::sleep(INTERVAL);
     }
@@ -425,7 +558,7 @@ fn enabled_in_settings() -> Option<bool> {
 /// One round for the app's own background thread, used while GitStudio is open.
 pub fn tick() {
     if settings::load().overlay_icons && !other_writer_active() {
-        let _ = refresh();
+        let _ = refresh_changed();
     }
 }
 
@@ -486,7 +619,7 @@ mod tests {
 
         let file = dir.path().join("overlay-status.json");
         let details = dir.path().join("overlay");
-        let (levels, ids) = compute_with(std::slice::from_ref(&r), Some(&details));
+        let (levels, ids) = compute_with(std::slice::from_ref(&r), Some(&details), None);
         write_to(&file, levels, ids).unwrap();
         let f: StatusFile = serde_json::from_slice(&fs::read(&file).unwrap()).unwrap();
         assert_eq!(f.repos.get(&key(&r)), Some(&Level::Changed));
@@ -525,5 +658,62 @@ u UU N... 100644 100644 100644 100644 a b c lib/conflict.rs\0\
         } else {
             assert_eq!(key(Path::new("/home/u/repo/")), "/home/u/repo");
         }
+    }
+
+    #[test]
+    fn quiet_repositories_are_not_checked_every_round() {
+        let dir = tempfile::tempdir().unwrap();
+        let r = dir.path().join("quiet");
+        fs::create_dir_all(&r).unwrap();
+        let sh = |args: &[&str]| {
+            assert!(
+                Command::new("git")
+                    .current_dir(&r)
+                    .args(args)
+                    .status()
+                    .unwrap()
+                    .success()
+            )
+        };
+        let commit = |msg: &str| {
+            sh(&[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-qam",
+                msg,
+            ])
+        };
+        sh(&["init", "-q", "-b", "main"]);
+        fs::write(r.join("a"), "1").unwrap();
+        sh(&["add", "."]);
+        commit("a");
+        let checked_at = || seen().lock().unwrap().get(&key(&r)).map(|s| s.at);
+        let none = BTreeSet::new();
+        let roots = std::slice::from_ref(&r);
+
+        let (levels, _) = compute_with(roots, None, Some(&none));
+        assert_eq!(levels.get(&key(&r)), Some(&Level::Clean));
+        let first = checked_at().unwrap();
+        // Nothing changed in .git and the repository is not a hot one: the last result is reused.
+        fs::write(r.join("a"), "2").unwrap();
+        let (levels, _) = compute_with(roots, None, Some(&none));
+        assert_eq!(checked_at(), Some(first));
+        assert_eq!(levels.get(&key(&r)), Some(&Level::Clean));
+        // A hot repository is checked every round.
+        let hot = BTreeSet::from([key(&r)]);
+        std::thread::sleep(HOT_AGE + Duration::from_millis(100));
+        let (levels, _) = compute_with(roots, None, Some(&hot));
+        assert_eq!(levels.get(&key(&r)), Some(&Level::Changed));
+        let second = checked_at().unwrap();
+        // So is one whose .git changed (a commit here).
+        commit("b");
+        let (levels, _) = compute_with(roots, None, Some(&none));
+        assert!(checked_at().unwrap() > second);
+        assert_eq!(levels.get(&key(&r)), Some(&Level::Clean));
     }
 }

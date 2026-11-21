@@ -96,6 +96,15 @@ pub struct Remote {
     pub push_url: String,
     /// `owner/repo` when the remote is on github.com.
     pub github: Option<GitHubSlug>,
+    /// Project path when the remote is on gitlab.com.
+    pub gitlab: Option<GitLabSlug>,
+}
+
+/// A gitlab.com project: its full path, groups included (`group/sub/name`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GitLabSlug {
+    pub path: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

@@ -180,6 +180,16 @@ export const api = {
   glImportToken: () => call<T.GitLabUser>('gitlab.importToken'),
   glSignOut: () => call<null>('gitlab.signOut'),
   glRepos: (page = 1) => call<T.GitHubRepo[]>('gitlab.repos', { page }),
+  /** Open merge requests, shaped like GitHub pull requests (`number` is the MR's iid). */
+  glMergeRequests: (path: string) => call<T.PullRequest[]>('gitlab.mergeRequests', { path }),
+  glCreateMergeRequest: (mr: {
+    path: string;
+    title: string;
+    description: string;
+    source: string;
+    target: string;
+    draft: boolean;
+  }) => call<T.PullRequest>('gitlab.createMergeRequest', { mr }),
   /** Global git config, or the repository's own config when `repo` is given. */
   gitConfig: (keys: string[], repo?: string) =>
     call<Record<string, string>>('gitconfig.get', { keys, repo }),

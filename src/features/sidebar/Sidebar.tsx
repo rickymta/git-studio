@@ -33,6 +33,7 @@ import { copyText, openUrl, revealPath } from '@/lib/native';
 import type { GitRef, PullRequest, ReflogEntry, Worktree } from '@/lib/types';
 import { useGitHub } from '@/stores/github';
 import { useRepo } from '@/stores/repo';
+import { hostWords, useRepoPulls } from '../pulls/hosting';
 import * as A from '../actions';
 import { ExtraSections } from './ExtraSections';
 import { Section } from './Section';
@@ -176,7 +177,8 @@ function Folder({ name, refs, strip }: { name: string; refs: GitRef[]; strip: nu
 export function Sidebar() {
   const refs = useRepo((s) => s.refs);
   const info = useRepo((s) => s.info);
-  const { user, pulls, pullsError, loadPulls } = useGitHub();
+  const { host, signedIn, pulls, error: pullsError, reload: reloadPulls } = useRepoPulls();
+  const words = host ? hostWords(host.kind) : null;
   const [filter, setFilter] = useState('');
   const filterRef = useRef<HTMLInputElement>(null);
 
@@ -191,16 +193,6 @@ export function Sidebar() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const ghRemote =
-    refs?.remotes.find((r) => r.name === 'origin' && r.github) ??
-    refs?.remotes.find((r) => r.github);
-  const slugKey = ghRemote?.github ? `${ghRemote.github.owner}/${ghRemote.github.repo}` : null;
-
-  useEffect(() => {
-    void loadPulls(ghRemote?.github ?? null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slugKey, user?.login]);
-
   const q = filter.trim().toLowerCase();
   const match = (r: GitRef) => !q || r.name.toLowerCase().includes(q);
   const all = refs?.refs ?? [];
@@ -212,8 +204,8 @@ export function Sidebar() {
   const viewing = t('Viewing {n}').split('{n}');
 
   const checkoutPr = async (pr: PullRequest) => {
-    const remote = ghRemote?.name ?? 'origin';
-    const sameRepo = pr.headRepo === slugKey;
+    const remote = host?.remote.name ?? 'origin';
+    const sameRepo = pr.headRepo === host?.project;
     const remoteRef = all.find((r) => r.kind === 'remote' && r.name === `${remote}/${pr.headRef}`);
     if (sameRepo && remoteRef) await A.checkoutRef(remoteRef);
     else if (sameRepo) {
@@ -338,47 +330,46 @@ export function Sidebar() {
 
         <ExtraSections />
 
-        {ghRemote?.github && (
+        {host && words && (
           <Section
             id="prs"
-            title={t('Pull requests')}
+            title={words.section}
             icon={<GitPullRequest className="size-3.5" />}
             count={pulls?.length}
             actions={
-              user && (
+              signedIn && (
                 <>
-                  <IconButton label={t('Refresh')} onClick={() => loadPulls(ghRemote.github)}>
+                  <IconButton label={t('Refresh')} onClick={() => void reloadPulls()}>
                     <RefreshCw className="size-3.5" />
                   </IconButton>
-                  <IconButton
-                    label={t('Create pull request')}
-                    onClick={() => A.createPullRequest()}
-                  >
+                  <IconButton label={words.create} onClick={() => A.createPullRequest()}>
                     <Plus className="size-3.5" />
                   </IconButton>
                 </>
               )
             }
           >
-            {!user && (
-              <div className="pr-2 pl-6 text-xs text-muted-foreground">
-                {t('Connect GitHub to see pull requests.')}
-              </div>
+            {!signedIn && (
+              <div className="pr-2 pl-6 text-xs text-muted-foreground">{words.connect}</div>
             )}
-            {user && pullsError && (
+            {signedIn && pullsError && (
               <div className="pr-2 pl-6 text-xs text-danger">{pullsError}</div>
             )}
-            {user && pulls?.length === 0 && (
-              <div className="pl-6 text-xs text-muted-foreground">{t('No open pull requests')}</div>
+            {signedIn && pulls?.length === 0 && (
+              <div className="pl-6 text-xs text-muted-foreground">{words.none}</div>
             )}
             {pulls?.map((pr) => (
               <ContextMenuWrap
                 key={pr.number}
                 items={() => [
                   {
-                    label: t('Open on GitHub'),
+                    label: words.open,
                     icon: <ExternalLink className="size-3.5" />,
                     onSelect: () => openUrl(pr.htmlUrl),
+                  },
+                  {
+                    label: t('Copy link'),
+                    onSelect: () => copyText(pr.htmlUrl),
                   },
                   {
                     label: t('Check out {name}', { name: pr.headRef }),
@@ -391,13 +382,12 @@ export function Sidebar() {
                     scrollToCommit(
                       all.find(
                         (r) =>
-                          r.kind === 'remote' &&
-                          r.name === `${ghRemote?.name ?? 'origin'}/${pr.headRef}`,
+                          r.kind === 'remote' && r.name === `${host.remote.name}/${pr.headRef}`,
                       )?.target,
                     )
                   }
                   onDoubleClick={() => openUrl(pr.htmlUrl)}
-                  title={`#${pr.number} ${pr.title}\n${pr.headRef} → ${pr.baseRef}`}
+                  title={`${words.ref(pr.number)} ${pr.title}\n${pr.headRef} → ${pr.baseRef}\n${t('Double-click to open on {host}', { host: words.host })}`}
                   className="flex cursor-default items-start gap-2 py-1 pr-2 pl-6 hover:bg-surface-hover"
                 >
                   {pr.draft ? (
@@ -408,7 +398,8 @@ export function Sidebar() {
                   <Avatar name={pr.author} url={pr.authorAvatar} size={16} />
                   <div className="min-w-0 flex-1">
                     <div className="truncate">
-                      <span className="text-muted-foreground">#{pr.number}</span> {pr.title}
+                      <span className="text-muted-foreground">{words.ref(pr.number)}</span>{' '}
+                      {pr.title}
                     </div>
                     <div className="truncate text-xs text-muted-foreground">
                       {pr.draft && t('Draft · ')}
@@ -489,6 +480,7 @@ function displayUrl(url: string): string {
 function RemoteGroup({ name, url, refs }: { name: string; url: string; refs: GitRef[] }) {
   const [open, setOpen] = useState(true);
   const gh = useRepo((s) => s.refs?.remotes.find((r) => r.name === name)?.github);
+  const gl = useRepo((s) => s.refs?.remotes.find((r) => r.name === name)?.gitlab);
   const pushUrl = useRepo((s) => s.refs?.remotes.find((r) => r.name === name)?.pushUrl);
   const branch = useRepo((s) => s.info?.status.branch ?? null);
   const tracked = useRepo((s) => s.info?.status.upstream?.startsWith(`${name}/`) ?? false);
@@ -521,6 +513,14 @@ function RemoteGroup({ name, url, refs }: { name: string; url: string; refs: Git
                 {
                   label: t('Open on GitHub'),
                   onSelect: () => openUrl(`https://github.com/${gh.owner}/${gh.repo}`),
+                },
+              ]
+            : []),
+          ...(gl
+            ? [
+                {
+                  label: t('Open on GitLab'),
+                  onSelect: () => openUrl(`https://gitlab.com/${gl.path}`),
                 },
               ]
             : []),

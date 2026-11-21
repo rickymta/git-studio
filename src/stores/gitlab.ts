@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 import { api } from '@/lib/ipc';
-import type { GitHubRepo, GitLabUser } from '@/lib/types';
+import type { GitHubRepo, GitLabUser, PullRequest } from '@/lib/types';
 import { useTokens } from './tokens';
 
 interface GitLabStore {
@@ -10,10 +10,16 @@ interface GitLabStore {
   /** GitLab projects, same shape as GitHub repos (fullName = "group/sub/name"). */
   repos: GitHubRepo[] | null;
   reposLoading: boolean;
+  /** Open merge requests of the shown repository's GitLab project. */
+  pulls: PullRequest[] | null;
+  pullsFor: string | null;
+  pullsError: string | null;
   check: () => Promise<void>;
   setUser: (u: GitLabUser | null) => void;
   signOut: () => Promise<void>;
   loadRepos: () => Promise<void>;
+  /** Load the open merge requests of the project at `path` (null: the repository has none). */
+  loadPulls: (path: string | null) => Promise<void>;
 }
 
 export const useGitLab = create<GitLabStore>((set, get) => ({
@@ -21,6 +27,9 @@ export const useGitLab = create<GitLabStore>((set, get) => ({
   checked: false,
   repos: null,
   reposLoading: false,
+  pulls: null,
+  pullsFor: null,
+  pullsError: null,
 
   check: async () => {
     try {
@@ -32,13 +41,13 @@ export const useGitLab = create<GitLabStore>((set, get) => ({
     }
   },
   setUser: (user) => {
-    set({ user, repos: null });
+    set({ user, repos: null, pulls: null, pullsFor: null });
     if (user) void useTokens.getState().account('gitlab', user);
   },
   signOut: async () => {
     await api.glSignOut();
     useTokens.getState().clear('gitlab');
-    set({ user: null, repos: null });
+    set({ user: null, repos: null, pulls: null, pullsFor: null });
   },
   loadRepos: async () => {
     if (!get().user) return;
@@ -53,6 +62,19 @@ export const useGitLab = create<GitLabStore>((set, get) => ({
       set({ repos: all });
     } finally {
       set({ reposLoading: false });
+    }
+  },
+  loadPulls: async (path) => {
+    if (!path || !get().user) {
+      set({ pulls: null, pullsFor: path, pullsError: null });
+      return;
+    }
+    set({ pullsFor: path });
+    try {
+      const pulls = await api.glMergeRequests(path);
+      if (get().pullsFor === path) set({ pulls, pullsError: null });
+    } catch (e) {
+      if (get().pullsFor === path) set({ pulls: null, pullsError: (e as Error).message });
     }
   },
 }));

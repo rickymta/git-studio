@@ -21,7 +21,7 @@ import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import { pickFolder, revealPath } from '@/lib/native';
 import { openSession, toggleTerminal } from '@/features/terminal/runtime';
-import { useGitHub } from '@/stores/github';
+import { useRepoHost } from '@/features/pulls/hosting';
 import { useRepo } from '@/stores/repo';
 import { headOffBranch } from '../graph/refGroups';
 import { openDialog, toast } from '@/stores/ui';
@@ -93,7 +93,7 @@ export function Toolbar() {
   const close = useRepo((s) => s.close);
   const undoTop = useRepo((s) => s.undoStack.at(-1));
   const redoTop = useRepo((s) => s.redoStack.at(-1));
-  const user = useGitHub((s) => s.user);
+  const { host, signedIn } = useRepoHost();
   const ws = useWorkspaces((s) => s.active());
   const addRepos = useWorkspaces((s) => s.addRepos);
   if (!info) return null;
@@ -104,7 +104,6 @@ export function Toolbar() {
     [...remotes]
       .sort((a, b) => b.name.length - a.name.length)
       .find((r) => st.upstream?.startsWith(`${r.name}/`))?.name ?? null;
-  const hasGitHub = refs?.remotes.some((r) => r.github);
   const run = useRepo.getState().run;
 
   const repoMenu: MenuItem[] = [
@@ -298,15 +297,23 @@ export function Toolbar() {
           onClick={() => A.popLatest()}
           disabled={!refs?.stashes.length}
         />
-        {hasGitHub && (
+        {host && (
           <>
             <Divider />
             <ToolButton
               icon={<GitPullRequest className="size-[18px]" />}
-              label={t('Pull Request')}
+              label={host.kind === 'github' ? t('Pull Request') : t('Merge Request')}
               onClick={() => A.createPullRequest()}
-              disabled={!user || !st.branch}
-              title={user ? t('Create pull request') : t('Connect GitHub to create pull requests')}
+              disabled={!signedIn || !st.branch}
+              title={
+                host.kind === 'github'
+                  ? signedIn
+                    ? t('Create pull request')
+                    : t('Connect GitHub to create pull requests')
+                  : signedIn
+                    ? t('Create merge request')
+                    : t('Connect GitLab to create merge requests')
+              }
             />
           </>
         )}

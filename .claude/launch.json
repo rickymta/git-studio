@@ -3,6 +3,12 @@
   "configurations": [
     { "name": "ui", "runtimeExecutable": "pnpm", "runtimeArgs": ["dev"], "port": 1420 },
     {
+      "name": "ui-1455",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["vite", "--port", "1455", "--strictPort"],
+      "port": 1455
+    },
+    {
       "name": "bridge",
       "runtimeExecutable": "cargo",
       "runtimeArgs": [

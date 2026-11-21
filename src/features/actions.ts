@@ -4,15 +4,17 @@ import { short } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import type { MenuItem } from '@/components/ui';
-import { copyText, pickFile, pickFolder } from '@/lib/native';
-import type { Commit, GitRef, RebaseStep, Remote, Stash, Worktree } from '@/lib/types';
+import { copyText, openUrl, pickFile, pickFolder } from '@/lib/native';
+import type { Commit, GitRef, PullRequest, RebaseStep, Remote, Stash, Worktree } from '@/lib/types';
 import { useCompare } from '@/stores/compare';
 import { useRebaseDialog } from '@/stores/rebase';
 import { moveBlock, planRows, rebaseProblem, toSteps, type RebasePreset } from './rebase/plan';
 import { useGitHub } from '@/stores/github';
+import { useGitLab } from '@/stores/gitlab';
+import { hostingOf, hostWords, openRequestFor, type HostKind } from './pulls/hosting';
 import { useRemotePanel } from '@/stores/remotePanel';
 import { useRepo, type CompareSide } from '@/stores/repo';
-import { ask, confirm, toast, type Field } from '@/stores/ui';
+import { ask, confirm, notify, toast, type Field } from '@/stores/ui';
 import { reaches } from './graph/menuUtils';
 
 const repo = () => useRepo.getState();
@@ -1033,28 +1035,58 @@ export async function continueOp() {
 }
 
 /** Open a GitHub pull request from `branch` (default: current) to the default branch. */
+/** Toast for a pull / merge request, with a button that opens it on the host. */
+function announceRequest(title: string, pr: PullRequest, kind: HostKind) {
+  notify({
+    kind: 'success',
+    title,
+    detail: pr.title,
+    actions: [
+      { label: hostWords(kind).openOne, run: () => void openUrl(pr.htmlUrl) },
+      { label: t('Copy link'), run: () => void copyText(pr.htmlUrl) },
+    ],
+  });
+}
+
+/** Create a pull request (GitHub) or merge request (GitLab) for `branch` (default: the current one). */
 export async function createPullRequest(branch?: string) {
   const r = repo();
   const head = branch ?? currentBranch();
-  const remote =
-    r.refs?.remotes.find((x) => x.name === 'origin' && x.github) ??
-    r.refs?.remotes.find((x) => x.github);
-  if (!remote?.github) {
-    toast('info', t('This repository has no GitHub remote'));
+  const host = hostingOf(r.refs?.remotes);
+  if (!host) {
+    toast('info', t('This repository has no GitHub or GitLab remote'));
     return;
   }
-  if (!useGitHub.getState().user) {
-    toast('info', t('Sign in to GitHub first'));
+  const w = hostWords(host.kind);
+  const store = host.kind === 'github' ? useGitHub.getState() : useGitLab.getState();
+  if (!store.user) {
+    toast(
+      'info',
+      host.kind === 'github' ? t('Sign in to GitHub first') : t('Sign in to GitLab first'),
+    );
     return;
   }
   if (!head) return;
+  const remote = host.remote;
+  // One is already open for this branch: point at it instead of failing on the host's side.
+  const existing = store.pullsFor === host.project ? openRequestFor(store.pulls, head) : null;
+  if (existing) {
+    notify({
+      kind: 'info',
+      title: t('{ref} is already open for {branch}', { ref: w.ref(existing.number), branch: head }),
+      detail: existing.title,
+      actions: [{ label: w.openOne, run: () => void openUrl(existing.htmlUrl) }],
+    });
+    return;
+  }
   const local = r.refs?.refs.find((x) => x.kind === 'local' && x.name === head);
   if (local && !local.upstream) {
     if (
       !(await confirm(
         t('Push branch first'),
-        t('{branch} is not on GitHub yet. Push it to {remote} now?', {
+        t('{branch} is not on {host} yet. Push it to {remote} now?', {
           branch: head,
+          host: w.host,
           remote: remote.name,
         }),
         t('Push'),
@@ -1073,11 +1105,8 @@ export async function createPullRequest(branch?: string) {
     'main';
   const subject = r.commits.find((c) => c.hash === local?.target)?.subject ?? head;
   const v = await ask({
-    title: t('Create pull request'),
-    description: t('{repo}: {head} → base', {
-      repo: `${remote.github.owner}/${remote.github.repo}`,
-      head,
-    }),
+    title: w.create,
+    description: t('{repo}: {head} → base', { repo: host.project, head }),
     fields: [
       {
         name: 'base',
@@ -1093,23 +1122,42 @@ export async function createPullRequest(branch?: string) {
       { name: 'body', label: t('Description'), type: 'textarea' },
       { name: 'draft', label: t('Create as draft'), type: 'checkbox', initial: false },
     ],
-    confirmLabel: t('Create pull request'),
+    confirmLabel: w.create,
   });
   if (!v) return;
   try {
-    const pr = await api.ghCreatePull({
-      owner: remote.github.owner,
-      repo: remote.github.repo,
-      title: v.title as string,
-      body: v.body as string,
-      head,
-      base: v.base as string,
-      draft: v.draft as boolean,
-    });
-    toast('success', t('Opened pull request #{n}', { n: pr.number }), pr.htmlUrl);
-    void useGitHub.getState().loadPulls(remote.github);
+    if (host.kind === 'github' && remote.github) {
+      const pr = await api.ghCreatePull({
+        owner: remote.github.owner,
+        repo: remote.github.repo,
+        title: v.title as string,
+        body: v.body as string,
+        head,
+        base: v.base as string,
+        draft: v.draft as boolean,
+      });
+      announceRequest(t('Opened pull request #{n}', { n: pr.number }), pr, host.kind);
+      void useGitHub.getState().loadPulls(remote.github);
+    } else {
+      const pr = await api.glCreateMergeRequest({
+        path: host.project,
+        title: v.title as string,
+        description: v.body as string,
+        source: head,
+        target: v.base as string,
+        draft: v.draft as boolean,
+      });
+      announceRequest(t('Opened merge request !{n}', { n: pr.number }), pr, host.kind);
+      void useGitLab.getState().loadPulls(host.project);
+    }
   } catch (e) {
-    toast('error', t('Could not create pull request'), (e as Error).message);
+    toast(
+      'error',
+      host.kind === 'github'
+        ? t('Could not create pull request')
+        : t('Could not create merge request'),
+      (e as Error).message,
+    );
   }
 }
 
@@ -1654,12 +1702,7 @@ export function webRemoteName(): string | null {
 
 /** Remote that pull requests are opened on (origin on GitHub, else any GitHub remote). */
 export function prRemoteName(): string | null {
-  const remotes = repo().refs?.remotes ?? [];
-  return (
-    remotes.find((x) => x.name === 'origin' && x.github)?.name ??
-    remotes.find((x) => x.github)?.name ??
-    null
-  );
+  return hostingOf(repo().refs?.remotes)?.remote.name ?? null;
 }
 
 export function commitUrl(hash: string): string | null {

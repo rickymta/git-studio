@@ -1,5 +1,5 @@
 import { hunkPatch, parseDiff } from './diff';
-import { layoutGraph, withStashes } from './graph';
+import { extendGraph, hueGap, layoutGraph, withStashes } from './graph';
 import type { Commit } from './types';
 
 const c = (hash: string, ...parents: string[]): Commit => ({
@@ -62,6 +62,59 @@ describe('layoutGraph', () => {
     const stacked = layoutGraph([c('f', 'm'), c('m', 'a'), c('a')], ['m']);
     expect(stacked.map((r) => r.lane)).toEqual([1, 0, 0]);
     expect(stacked[1]!.segments.some((s) => s.fromLane === 1 && s.toLane === 0)).toBe(true);
+  });
+
+  it('gives neighbouring lanes clearly different colours', () => {
+    // Five branch tips side by side, all forking from a.
+    const tips = ['p', 'q', 'r', 's', 't'];
+    const rows = layoutGraph([...tips.map((h) => c(h, 'a')), c('a')]);
+    const colorOf = new Map(rows.slice(0, 5).map((r) => [r.lane, r.color]));
+    for (let lane = 1; lane < 5; lane++) {
+      expect(hueGap(colorOf.get(lane)!, colorOf.get(lane - 1)!)).toBeGreaterThanOrEqual(60);
+    }
+    // A merged branch's line contrasts with the line it merges into.
+    const merge = layoutGraph([c('m', 'b', 'f'), c('f', 'a'), c('b', 'a'), c('a')]);
+    expect(hueGap(merge[1]!.color, merge[0]!.color)).toBeGreaterThanOrEqual(60);
+  });
+
+  it('lays out a page after the others as if all were laid out at once', () => {
+    // main with merged branches, cut into pages at awkward places (inside open lanes).
+    const all = [
+      c('m2', 'b3', 'f2'),
+      c('f2', 'f1'),
+      c('b3', 'm1'),
+      c('f1', 'b2'),
+      c('m1', 'b2', 'g1'),
+      c('g1', 'b1'),
+      c('b2', 'b1'),
+      c('x', 'b1'),
+      c('b1', 'a'),
+      c('a'),
+    ];
+    const whole = layoutGraph(all);
+    for (const cut of [1, 3, 5, 8]) {
+      const paged = extendGraph(layoutGraph(all.slice(0, cut)), all.slice(cut));
+      expect(paged).toEqual(whole);
+    }
+    // Three pages in a row.
+    const three = extendGraph(
+      extendGraph(layoutGraph(all.slice(0, 2)), all.slice(2, 6))!,
+      all.slice(6),
+    );
+    expect(three).toEqual(whole);
+    // Rows that were not laid out here have no state to continue from.
+    expect(extendGraph(whole.slice(), [])).toBeNull();
+  });
+
+  it('remembers where each line starts', () => {
+    const rows = layoutGraph([c('m', 'b', 'f'), c('f', 'a'), c('b', 'a'), c('a')]);
+    // Main line: from the tip m. The merged line: opened by the merge m.
+    expect(rows[0]!.from).toEqual({ hash: 'm', merge: false });
+    expect(rows[1]!.from).toEqual({ hash: 'm', merge: true });
+    expect(rows[2]!.from).toEqual({ hash: 'm', merge: false });
+    const tips = layoutGraph([c('x', 'a'), c('y', 'a'), c('a')]);
+    expect(tips[1]!.from).toEqual({ hash: 'y', merge: false });
+    expect(tips[2]!.from).toEqual({ hash: 'x', merge: false });
   });
 });
 

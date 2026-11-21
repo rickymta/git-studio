@@ -22,6 +22,7 @@ import {
   type Column,
 } from './columnSettings';
 import { branchRows, rowIndex } from './branchFocus';
+import { laneBranch } from './laneLabel';
 import { SearchResults } from './HistorySearch';
 import { SEARCH_MODES, useGitSearch, type SearchMode } from './gitSearch';
 import { commitMenu, stashMenu } from './commitMenu';
@@ -142,17 +143,16 @@ export function CommitGraph() {
   // 0 = fill the remaining space.
   const [msgW, setMsgW] = usePersistentWidth('message', W.message, 0, 3000);
   const msgRef = useRef<HTMLDivElement>(null);
-  /** The message column fills the row unless it has a set width or is hidden. */
-  const msgFixed = msgW >= 120 || !show.has('message');
-  // Hidden columns take no room: their width variables drop to 0.
+  // Hidden columns take no room: their width variables drop to 0. The message always takes the
+  // rest of the row (a set width is its minimum), so it runs right up to the scrollbar.
   const vars = {
     '--refs-w': show.has('refs') ? `${refsW}px` : '0px',
     '--graph-w': show.has('graph') ? `${graphWidth}px` : '0px',
     '--author-w': `${authorW}px`,
     '--date-w': `${dateW}px`,
     '--sha-w': `${shaW}px`,
-    '--msg-flex': !show.has('message') ? '0 0 0px' : msgW >= 120 ? `0 0 ${msgW}px` : '1 1 0%',
-    '--msg-spacer': msgFixed ? '1 1 0%' : '0 0 0px',
+    '--msg-flex': !show.has('message') ? '0 0 0px' : msgW >= 120 ? `1 1 ${msgW}px` : '1 1 0%',
+    '--msg-spacer': show.has('message') ? '0 0 0px' : '1 1 0%',
   } as React.CSSProperties;
   /** Column widths back to a layout preset (from the Column settings menu). */
   const resetWidths = (compact: boolean) => {
@@ -219,6 +219,13 @@ export function CommitGraph() {
     estimateSize: () => ROW,
     overscan: 20,
   });
+
+  // Scrolled near the end of what is loaded: fetch the next page (the background loader usually
+  // got there first; this covers it while it waits).
+  const lastShown = virt.getVirtualItems().at(-1)?.index ?? 0;
+  useEffect(() => {
+    if (hasMore && !loading && lastShown >= count - 60) void loadMore();
+  }, [lastShown, count, hasMore, loading, loadMore]);
 
   const jump = (dir: 1 | -1) => {
     if (matches.length === 0) return;
@@ -339,7 +346,7 @@ export function CommitGraph() {
               />
             </div>
           )}
-          {msgFixed && <div className="flex-1" />}
+          {!show.has('message') && <div className="flex-1" />}
           {!searchOpen && (
             <>
               {show.has('author') && (
@@ -546,6 +553,7 @@ export function CommitGraph() {
               );
             }
             const c = commits[i]!;
+            const rowRefs = refsByHash.get(c.hash);
             const selected =
               (selection?.type === 'commit' && selection.hash === c.hash) ||
               (selection?.type === 'commits' && picked.has(c.hash)) ||
@@ -557,7 +565,19 @@ export function CommitGraph() {
                 style={style}
                 commit={c}
                 row={graph[i]!}
-                refs={refsByHash.get(c.hash)}
+                refs={rowRefs}
+                laneLabel={
+                  rowRefs?.length || c.stash
+                    ? null
+                    : laneBranch(
+                        graph[i]!.from,
+                        (h) => refsByHash.get(h),
+                        (h) => {
+                          const k = index.get(h);
+                          return k === undefined ? undefined : commits[k]?.subject;
+                        },
+                      )
+                }
                 graphWidth={graphWidth}
                 geom={geom}
                 show={show}
@@ -680,6 +700,7 @@ const CommitRow = memo(function CommitRow({
   commit: c,
   row,
   refs,
+  laneLabel,
   graphWidth,
   geom,
   show,
@@ -696,6 +717,8 @@ const CommitRow = memo(function CommitRow({
   commit: Commit;
   row: GraphRow;
   refs: GitRef[] | undefined;
+  /** Branch this commit's line belongs to, shown faintly while the row is hovered. */
+  laneLabel: string | null;
   graphWidth: number;
   geom: Geom;
   show: Set<Column>;
@@ -789,6 +812,21 @@ const CommitRow = memo(function CommitRow({
                 className="absolute top-1/2 right-0 h-0.5 -translate-y-1/2"
                 style={{ left: 8, background: color }}
               />
+            )}
+            {groups.length === 0 && laneLabel && (
+              // GitKraken-style: which branch this commit is on, while the row is hovered.
+              <div className="pointer-events-none absolute inset-y-0 right-0 left-2 flex items-center opacity-0 transition-opacity group-hover:opacity-75">
+                <span
+                  className="min-w-0 truncate rounded px-1.5 py-px text-xs"
+                  style={{
+                    color,
+                    background: `color-mix(in oklch, ${color} 18%, var(--background))`,
+                    border: `1px dashed color-mix(in oklch, ${color} 55%, transparent)`,
+                  }}
+                >
+                  {laneLabel}
+                </span>
+              </div>
             )}
             <div
               className={cn(
@@ -887,7 +925,11 @@ const CommitRow = memo(function CommitRow({
             {short(c.hash)}
           </div>
         )}
-        <div className="w-14 shrink-0" />
+        {/* Author / date / sha line up with their titles, which end before the header's
+            buttons; with none of them shown the message runs right up to the scrollbar. */}
+        {(show.has('author') || show.has('date') || show.has('sha')) && (
+          <div className="w-14 shrink-0" />
+        )}
       </div>
     </ContextMenuWrap>
   );

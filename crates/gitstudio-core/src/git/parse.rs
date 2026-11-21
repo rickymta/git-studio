@@ -181,6 +181,7 @@ pub fn parse_remotes(text: &str) -> Vec<Remote> {
                     url: String::new(),
                     push_url: String::new(),
                     github: None,
+                    gitlab: None,
                 });
                 out.len() - 1
             }
@@ -189,6 +190,7 @@ pub fn parse_remotes(text: &str) -> Vec<Remote> {
         if kind == "(fetch)" {
             r.url = url.to_string();
             r.github = github_slug(url);
+            r.gitlab = gitlab_slug(url);
         } else {
             r.push_url = url.to_string();
         }
@@ -218,6 +220,31 @@ pub fn github_slug(url: &str) -> Option<GitHubSlug> {
         return None;
     }
     Some(GitHubSlug { owner, repo })
+}
+
+/// Project path of a gitlab.com remote URL (https, ssh or scp-like). Unlike GitHub, a GitLab
+/// project can sit in nested groups: `group/sub/name`.
+pub fn gitlab_slug(url: &str) -> Option<GitLabSlug> {
+    let rest = url
+        .strip_prefix("https://gitlab.com/")
+        .or_else(|| url.strip_prefix("http://gitlab.com/"))
+        .or_else(|| url.strip_prefix("git@gitlab.com:"))
+        .or_else(|| url.strip_prefix("ssh://git@gitlab.com/"))
+        .or_else(|| {
+            // https://user@gitlab.com/group/project
+            let after = url.strip_prefix("https://")?;
+            let at = after.find('@')?;
+            after[at + 1..].strip_prefix("gitlab.com/")
+        })?;
+    let rest = rest.trim_end_matches('/');
+    let path = rest.strip_suffix(".git").unwrap_or(rest);
+    let parts: Vec<&str> = path.split('/').collect();
+    if parts.len() < 2 || parts.iter().any(|p| p.is_empty()) {
+        return None;
+    }
+    Some(GitLabSlug {
+        path: path.to_string(),
+    })
 }
 
 /// `git status --porcelain=v2 -z --branch` output.
@@ -344,6 +371,30 @@ mod tests {
         assert_eq!(github_slug("ssh://git@github.com/acme/app.git"), want);
         assert_eq!(github_slug("https://bob@github.com/acme/app.git"), want);
         assert_eq!(github_slug("https://gitlab.com/acme/app.git"), None);
+    }
+
+    #[test]
+    fn gitlab_slug_variants() {
+        let path = |p: &str| {
+            Some(GitLabSlug {
+                path: p.to_string(),
+            })
+        };
+        assert_eq!(
+            gitlab_slug("https://gitlab.com/acme/app.git"),
+            path("acme/app")
+        );
+        assert_eq!(gitlab_slug("git@gitlab.com:acme/app.git"), path("acme/app"));
+        assert_eq!(
+            gitlab_slug("ssh://git@gitlab.com/acme/web/app.git"),
+            path("acme/web/app")
+        );
+        assert_eq!(
+            gitlab_slug("https://oauth2@gitlab.com/acme/web/app"),
+            path("acme/web/app")
+        );
+        assert_eq!(gitlab_slug("https://gitlab.com/acme"), None);
+        assert_eq!(gitlab_slug("https://github.com/acme/app.git"), None);
     }
 
     #[test]
