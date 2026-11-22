@@ -2,6 +2,12 @@
 
 Các thay đổi đáng chú ý của GitStudio. File này do `pnpm release` cập nhật.
 
+## v1.0.1 - 2026-11-22
+
+Thay đổi từ v1.0.0.
+
+- feat(merge): merge straight away without conflicts; preview shows what changes (dc9278a)
+
 ## v1.0.0 - 2026-11-21
 
 Thay đổi từ v0.3.8.
