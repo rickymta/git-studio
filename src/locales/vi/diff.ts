@@ -140,6 +140,11 @@ export const diff: Record<string, string> = {
   '{files} file(s) change · {conflicts} conflict(s)': '{files} tệp thay đổi · {conflicts} xung đột',
   '{n} of {total} conflicts resolved': 'Đã giải quyết {n}/{total} xung đột',
   'Git notes': 'Ghi chú của git',
+  Hunks: 'Theo đoạn',
+  'Whole file': 'Cả file',
+  Split: 'Hai cột',
+  'What changes on {branch} once {incoming} is merged':
+    'Những gì thay đổi trên {branch} sau khi merge {incoming}',
   'No conflicts: this merge goes through cleanly.':
     'Không có xung đột: merge này sẽ chạy trơn tru.',
   'Every conflict is resolved. Merge to apply them.':

@@ -129,11 +129,16 @@ export function refMenu(ref: GitRef): MenuItem[] {
         label: t('Fast-forward {branch} to {target}', { branch: cur, target: ref.name }),
         onSelect: () => A.fastForwardBranch(cur, ref.name),
       });
-    if (!behind)
+    if (!behind) {
       integrate.push({
         label: t('Merge {source} into {target}', { source: ref.name, target: cur }),
-        onSelect: () => A.mergeInto(ref.name),
+        onSelect: () => void A.mergeInto(ref.name),
       });
+      integrate.push({
+        label: t('Preview merge {source} into {target}…', { source: ref.name, target: cur }),
+        onSelect: () => A.previewMerge(ref.name),
+      });
+    }
     if (ahead)
       integrate.push({
         label: t('Squash merge {source} into {target}', { source: ref.name, target: cur }),

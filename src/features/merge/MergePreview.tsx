@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, GitMerge, X } from 'lucide-react';
+import { AlertTriangle, Check, GitMerge, Rows3, Columns2, AlignJustify, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Select } from '@/components/controls';
@@ -9,6 +9,7 @@ import { short } from '@/lib/format';
 import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import type {
+  FileChange,
   MergePreview as Preview,
   PreviewConflict,
   PreviewFile,
@@ -18,7 +19,9 @@ import { useMergePreview, type MergePreviewSpec } from '@/stores/mergePreview';
 import { useRepo } from '@/stores/repo';
 import { confirm, toast } from '@/stores/ui';
 import * as A from '../actions';
+import { DiffBody } from '../diff/DiffBody';
 import { MergeTool } from '../diff/MergeTool';
+import type { DiffLayout } from '../diff/rows';
 
 type Mode = 'merge' | 'noFf' | 'squash';
 
@@ -46,6 +49,8 @@ function MergePreview({ spec }: { spec: MergePreviewSpec }) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  /** A file the merge changes without conflict, shown as the diff the merge applies to it. */
+  const [change, setChange] = useState<FileChange | null>(null);
   const [files, setFiles] = useState<Record<string, PreviewFile | 'loading'>>({});
   const [resolved, setResolved] = useState<Record<string, Resolution>>({});
   const [mode, setMode] = useState<Mode>('merge');
@@ -56,6 +61,7 @@ function MergePreview({ spec }: { spec: MergePreviewSpec }) {
   /** Show a conflict, loading its versions the first time. */
   const open = (c: PreviewConflict | null | undefined) => {
     setSelected(c?.path ?? null);
+    if (c) setChange(null);
     if (!c || requested.current.has(c.path)) return;
     requested.current.add(c.path);
     setFiles((all) => ({ ...all, [c.path]: 'loading' }));
@@ -75,8 +81,9 @@ function MergePreview({ spec }: { spec: MergePreviewSpec }) {
       .then((p) => {
         if (!alive) return;
         setPreview(p);
-        // Start on the first conflict.
-        open(p.conflicts[0]);
+        // Start on the first conflict; without any, on the first file the merge changes.
+        if (p.conflicts.length) open(p.conflicts[0]);
+        else setChange(p.files[0] ?? null);
       })
       .catch((e) => alive && setError((e as Error).message));
     return () => {
@@ -308,12 +315,24 @@ function MergePreview({ spec }: { spec: MergePreviewSpec }) {
               </div>
             )}
             {changed.map((f) => (
-              <div key={f.path} className="flex items-center gap-2 px-3 py-0.5" title={f.path}>
+              <button
+                key={f.path}
+                type="button"
+                title={f.origPath ? `${f.origPath} → ${f.path}` : f.path}
+                onClick={() => {
+                  setSelected(null);
+                  setChange(f);
+                }}
+                className={cn(
+                  'flex items-center gap-2 px-3 py-0.5 text-left hover:bg-surface-hover',
+                  change?.path === f.path && 'bg-selection/45',
+                )}
+              >
                 <span className="w-3 shrink-0 font-mono text-xs text-muted-foreground">
                   {f.status}
                 </span>
                 <span className="min-w-0 flex-1 truncate">{f.path}</span>
-              </div>
+              </button>
             ))}
             {preview.messages.length > 0 && (
               <details className="mt-auto border-t border-border px-3 py-2 text-xs text-muted-foreground">
@@ -328,29 +347,133 @@ function MergePreview({ spec }: { spec: MergePreviewSpec }) {
           </div>
 
           <div className="min-h-0 min-w-0 flex-1">
-            <ConflictPane
-              conflict={conflict}
-              file={conflict ? files[conflict.path] : undefined}
-              textConflict={!!conflict && textConflicts.includes(conflict)}
-              ours={{ label: branch, commit: preview.ours }}
-              theirs={{ label: spec.label, commit: preview.theirs }}
-              onSave={(text, unresolved) =>
-                conflict && void saveResolution(conflict, text, unresolved)
-              }
-              onClose={() => setSelected(null)}
-              empty={
-                preview.conflicts.length === 0
-                  ? preview.upToDate
-                    ? t('Already up to date: nothing to merge.')
-                    : t('No conflicts: this merge goes through cleanly.')
-                  : left.length === 0
-                    ? t('Every conflict is resolved. Merge to apply them.')
-                    : t('Pick a conflicted file on the left to resolve it.')
-              }
-            />
+            {change && preview.tree && !conflict ? (
+              <ChangePane
+                key={change.path}
+                file={change}
+                ours={preview.ours}
+                tree={preview.tree}
+                branch={branch}
+                incoming={spec.label}
+              />
+            ) : (
+              <ConflictPane
+                conflict={conflict}
+                file={conflict ? files[conflict.path] : undefined}
+                textConflict={!!conflict && textConflicts.includes(conflict)}
+                ours={{ label: branch, commit: preview.ours }}
+                theirs={{ label: spec.label, commit: preview.theirs }}
+                onSave={(text, unresolved) =>
+                  conflict && void saveResolution(conflict, text, unresolved)
+                }
+                onClose={() => setSelected(null)}
+                empty={
+                  preview.conflicts.length === 0
+                    ? preview.upToDate
+                      ? t('Already up to date: nothing to merge.')
+                      : t('No conflicts: this merge goes through cleanly.')
+                    : left.length === 0
+                      ? t('Every conflict is resolved. Merge to apply them.')
+                      : t('Pick a conflicted file on the left to resolve it.')
+                }
+              />
+            )}
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+const LAYOUT_KEY = 'gitstudio.diff.layout';
+const readLayout = (): DiffLayout => {
+  try {
+    const v = JSON.parse(localStorage.getItem(LAYOUT_KEY) ?? '"hunk"') as DiffLayout;
+    return v === 'inline' || v === 'split' ? v : 'hunk';
+  } catch {
+    return 'hunk';
+  }
+};
+
+/**
+ * A file the merge changes cleanly: the diff from the current branch to the merge result, i.e.
+ * the places the merge will change once it is done. Same layouts as the diff view.
+ */
+function ChangePane({
+  file,
+  ours,
+  tree,
+  branch,
+  incoming,
+}: {
+  file: FileChange;
+  ours: string;
+  tree: string;
+  branch: string;
+  incoming: string;
+}) {
+  const [layout, setLayoutState] = useState<DiffLayout>(readLayout);
+  const setLayout = (l: DiffLayout) => {
+    setLayoutState(l);
+    try {
+      localStorage.setItem(LAYOUT_KEY, JSON.stringify(l));
+    } catch {
+      /* ignore */
+    }
+  };
+  const request = useMemo(
+    () => ({
+      source: 'commit' as const,
+      commit: tree,
+      parent: ours,
+      path: file.path,
+      origPath: file.origPath ?? null,
+    }),
+    [tree, ours, file.path, file.origPath],
+  );
+  const layouts: { value: DiffLayout; label: string; icon: React.ReactNode }[] = [
+    { value: 'hunk', label: t('Hunks'), icon: <Rows3 className="size-3.5" /> },
+    { value: 'inline', label: t('Whole file'), icon: <AlignJustify className="size-3.5" /> },
+    { value: 'split', label: t('Split'), icon: <Columns2 className="size-3.5" /> },
+  ];
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
+        <span className="min-w-0 truncate font-medium" title={file.path}>
+          {file.path}
+        </span>
+        <span className="min-w-0 truncate text-xs text-muted-foreground">
+          {t('What changes on {branch} once {incoming} is merged', { branch, incoming })}
+        </span>
+        <div className="ml-auto flex shrink-0 overflow-hidden rounded-md border border-border">
+          {layouts.map((l) => (
+            <button
+              key={l.value}
+              type="button"
+              title={l.label}
+              aria-label={l.label}
+              onClick={() => setLayout(l.value)}
+              className={cn(
+                'flex h-6 items-center px-2',
+                layout === l.value
+                  ? 'bg-accent-soft text-foreground'
+                  : 'text-muted-foreground hover:bg-surface-hover',
+              )}
+            >
+              {l.icon}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="min-h-0 flex-1">
+        <DiffBody
+          request={request}
+          layout={layout}
+          ignoreWhitespace={false}
+          wrap={false}
+          actions="none"
+        />
+      </div>
     </div>
   );
 }

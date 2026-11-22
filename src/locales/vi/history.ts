@@ -199,6 +199,7 @@ export const history: Record<string, string> = {
   'Mixed - keep working copy but reset index': 'Mixed - giữ working copy, reset index',
   'Soft - keep all changes': 'Soft - giữ toàn bộ thay đổi',
   'Merge into {branch}': 'Merge vào {branch}',
+  'Preview merge into {branch}': 'Xem trước merge vào {branch}',
   'Rebase {branch} onto': 'Rebase {branch} lên',
   'Move commit up': 'Di chuyển commit lên',
   'Move commit down': 'Di chuyển commit xuống',

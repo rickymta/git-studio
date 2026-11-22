@@ -117,8 +117,13 @@ export function commitMenu(c: Commit, picked: Commit[] = []): MenuItem[] {
       : []),
     ...(cur
       ? [
-          ...perBranch(t('Merge into {branch}', { branch: cur }), others, (r) =>
-            A.mergeInto(r.name),
+          ...perBranch(
+            t('Merge into {branch}', { branch: cur }),
+            others,
+            (r) => void A.mergeInto(r.name),
+          ),
+          ...perBranch(t('Preview merge into {branch}', { branch: cur }), others, (r) =>
+            A.previewMerge(r.name),
           ),
           ...perBranch(t('Rebase {branch} onto', { branch: cur }), others, (r) =>
             A.rebaseOnto(r.name),

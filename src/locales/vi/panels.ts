@@ -40,6 +40,8 @@ export const panels: Record<string, string> = {
   'Copy tag name': 'Sao chép tên tag',
   'Delete {name}': 'Xoá {name}',
   'Merge {source} into {target}': 'Merge {source} vào {target}',
+  'Preview merge {source} into {target}…': 'Xem trước merge {source} vào {target}…',
+  'Already up to date with {name}': 'Đã có sẵn mọi thay đổi của {name}',
   'Rebase {branch} onto {target}': 'Rebase {branch} lên {target}',
   Pull: 'Pull',
   Push: 'Push',

@@ -503,8 +503,35 @@ export async function setUpstream(ref: GitRef) {
   if (v) await run('Set upstream', (p) => api.setUpstream(p, ref.name, v.up as string));
 }
 
-/** Merge `target` into the current branch: first a preview of what changes and conflicts. */
-export function mergeInto(target: string) {
+/**
+ * Merge `target` into the current branch. A trial merge (in memory, the working tree is not
+ * touched) decides: no conflict merges straight away (undoable); conflicts open the preview first,
+ * so they can be looked at before the merge starts. `previewMerge` always shows the preview.
+ */
+export async function mergeInto(target: string) {
+  const path = repo().path;
+  if (!path) return;
+  let trial;
+  try {
+    trial = await api.mergePreview(path, target);
+  } catch {
+    // Could not tell beforehand: the preview explains what happens.
+    previewMerge(target);
+    return;
+  }
+  if (trial.upToDate) {
+    toast('info', t('Already up to date with {name}', { name: target }));
+    return;
+  }
+  if (trial.conflicts.length > 0) {
+    previewMerge(target);
+    return;
+  }
+  await mergeClean(target, 'merge');
+}
+
+/** What merging `target` into the current branch changes, and its conflicts, before merging. */
+export function previewMerge(target: string) {
   useMergePreview.getState().show({ theirs: target, label: target });
 }
 
