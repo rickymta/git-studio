@@ -21,6 +21,7 @@ import { hashIndex, laneColor, wipRowOf, type GraphRow, type Segment } from '@/l
 import { t } from '@/lib/i18n';
 import type { Commit, GitRef } from '@/lib/types';
 import { setGraphScrolling, useRepo } from '@/stores/repo';
+import { useSpotlight } from '@/stores/spotlight';
 import * as A from '../actions';
 import { ColumnSettingsMenu } from './ColumnSettingsMenu';
 import {
@@ -295,11 +296,16 @@ export function CommitGraph() {
   }, [selectedIdx]);
 
   useEffect(() => {
+    // Ctrl+F: Spotlight (like Ctrl+K). Ctrl+Shift+F: the graph's own search, which also finds
+    // commits by changed text or path across the whole history.
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'f') {
-        e.preventDefault();
-        setSearchOpen(true);
-      }
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || e.key.toLowerCase() !== 'f') return;
+      if (e.defaultPrevented) return;
+      // Hidden under an open diff: the key belongs to the diff (its editor's search).
+      if (!scrollRef.current?.offsetParent) return;
+      e.preventDefault();
+      if (e.shiftKey) setSearchOpen(true);
+      else useSpotlight.getState().setOpen(true);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -526,7 +532,7 @@ export function CommitGraph() {
                 <X className="size-3.5" />
               </IconButton>
             </div>
-          ) : null /* Opened from the toolbar's Search button or Ctrl+F. */
+          ) : null /* Opened with Ctrl+Shift+F (Ctrl+F and the toolbar's Search open Spotlight). */
         }
         <IconButton
           label={t('Go to HEAD (Ctrl+Shift+H)')}

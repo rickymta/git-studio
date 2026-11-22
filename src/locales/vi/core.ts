@@ -314,7 +314,7 @@ export const core: Record<string, string> = {
   'Pin tab': 'Ghim tab',
   // Spotlight
   'Search this repository': 'Tìm trong repository này',
-  'Search this repository (Ctrl+K)': 'Tìm trong repository này (Ctrl+K)',
+  'Search this repository (Ctrl+F or Ctrl+K)': 'Tìm trong repository này (Ctrl+F hoặc Ctrl+K)',
   'Search {name}: branches, commits, files, tags…': 'Tìm trong {name}: nhánh, commit, file, tag…',
   'Searching the whole history…': 'Đang tìm trong toàn bộ lịch sử…',
   'No results in this repository.': 'Không tìm thấy gì trong repository này.',

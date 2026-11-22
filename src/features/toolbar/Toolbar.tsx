@@ -371,7 +371,7 @@ export function Toolbar() {
         <ToolButton
           icon={<Search className="size-[18px]" />}
           label={t('Search')}
-          title={t('Search this repository (Ctrl+K)')}
+          title={t('Search this repository (Ctrl+F or Ctrl+K)')}
           onClick={() => useSpotlight.getState().setOpen(true)}
         />
       </div>
