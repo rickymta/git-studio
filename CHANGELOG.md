@@ -2,6 +2,12 @@
 
 Các thay đổi đáng chú ý của GitStudio. File này do `pnpm release` cập nhật.
 
+## v1.0.2 - 2026-11-22
+
+Thay đổi từ v1.0.1.
+
+- feat(search): Ctrl+F opens Spotlight (e990942)
+
 ## v1.0.1 - 2026-11-22
 
 Thay đổi từ v1.0.0.
