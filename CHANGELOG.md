@@ -2,6 +2,12 @@
 
 Các thay đổi đáng chú ý của GitStudio. File này do `pnpm release` cập nhật.
 
+## v1.0.3 - 2026-11-23
+
+Thay đổi từ v1.0.2.
+
+- fix(graph): keep lanes unbroken past rows dimmed by Smart Branch Visibility (080bfe1)
+
 ## v1.0.2 - 2026-11-22
 
 Thay đổi từ v1.0.1.
