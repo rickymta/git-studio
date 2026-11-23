@@ -795,7 +795,7 @@ function WipRow({
   );
 }
 
-const CommitRow = memo(function CommitRow({
+export const CommitRow = memo(function CommitRow({
   start,
   index,
   commit: c,
@@ -828,6 +828,10 @@ const CommitRow = memo(function CommitRow({
   /** HEAD is not on a branch: the HEAD commit gets a HEAD badge of its own. */
   detached: boolean;
   match: boolean;
+  /**
+   * Off the focused branches (Smart Branch Visibility) or not a search match: soften the text.
+   * The graph column keeps full strength, so lanes run unbroken past these rows.
+   */
   dim: boolean;
   /** Another branch's badge is hovered: fade this row's band and text. */
   faded: boolean;
@@ -855,7 +859,9 @@ const CommitRow = memo(function CommitRow({
   const [menuOpen, setMenuOpen] = useState(false);
   const stack = hovered || menuOpen;
   const onBadgeHover = (on: boolean) => onRefHover(c.hash, on);
-  const fade = faded && 'opacity-35';
+  // Only the band and the text columns fade, never the whole row: fading the graph cell broke
+  // every lane into dashes wherever dimmed and normal rows alternate.
+  const fade = faded ? 'opacity-35' : dim && 'opacity-50';
   return (
     <ContextMenuWrap
       items={() => {
@@ -870,7 +876,7 @@ const CommitRow = memo(function CommitRow({
       <div
         style={stack ? { ...style, zIndex: 30 } : style}
         onClick={(e) => onPick(e, index)}
-        className={cn('group relative flex cursor-default items-center', dim && 'opacity-40')}
+        className="group relative flex cursor-default items-center"
       >
         {/* Selected row: a faint full-width highlight and a bar in the branch colour, so the
             focused commit reads at a glance even when every row is on the same branch. */}
