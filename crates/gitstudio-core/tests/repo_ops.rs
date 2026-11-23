@@ -1518,3 +1518,36 @@ async fn patch_of_several_commits_applies_with_git_am() {
     );
     assert!(r.create_patches(&[], &dest).await.is_err());
 }
+
+#[tokio::test]
+async fn change_stamp_follows_refs_and_index() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("repo");
+    let r = new_repo(&dir).await;
+    std::fs::write(dir.join("f"), "0\n").unwrap();
+    r.stage(&[]).await.unwrap();
+    r.commit("base", false).await.unwrap();
+    let a = r.stamp();
+    assert_eq!(a, r.stamp(), "nothing changed");
+
+    // Staging writes the index only.
+    std::fs::write(dir.join("f"), "1\n").unwrap();
+    r.stage(&[]).await.unwrap();
+    let b = r.stamp();
+    assert_eq!(a.refs, b.refs);
+    assert_ne!(a.index, b.index);
+
+    // A commit on another branch, made outside the app, moves the refs.
+    sh(&dir, &["branch", "side"]);
+    let c = r.stamp();
+    assert_ne!(b.refs, c.refs);
+    sh(&dir, &["switch", "-q", "side"]);
+    sh(&dir, &["commit", "-q", "-m", "on side"]);
+    sh(&dir, &["switch", "-q", "-"]);
+    let d = r.stamp();
+    assert_ne!(c.refs, d.refs);
+
+    // So does a merge into the checked-out branch.
+    sh(&dir, &["merge", "-q", "--no-edit", "side"]);
+    assert_ne!(d.refs, r.stamp().refs);
+}

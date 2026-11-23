@@ -324,6 +324,7 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value> {
             serde_json::to_value(info)?
         }
         "repo.info" => serde_json::to_value(repo(a).await?.info().await?)?,
+        "repo.stamp" => serde_json::to_value(repo(a).await?.stamp())?,
         "repo.log" => {
             let limit: Option<u32> = opt(a, "limit")?;
             let skip: Option<u32> = opt(a, "skip")?;

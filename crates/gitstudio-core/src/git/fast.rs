@@ -5,6 +5,7 @@
 //! file times are stale gets the index refreshed in the background.
 
 use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -291,6 +292,104 @@ pub fn status_took(root: &Path, git_dir: &Path, took: Duration) {
         }
         let _ = cmd.status();
     });
+}
+
+// ---- noticing changes made outside the app -------------------------------------------------------
+
+/// What git rewrites when refs move (`refs`: HEAD, branches, remotes, tags, packed-refs, a merge
+/// or rebase starting or ending) and when the index is written (`index`), as two short
+/// fingerprints of file times and sizes. Read from files only, with no git process, so every
+/// open window can check it every few seconds and reload as soon as it changes (a merge in a
+/// terminal, a fetch from another tool).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Stamp {
+    pub refs: String,
+    pub index: String,
+}
+
+/// Files seen and an order-free sum of (path, time, size) hashes.
+#[derive(Default)]
+struct Fingerprint {
+    count: u64,
+    sum: u64,
+}
+
+impl Fingerprint {
+    fn add(&mut self, p: &Path) {
+        let Ok(m) = std::fs::metadata(p) else { return };
+        let nanos = m
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_nanos() as u64);
+        let mut h = DefaultHasher::new();
+        (p, nanos, m.len()).hash(&mut h);
+        self.count += 1;
+        self.sum = self.sum.wrapping_add(h.finish());
+    }
+
+    /// Every file under `dir` but lock files (a ref being written; the result follows).
+    fn walk(&mut self, dir: &Path, depth: u8) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for e in entries.flatten() {
+            let p = e.path();
+            match e.file_type() {
+                Ok(t) if t.is_dir() => {
+                    if depth < 32 {
+                        self.walk(&p, depth + 1)
+                    }
+                }
+                Ok(_) if p.extension().is_some_and(|x| x == "lock") => {}
+                Ok(_) => self.add(&p),
+                Err(_) => {}
+            }
+        }
+    }
+
+    fn text(&self) -> String {
+        format!("{}:{:x}", self.count, self.sum)
+    }
+}
+
+/// The change stamp of the repository whose git dir is `git_dir` (a linked worktree's refs live
+/// in the common dir).
+pub fn stamp(git_dir: &Path) -> Stamp {
+    let common = common_dir(git_dir);
+    let mut refs = Fingerprint::default();
+    for name in [
+        "HEAD",
+        "ORIG_HEAD",
+        "MERGE_HEAD",
+        "CHERRY_PICK_HEAD",
+        "REVERT_HEAD",
+        "BISECT_LOG",
+        "rebase-merge",
+        "rebase-apply",
+        "logs/HEAD",
+    ] {
+        refs.add(&git_dir.join(name));
+    }
+    refs.add(&common.join("packed-refs"));
+    refs.walk(&common.join("refs"), 0);
+    refs.walk(&common.join("reftable"), 0);
+    if common != git_dir {
+        refs.walk(&git_dir.join("refs"), 0);
+    }
+    let mut index = Fingerprint::default();
+    index.add(&git_dir.join("index"));
+    Stamp {
+        refs: refs.text(),
+        index: index.text(),
+    }
+}
+
+impl Repo {
+    /// See [`Stamp`].
+    pub fn stamp(&self) -> Stamp {
+        stamp(&self.git_dir)
+    }
 }
 
 #[cfg(test)]

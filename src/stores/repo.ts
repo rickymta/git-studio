@@ -16,6 +16,7 @@ import type {
   DiffRequest,
   Refs,
   RepoInfo,
+  RepoStamp,
   SavedPage,
   Settings,
   Worktree,
@@ -228,6 +229,12 @@ interface RepoStore {
   /** On window focus: a full refresh, or only the status when the last one is recent. */
   refreshOnFocus: () => Promise<void>;
   refreshStatus: () => Promise<void>;
+  /**
+   * Reload what changed since the last look, from the change stamp: everything when refs moved
+   * (a merge, commit, fetch, branch or tag made anywhere), the status when only the index was
+   * written. `status`: read the status anyway (edited files do not change the stamp).
+   */
+  checkChanges: (opts?: { status?: boolean }) => Promise<void>;
   /** Load the next `count` commits (default: a page) below the loaded ones. */
   /** `background`: the rest of the history loading by itself (waits while the list scrolls). */
   loadMore: (count?: number, opts?: { background?: boolean }) => Promise<void>;
@@ -467,6 +474,16 @@ export function keepOlder(fresh: Commit[], loaded: Commit[]): Commit[] | null {
   return [...fresh, ...loaded.slice(j + 1).filter((c) => !seen.has(c.hash))];
 }
 
+/** The change stamp each repository had when it was last loaded (see `checkChanges`). */
+const stamps = new Map<string, RepoStamp>();
+async function readStamp(path: string): Promise<RepoStamp | null> {
+  try {
+    return await api.repoStamp(path);
+  } catch {
+    return null;
+  }
+}
+
 /** Bumped each time a full status lands, so an older one arriving later is dropped. */
 let infoSeq = 0;
 
@@ -532,9 +549,11 @@ async function loadRepo(path: string, first: boolean, fresh = false) {
     const view = loadView(path);
     // One call for history, refs and worktrees (read at the same time). The first load does not
     // wait for `git status`: the graph shows first and the changed files follow.
-    const [loaded, fullInfo] = await Promise.all([
+    // The stamp is read before git: a change made while this load runs shows up next time.
+    const [loaded, fullInfo, stamp] = await Promise.all([
       api.load(path, limit, 0, logView(view)),
       first ? null : api.info(path),
+      readStamp(path),
     ]);
     const { commits, refs, worktrees } = loaded;
     if (useRepo.getState().path !== path) return;
@@ -558,6 +577,7 @@ async function loadRepo(path: string, first: boolean, fresh = false) {
       worktrees,
       hasMore: kept ? before.hasMore : commits.length >= limit,
     });
+    if (stamp) stamps.set(pathKey(path), stamp);
     if (first) void followStatus(path);
     savePage(path);
     if (!first && useRepo.getState().hasMore) void loadRest(path);
@@ -729,7 +749,9 @@ export const useRepo = create<RepoStore>((set, get) => ({
       });
       loadedAt = snap.at;
       if (snap.selection && snap.selection.type !== 'wip') void get().select(snap.selection);
-      if (Date.now() - snap.at < SNAPSHOT_FRESH_MS) void get().refreshStatus();
+      // Seen recently: reload only if git changed something meanwhile (a merge in another
+      // tab or tool moves refs the status alone does not show).
+      if (Date.now() - snap.at < SNAPSHOT_FRESH_MS) void get().checkChanges({ status: true });
       else void get().refresh();
       void loadRest(snap.info.path);
       return true;
@@ -909,8 +931,23 @@ export const useRepo = create<RepoStore>((set, get) => ({
   },
 
   refreshOnFocus: async () => {
-    if (Date.now() - loadedAt < FOCUS_REFRESH_MS) await get().refreshStatus();
+    if (Date.now() - loadedAt < FOCUS_REFRESH_MS) await get().checkChanges({ status: true });
     else await get().refresh();
+  },
+
+  checkChanges: async (opts) => {
+    const path = get().path;
+    if (!path || get().busy || !get().info) return;
+    // A refresh in flight brings everything anyway.
+    if (pending && samePath(pending.path, path)) return;
+    const stamp = await readStamp(path);
+    if (get().path !== path) return;
+    const key = pathKey(path);
+    const old = stamps.get(key);
+    if (stamp) stamps.set(key, stamp);
+    if (stamp && old && old.refs !== stamp.refs) await get().refresh();
+    else if (opts?.status || (stamp && old && old.index !== stamp.index))
+      await get().refreshStatus();
   },
 
   refreshStatus: async () => {

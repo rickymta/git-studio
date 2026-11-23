@@ -267,6 +267,8 @@ export const api = {
   clone: (url: string, dest: string, options: T.CloneOptions = {}) =>
     call<T.RepoInfo>('repo.clone', { url, dest, options }),
   info: (repo: string) => call<T.RepoInfo>('repo.info', { repo }),
+  /** Cheap change check (file times under `.git`), see `RepoStamp`. */
+  repoStamp: (repo: string) => call<T.RepoStamp>('repo.stamp', { repo }),
   log: (repo: string, limit: number, skip = 0, view?: { solo: string[]; hidden: string[] }) =>
     call<T.Commit[]>('repo.log', { repo, limit, skip, view }),
   refs: (repo: string) => call<T.Refs>('repo.refs', { repo }),

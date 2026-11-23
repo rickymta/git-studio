@@ -56,6 +56,9 @@ const STATE_LABEL = {
   reverting: 'Revert in progress',
 } as const;
 
+/** How often the open repository is checked for changes made outside the app. */
+const CHECK_EVERY_MS = 5000;
+
 const typing = (e: KeyboardEvent) => {
   const t = e.target as HTMLElement | null;
   return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
@@ -186,22 +189,30 @@ export function App() {
     return () => clearInterval(id);
   }, [autoFetch]);
 
-  // Pick up changes made outside the app: on focus and every few seconds while visible.
+  // Pick up changes made outside the app (a merge in a terminal, another Git tool, a fetch).
+  // Only the repository on screen is checked, never the other tabs; switching tabs starts the
+  // cycle again for the new one (its own load just brought it up to date).
   useEffect(() => {
-    // Only the focused window polls: with several windows open, each one running git status
-    // every few seconds slows them all. Focusing a window catches it up.
+    if (!path) return;
+    // Every visible window, focused or not, checks the change stamp every 5 s: a few file
+    // reads, no git process, so a merge shows within seconds. Edited files only show in
+    // `git status`, which costs a process: every check in the focused window, every 20 s in
+    // the others (several windows each running it every few seconds slowed them all).
+    let n = 0;
     const tick = () => {
-      if (document.visibilityState === 'visible' && document.hasFocus())
-        void useRepo.getState().refreshStatus();
+      if (document.visibilityState !== 'visible') return;
+      n++;
+      const status = document.hasFocus() || n % 4 === 0;
+      void useRepo.getState().checkChanges({ status });
     };
     const onFocus = () => void useRepo.getState().refreshOnFocus();
     window.addEventListener('focus', onFocus);
-    const id = setInterval(tick, 4000);
+    const id = setInterval(tick, CHECK_EVERY_MS);
     return () => {
       window.removeEventListener('focus', onFocus);
       clearInterval(id);
     };
-  }, []);
+  }, [path]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

@@ -135,6 +135,15 @@ export interface Status {
 
 export type RepoState = 'clean' | 'merging' | 'rebasing' | 'cherryPicking' | 'reverting';
 
+/**
+ * Fingerprints of what git rewrites when refs move (`refs`) and when the index is written
+ * (`index`); equal strings mean nothing changed. Read from files, with no git process.
+ */
+export interface RepoStamp {
+  refs: string;
+  index: string;
+}
+
 export interface RepoInfo {
   path: string;
   name: string;
