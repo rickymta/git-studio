@@ -272,6 +272,11 @@ export const core: Record<string, string> = {
   'Pull (merge)': 'Pull (merge)',
   'Pull (fast-forward only)': 'Pull (chỉ fast-forward)',
   'Pull (rebase)': 'Pull (rebase)',
+  'Pull (ff-only)': 'Pull (chỉ fast-forward)',
+  'Pull ← {name}': 'Pull ← {name}',
+  'Push → {name}': 'Push → {name}',
+  'Runs now, and becomes what clicking Pull does':
+    'Chạy ngay, và trở thành thao tác mặc định khi bấm Pull',
   repository: 'repository',
   branch: 'nhánh',
   'detached @ {hash}': 'detached @ {hash}',

@@ -58,7 +58,7 @@ const api = vi.hoisted(() => ({
 vi.mock('@/lib/ipc', () => ({ api, isTauri: false }));
 
 import { hashIndex, layoutGraph, withStashes } from '@/lib/graph';
-import { keepOlder, setGraphScrolling, useRepo } from './repo';
+import { KEEP_ON_REFRESH, keepOlder, setGraphScrolling, useRepo } from './repo';
 
 describe('keepOlder', () => {
   it('puts the new page on top of the older commits it reaches', () => {
@@ -179,4 +179,37 @@ describe('status polling', () => {
     expect(useRepo.getState().info).not.toBe(before);
     expect(useRepo.getState().info?.status.ahead).toBe(1);
   });
+});
+
+describe('refreshing a long history', () => {
+  it('lays out at most KEEP_ON_REFRESH commits, then loads the rest again behind', async () => {
+    const n = KEEP_ON_REFRESH + 6000;
+    remote = history(n);
+    api.refs.mockResolvedValue({ refs: [], stashes: [], remotes: [] } as never);
+    api.log.mockImplementation(async (_p: string, limit: number, skip = 0) =>
+      remote.slice(skip, skip + limit),
+    );
+    api.open.mockImplementation(async (p: string) => info(p));
+    api.info.mockImplementation(async (p: string) => info(p));
+    await useRepo.getState().open('/refreshed');
+    await vi.waitFor(() => expect(useRepo.getState().commits).toHaveLength(n), {
+      timeout: 20000,
+    });
+
+    // A pull brings one commit: the refresh keeps the newest ones only…
+    remote = [commit('n1', `c${n - 1}`), ...remote];
+    const pages: number[] = [];
+    const unsub = useRepo.subscribe((st, prev) => {
+      if (st.commits !== prev.commits) pages.push(st.commits.length);
+    });
+    await useRepo.getState().refresh();
+    expect(pages[0]).toBeLessThanOrEqual(KEEP_ON_REFRESH + 1);
+    expect(useRepo.getState().commits[0]!.hash).toBe('n1');
+    // …and the rest comes back in the background.
+    await vi.waitFor(() => expect(useRepo.getState().commits).toHaveLength(n + 1), {
+      timeout: 20000,
+    });
+    unsub();
+    expect(useRepo.getState().commits.map((c) => c.hash)).toEqual(remote.map((c) => c.hash));
+  }, 60000);
 });

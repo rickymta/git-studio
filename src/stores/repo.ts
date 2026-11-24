@@ -68,6 +68,9 @@ const scrollSettled = async () => {
 /** The same repository state, field for field. */
 export const sameInfo = (a: RepoInfo, b: RepoInfo) => JSON.stringify(a) === JSON.stringify(b);
 
+/** Loaded commits kept (and laid out again) by a refresh; older ones load again behind. */
+export const KEEP_ON_REFRESH = 20_000;
+
 /** Commits in a list that are not stash rows. */
 const realCount = (commits: Commit[]) => {
   let n = 0;
@@ -561,11 +564,15 @@ async function loadRepo(path: string, first: boolean, fresh = false) {
     const info = fullInfo ?? useRepo.getState().info!;
     const before = useRepo.getState();
     const older = before.commits.filter((c) => !c.stash);
-    // Scrolled further than a page: keep those commits under the new page.
+    // Scrolled further than a page: keep those commits under the new page. At most KEEP_ON_REFRESH
+    // of them: the whole graph is laid out again here, on the UI thread, after every operation
+    // (pull, commit, …); with hundreds of thousands of commits loaded that froze the app for
+    // seconds. The rest comes back in the background, page by page, as on opening.
     const kept =
       !first && !fresh && commits.length >= limit && older.length > commits.length
-        ? keepOlder(commits, older)
+        ? keepOlder(commits, older.slice(0, KEEP_ON_REFRESH))
         : null;
+    const cut = !!kept && older.length > KEEP_ON_REFRESH;
     const all = kept ?? commits;
     const rows = withStashes(all, shownStashes(view, refs));
     useRepo.setState({
@@ -575,7 +582,7 @@ async function loadRepo(path: string, first: boolean, fresh = false) {
       graph: layoutGraph(rows, pinnedTips(view, refs), wipHead(info)),
       refs,
       worktrees,
-      hasMore: kept ? before.hasMore : commits.length >= limit,
+      hasMore: kept ? before.hasMore || cut : commits.length >= limit,
     });
     if (stamp) stamps.set(pathKey(path), stamp);
     if (first) void followStatus(path);

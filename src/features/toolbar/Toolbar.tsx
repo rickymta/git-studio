@@ -14,7 +14,7 @@ import {
   Undo2,
 } from 'lucide-react';
 import { DropdownMenu } from 'radix-ui';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 
 import { Dropdown, Spinner, type MenuItem } from '@/components/ui';
 import { cn } from '@/lib/cn';
@@ -39,6 +39,7 @@ function ToolButton({
   disabled,
   title,
   className,
+  running,
 }: {
   icon: ReactNode;
   label: string;
@@ -47,21 +48,25 @@ function ToolButton({
   disabled?: boolean;
   title?: string;
   className?: string;
+  /** What this button is running now: a spinner and that name replace its icon and label. */
+  running?: string | null;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      title={title ?? label}
+      title={running ?? title ?? label}
       className={cn(
         'relative flex h-12 min-w-12 flex-col items-center justify-center gap-1 rounded-md px-1.5 text-[11px] text-muted-foreground hover:bg-surface-hover hover:text-foreground disabled:pointer-events-none disabled:opacity-35',
         className,
       )}
     >
-      <span>{label}</span>
+      <span className={cn(running && 'max-w-28 truncate font-medium text-accent')}>
+        {running ?? label}
+      </span>
       <span className="flex items-center gap-1">
-        {icon}
+        {running ? <Spinner className="size-[18px] text-accent" /> : icon}
         {!!badge && (
           // Next to the icon (never over the label), a wide pill even for one digit.
           <span className="inline-flex h-[15px] min-w-[26px] items-center justify-center rounded-full bg-badge px-2 text-[10.5px] leading-none font-semibold text-badge-foreground tabular-nums">
@@ -150,7 +155,14 @@ export function Toolbar() {
   const { host, signedIn } = useRepoHost();
   const ws = useWorkspaces((s) => s.active());
   const addRepos = useWorkspaces((s) => s.addRepos);
+  /** The Pull / Push operation started from this toolbar and still running, shown on its button. */
+  const [running, setRunning] = useState<{ tool: 'pull' | 'push'; label: string } | null>(null);
   if (!info) return null;
+  const track = (tool: 'pull' | 'push', label: string, job: () => Promise<unknown>) => {
+    const mine = { tool, label };
+    setRunning(mine);
+    void job().finally(() => setRunning((cur) => (cur === mine ? null : cur)));
+  };
   const st = info.status;
   const remotes = refs?.remotes ?? [];
   // Remote the current branch tracks: the longest remote name that prefixes the upstream.
@@ -219,14 +231,16 @@ export function Toolbar() {
 
   // The Pull button runs the operation picked in its menu (else the Pull Strategy setting).
   const action: PullAction = pullAction ?? settings?.pullMode ?? 'merge';
-  const doPull = () => (action === 'fetch' ? A.fetchAll() : A.pull({ mode: action }));
+  const runPull = (a: PullAction) =>
+    track('pull', RUN_LABEL[a](), () => (a === 'fetch' ? A.fetchAll() : A.pull({ mode: a })));
 
   const pushMenu: MenuItem[] = [
     ...remotes.map((r) => ({
       label: t('Push to {name}', { name: r.name }),
       icon: r.name === tracked ? '✓' : undefined,
       disabled: !st.branch,
-      onSelect: () => A.push({ remote: r.name }),
+      onSelect: () =>
+        track('push', t('Push → {name}', { name: r.name }), () => A.push({ remote: r.name })),
     })),
     ...(remotes.length ? (['sep'] as MenuItem[]) : []),
     { label: t('Add remote…'), onSelect: () => A.addRemote() },
@@ -266,14 +280,20 @@ export function Toolbar() {
             label={t('Pull')}
             title={PULL_LABEL[action]()}
             badge={st.behind}
-            onClick={() => void doPull()}
+            onClick={() => runPull(action)}
             disabled={!!busy}
+            running={running?.tool === 'pull' ? running.label : null}
           />
           <PullMenu
             action={action}
             remotes={remotes.map((r) => r.name)}
             tracked={tracked}
             canPull={!!st.branch}
+            disabled={!!busy}
+            onRun={runPull}
+            onPullFrom={(r) =>
+              track('pull', t('Pull ← {name}', { name: r }), () => A.pull({ remote: r }))
+            }
           />
         </SplitTool>
         <SplitTool>
@@ -288,8 +308,9 @@ export function Toolbar() {
                   : t('Push')
             }
             badge={st.ahead}
-            onClick={() => A.push()}
+            onClick={() => track('push', t('Push'), () => A.push())}
             disabled={!!busy || !st.branch}
+            running={running?.tool === 'push' ? running.label : null}
           />
           <Dropdown items={pushMenu}>
             <Caret label={t('Push options')} />
@@ -379,6 +400,14 @@ export function Toolbar() {
   );
 }
 
+/** Short names shown on the Pull button while each one runs. */
+const RUN_LABEL: Record<PullAction, () => string> = {
+  fetch: () => t('Fetch all'),
+  merge: () => t('Pull'),
+  'ff-only': () => t('Pull (ff-only)'),
+  rebase: () => t('Pull (rebase)'),
+};
+
 const PULL_LABEL: Record<PullAction, () => string> = {
   fetch: () => t('Fetch all'),
   merge: () => t('Pull (fast-forward if possible)'),
@@ -387,19 +416,26 @@ const PULL_LABEL: Record<PullAction, () => string> = {
 };
 
 /**
- * The arrow next to Pull (like GitKraken): pick what clicking Pull does (it is remembered), or
- * pull from a particular remote now.
+ * The arrow next to Pull (like GitKraken): picking an operation runs it now and makes it what
+ * clicking Pull does (remembered); or pull from a particular remote now.
  */
 function PullMenu({
   action,
   remotes,
   tracked,
   canPull,
+  disabled,
+  onRun,
+  onPullFrom,
 }: {
   action: PullAction;
   remotes: string[];
   tracked: string | null;
   canPull: boolean;
+  /** Something is running: the operations wait. */
+  disabled: boolean;
+  onRun: (a: PullAction) => void;
+  onPullFrom: (remote: string) => void;
 }) {
   const setAction = usePullAction((s) => s.set);
   const item =
@@ -417,13 +453,19 @@ function PullMenu({
           className="z-50 w-64 rounded-md border border-border bg-surface p-1 text-[13px] shadow-xl"
         >
           <DropdownMenu.Label className="px-2 pt-1.5 pb-2 text-xs leading-snug text-muted-foreground">
-            {t('Select a default pull/fetch operation to execute when clicking this button')}
+            {t('Runs now, and becomes what clicking Pull does')}
           </DropdownMenu.Label>
-          <DropdownMenu.RadioGroup value={action} onValueChange={(v) => setAction(v as PullAction)}>
+          <DropdownMenu.RadioGroup value={action}>
             {(Object.keys(PULL_LABEL) as PullAction[]).map((a) => (
               <DropdownMenu.RadioItem
                 key={a}
                 value={a}
+                disabled={disabled || (a !== 'fetch' && !canPull)}
+                // On every pick, the current one included (Radix only reports changes).
+                onSelect={() => {
+                  setAction(a);
+                  onRun(a);
+                }}
                 className={cn(
                   item,
                   a === action && 'bg-accent-soft data-[highlighted]:bg-accent-soft',
@@ -447,8 +489,8 @@ function PullMenu({
               {remotes.map((r) => (
                 <DropdownMenu.Item
                   key={r}
-                  disabled={!canPull}
-                  onSelect={() => void A.pull({ remote: r })}
+                  disabled={!canPull || disabled}
+                  onSelect={() => onPullFrom(r)}
                   className={item}
                 >
                   <ArrowDownToLine className="size-3.5 shrink-0 text-muted-foreground" />
