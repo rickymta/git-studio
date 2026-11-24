@@ -2,6 +2,12 @@
 
 Các thay đổi đáng chú ý của GitStudio. File này do `pnpm release` cập nhật.
 
+## v1.0.5 - 2026-11-24
+
+Thay đổi từ v1.0.4.
+
+- feat(ui): dropdown picks run at once; vertical toasts; no freeze after operations (59e6ea6)
+
 ## v1.0.4 - 2026-11-23
 
 Thay đổi từ v1.0.3.
