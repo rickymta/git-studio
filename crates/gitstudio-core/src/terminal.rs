@@ -516,14 +516,62 @@ mod tests {
         assert_eq!(v["b"], serde_json::json!([1, 2]));
     }
 
+    /// Terminal output without its escape sequences (colours, cursor moves, titles).
+    fn plain(bytes: &[u8]) -> String {
+        let s = String::from_utf8_lossy(bytes);
+        let mut out = String::new();
+        let mut it = s.chars().peekable();
+        while let Some(c) = it.next() {
+            if c != '\u{1b}' {
+                out.push(c);
+                continue;
+            }
+            match it.next() {
+                // CSI: up to a final byte in @..~.
+                Some('[') => {
+                    for c in it.by_ref() {
+                        if ('@'..='~').contains(&c) {
+                            break;
+                        }
+                    }
+                }
+                // OSC: up to BEL or ESC \.
+                Some(']') => {
+                    while let Some(c) = it.next() {
+                        if c == '\u{7}' || (c == '\u{1b}' && it.next_if_eq(&'\\').is_some()) {
+                            break;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn plain_drops_escape_sequences() {
+        assert_eq!(
+            plain(b"\x1b]0;title\x07a\x1b[93mb\x1b[0m\x1b[?25hc\x1b]0;t\x1b\\d"),
+            "abcd"
+        );
+    }
+
     #[test]
     fn runs_a_command_and_reads_output() {
+        use std::time::{Duration, Instant};
         let dir = tempfile::tempdir().unwrap();
         let t = open(dir.path(), 80, 24).unwrap();
-        write(t.id, "echo gitstudio-pty-ok\r\n").unwrap();
+        // The quotes keep the marker out of the command line as the shell echoes it (PowerShell
+        // also colours it piece by piece): only the command's output holds it, in any shell.
+        let command = "echo gitstudio-pty-\"ok\"\r\n";
+        let start = Instant::now();
+        let mut sent: Option<Instant> = None;
         let mut seen = Vec::new();
-        for _ in 0..100 {
-            std::thread::sleep(std::time::Duration::from_millis(100));
+        let mut found = false;
+        // Generous: a CI runner's first PowerShell can take many seconds to start.
+        while start.elapsed() < Duration::from_secs(60) {
+            std::thread::sleep(Duration::from_millis(100));
             let o = read(t.id).unwrap();
             let chunk = base64::engine::general_purpose::STANDARD
                 .decode(o.data)
@@ -533,21 +581,19 @@ mod tests {
                 write(t.id, "\u{1b}[1;1R").unwrap();
             }
             seen.extend(chunk);
-            if String::from_utf8_lossy(&seen)
-                .matches("gitstudio-pty-ok")
-                .count()
-                >= 2
-            {
+            if plain(&seen).contains("gitstudio-pty-ok") {
+                found = true;
                 break;
+            }
+            // Type the command once the shell has shown something (it is starting), and again
+            // now and then: input sent while ConPTY or the shell starts can be dropped.
+            let ready = !seen.is_empty() || start.elapsed() > Duration::from_secs(3);
+            if ready && sent.is_none_or(|at| at.elapsed() > Duration::from_secs(5)) {
+                write(t.id, command).unwrap();
+                sent = Some(Instant::now());
             }
         }
         close(t.id).unwrap();
-        // Once echoed as typed, once as output.
-        assert!(
-            String::from_utf8_lossy(&seen)
-                .matches("gitstudio-pty-ok")
-                .count()
-                >= 2
-        );
+        assert!(found, "no command output in:\n{}", plain(&seen));
     }
 }
