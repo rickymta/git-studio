@@ -5,7 +5,16 @@ import { t } from '@/lib/i18n';
 import { api } from '@/lib/ipc';
 import type { MenuItem } from '@/components/ui';
 import { copyText, openUrl, pickFile, pickFolder } from '@/lib/native';
-import type { Commit, GitRef, PullRequest, RebaseStep, Remote, Stash, Worktree } from '@/lib/types';
+import type {
+  Commit,
+  FileChange,
+  GitRef,
+  PullRequest,
+  RebaseStep,
+  Remote,
+  Stash,
+  Worktree,
+} from '@/lib/types';
 import { useCompare } from '@/stores/compare';
 import { useRebaseDialog } from '@/stores/rebase';
 import { moveBlock, planRows, rebaseProblem, toSteps, type RebasePreset } from './rebase/plan';
@@ -849,6 +858,32 @@ export async function stash() {
         }),
       t('Changes stashed'),
     );
+}
+
+/** Stage every change. */
+export const stageAll = () => run(t('Stage'), (p) => api.stage(p, []));
+
+/** Unstage everything staged. */
+export const unstageAll = () => run(t('Unstage'), (p) => api.unstage(p, []));
+
+/**
+ * Discard these changes after asking: tracked files go back to their committed state,
+ * untracked ones are deleted.
+ */
+export async function discardChanges(files: FileChange[]) {
+  if (files.length === 0) return;
+  const question =
+    files.length === 1
+      ? t('Discard changes in {path}? This cannot be undone.', { path: files[0]!.path })
+      : t('Discard changes in {n} files? This cannot be undone.', { n: files.length });
+  if (!(await confirm(t('Discard changes'), question, t('Discard'), true))) return;
+  await run(t('Discard'), (p) =>
+    api.discard(
+      p,
+      files.filter((f) => f.status !== '?').map((f) => f.path),
+      files.filter((f) => f.status === '?').map((f) => f.path),
+    ),
+  );
 }
 
 /** Stash only these files (staged and unstaged changes of each; untracked ones included). */

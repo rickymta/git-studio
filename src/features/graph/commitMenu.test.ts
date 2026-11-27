@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { MenuItem } from '@/components/ui';
 import type { Commit, RepoInfo, Refs } from '@/lib/types';
 import { useRepo } from '@/stores/repo';
-import { commitMenu } from './commitMenu';
+import { commitMenu, stashMenu, wipMenu } from './commitMenu';
 
 const commit = (hash: string, ...parents: string[]): Commit => ({
   hash,
@@ -80,5 +80,46 @@ describe('commit menu with several picked commits', () => {
     const l = labels(commitMenu(commits[0]!, pick('y', 'x')));
     expect(l).toContain('Copy commit sha');
     expect(l).not.toContain('Cherry pick 2 commits');
+  });
+});
+
+describe('menus that are the same wherever the object is right-clicked', () => {
+  const status = (unstaged: number, staged: number) =>
+    ({
+      status: {
+        branch: 'main',
+        head: 'c',
+        unstaged: Array.from({ length: unstaged }, (_, i) => ({ path: `u${i}`, status: 'M' })),
+        staged: Array.from({ length: staged }, (_, i) => ({ path: `s${i}`, status: 'M' })),
+      },
+    }) as unknown as RepoInfo;
+
+  it('gives the WIP its own menu', () => {
+    useRepo.setState({ info: status(2, 0) });
+    const items = wipMenu();
+    expect(labels(items)).toEqual([
+      'Stage All Changes',
+      'Unstage All Changes',
+      '—',
+      'Stash changes',
+      '—',
+      'Discard all changes',
+      'Clean untracked files…',
+    ]);
+    expect(item(items, 'Stage All Changes')?.disabled).toBe(false);
+    expect(item(items, 'Unstage All Changes')?.disabled).toBe(true);
+    expect(item(items, 'Discard all changes')?.danger).toBe(true);
+  });
+
+  it('greys out what has nothing to act on when the working tree is clean', () => {
+    useRepo.setState({ info: status(0, 0) });
+    const items = wipMenu();
+    for (const l of ['Stage All Changes', 'Unstage All Changes', 'Stash changes'])
+      expect(item(items, l)?.disabled).toBe(true);
+  });
+
+  it('builds one stash menu for the graph row and the sidebar', () => {
+    const s = { name: 'stash@{0}', hash: 'st', message: 'wip', time: 0, base: 'c' };
+    expect(labels(stashMenu(s as never))).toContain('Edit stash message');
   });
 });

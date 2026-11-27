@@ -6,6 +6,7 @@ import { copyText } from '@/lib/native';
 import type { Commit, GitRef, Stash } from '@/lib/types';
 import { requestHost } from '../pulls/hosting';
 import { useRepo } from '@/stores/repo';
+import { openDialog } from '@/stores/ui';
 import * as A from '../actions';
 import { bisectMenu } from '../repoTools';
 import { onCurrentBranch, tidy } from './menuUtils';
@@ -17,6 +18,43 @@ function perBranch(label: string, refs: GitRef[], onSelect: (r: GitRef) => void)
   return [{ label, items: refs.map((r) => ({ label: r.name, onSelect: () => onSelect(r) })) }];
 }
 
+/**
+ * Menu of the uncommitted changes (WIP), the same on the graph's WIP row and on the WIP panel's
+ * header.
+ */
+export function wipMenu(): MenuItem[] {
+  const st = useRepo.getState().info?.status;
+  const unstaged = st?.unstaged ?? [];
+  const staged = st?.staged ?? [];
+  return [
+    {
+      label: t('Stage All Changes'),
+      disabled: unstaged.length === 0,
+      onSelect: () => A.stageAll(),
+    },
+    {
+      label: t('Unstage All Changes'),
+      disabled: staged.length === 0,
+      onSelect: () => A.unstageAll(),
+    },
+    'sep',
+    {
+      label: t('Stash changes'),
+      disabled: unstaged.length + staged.length === 0,
+      onSelect: () => A.stash(),
+    },
+    'sep',
+    {
+      label: t('Discard all changes'),
+      danger: true,
+      disabled: unstaged.length === 0,
+      onSelect: () => A.discardChanges(unstaged),
+    },
+    { label: t('Clean untracked files…'), onSelect: () => openDialog('clean') },
+  ];
+}
+
+/** Menu of a stash, the same on its graph row and in the sidebar's Stashes. */
 export function stashMenu(s: Stash): MenuItem[] {
   return [
     { label: t('Apply Stash'), onSelect: () => A.stashOp(s, 'apply') },
