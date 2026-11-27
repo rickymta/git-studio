@@ -36,7 +36,7 @@ import { branchRows, rowIndex } from './branchFocus';
 import { laneBranch } from './laneLabel';
 import { SearchResults } from './HistorySearch';
 import { SEARCH_MODES, useGitSearch, type SearchMode } from './gitSearch';
-import { commitMenu, stashMenu } from './commitMenu';
+import { commitMenu, stashMenu, wipMenu } from './commitMenu';
 import { pickCommits } from './menuUtils';
 import { RefBadge } from './RefBadge';
 import { groupRefs } from './refGroups';
@@ -720,78 +720,87 @@ function WipRow({
   const cx = laneX(at?.lane ?? 0, geom);
   const r = geom.node;
   return (
-    <div style={style} onClick={onSelect} className="relative flex cursor-default items-center">
-      <div
-        className="absolute inset-y-0.5 right-0"
-        style={{
-          ...band(
-            bandLeft(show.has('graph') ? cx : 0),
-            tint(color, selected ? '--lane-row-selected' : '--lane-row'),
-          ),
-          boxShadow: selected ? `inset 0 0 0 1px ${color}` : undefined,
-        }}
-      />
-      <div style={{ width: REFS_W }} className="shrink-0" />
-      {show.has('graph') && (
-        <svg height={ROW} className="relative shrink-0 overflow-hidden" style={{ width: GRAPH_W }}>
-          {/* Its dotted lane down to HEAD (and pinned lanes passing by). */}
-          {wipRow?.segments.map((s, i) => (
-            <path
-              key={i}
-              d={segmentPath(s, geom)}
-              fill="none"
-              stroke={laneColor(s.color)}
-              strokeWidth={2}
-              strokeDasharray={s.dashed ? '2 3' : undefined}
-            />
-          ))}
-          {!wipRow && headRow && (
-            <line
-              x1={cx}
-              x2={cx}
-              y1={ROW / 2 + r}
-              y2={ROW}
+    <ContextMenuWrap items={wipMenu}>
+      <div style={style} onClick={onSelect} className="relative flex cursor-default items-center">
+        <div
+          className="absolute inset-y-0.5 right-0"
+          style={{
+            ...band(
+              bandLeft(show.has('graph') ? cx : 0),
+              tint(color, selected ? '--lane-row-selected' : '--lane-row'),
+            ),
+            boxShadow: selected ? `inset 0 0 0 1px ${color}` : undefined,
+          }}
+        />
+        <div style={{ width: REFS_W }} className="shrink-0" />
+        {show.has('graph') && (
+          <svg
+            height={ROW}
+            className="relative shrink-0 overflow-hidden"
+            style={{ width: GRAPH_W }}
+          >
+            {/* Its dotted lane down to HEAD (and pinned lanes passing by). */}
+            {wipRow?.segments.map((s, i) => (
+              <path
+                key={i}
+                d={segmentPath(s, geom)}
+                fill="none"
+                stroke={laneColor(s.color)}
+                strokeWidth={2}
+                strokeDasharray={s.dashed ? '2 3' : undefined}
+              />
+            ))}
+            {!wipRow && headRow && (
+              <line
+                x1={cx}
+                x2={cx}
+                y1={ROW / 2 + r}
+                y2={ROW}
+                stroke={color}
+                strokeWidth={2}
+                strokeDasharray="3 3"
+              />
+            )}
+            <circle
+              cx={cx}
+              cy={ROW / 2}
+              r={r - 1}
+              fill="var(--background)"
               stroke={color}
               strokeWidth={2}
-              strokeDasharray="3 3"
+              strokeDasharray={geom.compact ? '2 2' : '4 3'}
             />
+          </svg>
+        )}
+        <div
+          className="relative my-px w-[3px] shrink-0 self-stretch"
+          style={{ background: color }}
+        />
+        <div className="relative flex min-w-0 flex-1 items-center gap-3 overflow-hidden px-2">
+          <span className="rounded border border-border/70 bg-background/60 px-2 py-0.5 text-muted-foreground italic">
+            {'// WIP'}
+          </span>
+          {counts.mod > 0 && (
+            <span className="flex items-center gap-1 font-medium text-foreground">
+              <span className="font-bold text-wip-mod">✎</span>
+              {counts.mod}
+            </span>
           )}
-          <circle
-            cx={cx}
-            cy={ROW / 2}
-            r={r - 1}
-            fill="var(--background)"
-            stroke={color}
-            strokeWidth={2}
-            strokeDasharray={geom.compact ? '2 2' : '4 3'}
-          />
-        </svg>
-      )}
-      <div className="relative my-px w-[3px] shrink-0 self-stretch" style={{ background: color }} />
-      <div className="relative flex min-w-0 flex-1 items-center gap-3 overflow-hidden px-2">
-        <span className="rounded border border-border/70 bg-background/60 px-2 py-0.5 text-muted-foreground italic">
-          {'// WIP'}
-        </span>
-        {counts.mod > 0 && (
-          <span className="flex items-center gap-1 font-medium text-foreground">
-            <span className="font-bold text-wip-mod">✎</span>
-            {counts.mod}
-          </span>
-        )}
-        {counts.add > 0 && (
-          <span className="flex items-center gap-1 font-medium text-foreground">
-            <span className="text-[1.2em] leading-none font-black text-wip-add">+</span>
-            {counts.add}
-          </span>
-        )}
-        {counts.del > 0 && (
-          <span className="flex items-center gap-1 font-medium text-foreground">
-            <span className="font-bold text-wip-del">−</span>
-            {counts.del}
-          </span>
-        )}
+          {counts.add > 0 && (
+            <span className="flex items-center gap-1 font-medium text-foreground">
+              <span className="text-[1.2em] leading-none font-black text-wip-add">+</span>
+              {counts.add}
+            </span>
+          )}
+          {counts.del > 0 && (
+            <span className="flex items-center gap-1 font-medium text-foreground">
+              <span className="font-bold text-wip-del">−</span>
+              {counts.del}
+            </span>
+          )}
+        </div>
       </div>
-    </div>
+    </ContextMenuWrap>
   );
 }
 

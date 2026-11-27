@@ -40,6 +40,7 @@ import * as A from '../actions';
 import { ExtraSections } from './ExtraSections';
 import { Section } from './Section';
 import { headMenu, refMenu } from '../graph/refMenu';
+import { commitMenu, stashMenu } from '../graph/commitMenu';
 import { headOffBranch, worktreeOf } from '../graph/refGroups';
 
 function scrollToCommit(hash: string | null | undefined) {
@@ -451,16 +452,7 @@ export function Sidebar() {
           }
         >
           {refs?.stashes.map((s) => (
-            <ContextMenuWrap
-              key={s.name}
-              items={() => [
-                { label: t('Apply stash'), onSelect: () => A.stashOp(s, 'apply') },
-                { label: t('Pop stash'), onSelect: () => A.stashOp(s, 'pop') },
-                'sep',
-                { label: t('Create branch from stash…'), onSelect: () => A.stashToBranch(s) },
-                { label: t('Delete stash'), danger: true, onSelect: () => A.stashOp(s, 'drop') },
-              ]}
-            >
+            <ContextMenuWrap key={s.name} items={() => stashMenu(s)}>
               <div
                 title={`${s.name}: ${s.message}`}
                 onClick={() => void revealStash(s.hash)}
@@ -628,6 +620,15 @@ function reflogKind(action: string) {
   return action.split(/[:(\s]/, 1)[0] ?? '';
 }
 
+/**
+ * A reflog entry's commit gets the graph's commit menu, the same as on its graph row, when the
+ * graph has it loaded; an older one keeps this shorter menu.
+ */
+function reflogItems(e: ReflogEntry): MenuItem[] {
+  const c = useRepo.getState().commits.find((x) => x.hash === e.hash && !x.stash);
+  return c ? commitMenu(c) : reflogMenu(e);
+}
+
 function reflogMenu(e: ReflogEntry): MenuItem[] {
   const cur = useRepo.getState().info?.status.branch ?? null;
   const head = useRepo.getState().info?.status.head ?? null;
@@ -716,7 +717,7 @@ function ReflogList() {
       {entries.map((e) => {
         const picked = selection?.type === 'commit' && selection.hash === e.hash;
         return (
-          <ContextMenuWrap key={e.selector} items={() => reflogMenu(e)}>
+          <ContextMenuWrap key={e.selector} items={() => reflogItems(e)}>
             <div
               title={`${e.selector} · ${short(e.hash)}\n${e.action}\n${e.subject}${
                 e.unreferenced ? `\n${t('On no branch or tag: create a branch to keep it.')}` : ''

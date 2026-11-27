@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
-import { Button, IconButton, Spinner, type MenuItem } from '@/components/ui';
+import { Button, ContextMenuWrap, IconButton, Spinner, type MenuItem } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { joinPath } from '@/lib/format';
 import { t } from '@/lib/i18n';
@@ -20,8 +20,16 @@ import { api } from '@/lib/ipc';
 import { copyText, revealPath } from '@/lib/native';
 import type { FileChange } from '@/lib/types';
 import { useRepo } from '@/stores/repo';
-import { confirm, openDialog, toast } from '@/stores/ui';
-import { commitChanges, ignoreFile, push, stashFiles, stashStaged } from '../actions';
+import { openDialog, toast } from '@/stores/ui';
+import {
+  commitChanges,
+  discardChanges,
+  ignoreFile,
+  push,
+  stashFiles,
+  stashStaged,
+} from '../actions';
+import { wipMenu } from '../graph/commitMenu';
 import { lfsPatternFor, lfsTrack, openDiffTool, openMergeTool } from '../repoTools';
 import { EmptyFiles, FILES_DRAG, FileList, SortButton, ViewToggle } from './FileList';
 import { sortFiles, useFileSort, useViewMode } from './fileListPrefs';
@@ -270,21 +278,7 @@ export function WipPanel() {
   const stage = (paths: string[]) => run(t('Stage'), (p) => api.stage(p, paths));
   const unstage = (paths: string[]) => run(t('Unstage'), (p) => api.unstage(p, paths));
 
-  const discard = async (files: FileChange[]) => {
-    if (files.length === 0) return;
-    const question =
-      files.length === 1
-        ? t('Discard changes in {path}? This cannot be undone.', { path: files[0]!.path })
-        : t('Discard changes in {n} files? This cannot be undone.', { n: files.length });
-    if (!(await confirm(t('Discard changes'), question, t('Discard'), true))) return;
-    await run(t('Discard'), (p) =>
-      api.discard(
-        p,
-        files.filter((f) => f.status !== '?').map((f) => f.path),
-        files.filter((f) => f.status === '?').map((f) => f.path),
-      ),
-    );
-  };
+  const discard = discardChanges;
 
   const toggleAmend = async (on: boolean) => {
     setAmend(on);
@@ -580,26 +574,28 @@ export function WipPanel() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
-        <IconButton
-          label={t('Discard all changes')}
-          disabled={st.unstaged.length === 0}
-          onClick={() => discard(st.unstaged)}
-          className="border border-danger/50"
-        >
-          <Trash2 className="size-3.5 text-danger" />
-        </IconButton>
-        <IconButton label={t('Clean untracked files…')} onClick={() => openDialog('clean')}>
-          <Eraser className="size-3.5" />
-        </IconButton>
-        <span className="min-w-0 flex-1 truncate text-center">
-          {headerParts[0]}
-          <span className="rounded bg-accent-soft px-1.5 py-0.5 font-medium text-accent">
-            {st.branch ?? t('detached HEAD')}
+      <ContextMenuWrap items={wipMenu}>
+        <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-3">
+          <IconButton
+            label={t('Discard all changes')}
+            disabled={st.unstaged.length === 0}
+            onClick={() => discard(st.unstaged)}
+            className="border border-danger/50"
+          >
+            <Trash2 className="size-3.5 text-danger" />
+          </IconButton>
+          <IconButton label={t('Clean untracked files…')} onClick={() => openDialog('clean')}>
+            <Eraser className="size-3.5" />
+          </IconButton>
+          <span className="min-w-0 flex-1 truncate text-center">
+            {headerParts[0]}
+            <span className="rounded bg-accent-soft px-1.5 py-0.5 font-medium text-accent">
+              {st.branch ?? t('detached HEAD')}
+            </span>
+            {headerParts[1]}
           </span>
-          {headerParts[1]}
-        </span>
-      </div>
+        </div>
+      </ContextMenuWrap>
       <div className="flex h-10 shrink-0 items-center gap-2 px-2">
         <SortButton sort={sort} onChange={setSort} />
         <div className="flex-1" />
