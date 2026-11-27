@@ -85,3 +85,38 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running GitStudio");
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::Value;
+
+    /// The opener plugin refuses every URL / path its permission has no scope for, so a bare
+    /// `opener:allow-open-url` made "Create a token" (GitHub, GitLab) and sign-in links fail,
+    /// and a bare `opener:allow-open-path` broke "Show in folder".
+    #[test]
+    fn opener_permissions_have_scopes() {
+        let caps: Value =
+            serde_json::from_str(include_str!("../capabilities/default.json")).unwrap();
+        let perms = caps["permissions"].as_array().unwrap();
+        let named = |id: &str| perms.iter().any(|p| p.as_str() == Some(id));
+        let scoped = |id: &str| {
+            perms.iter().any(|p| {
+                p["identifier"].as_str() == Some(id)
+                    && p["allow"].as_array().is_some_and(|a| !a.is_empty())
+            })
+        };
+        assert!(named("opener:allow-open-url") || scoped("opener:allow-open-url"));
+        assert!(
+            named("opener:allow-default-urls") || scoped("opener:allow-open-url"),
+            "http(s) links need a URL scope"
+        );
+        assert!(
+            scoped("opener:allow-open-path"),
+            "opening paths needs a path scope"
+        );
+        assert!(
+            !named("opener:allow-open-path"),
+            "a bare allow-open-path allows nothing"
+        );
+    }
+}
