@@ -2,6 +2,14 @@
 
 Các thay đổi đáng chú ý của GitStudio. File này do `pnpm release` cập nhật.
 
+## v1.0.6 - 2026-11-27
+
+Thay đổi từ v1.0.5.
+
+- feat(menus): the same right-click menu for the same object everywhere (e383edb)
+- feat(pull): pull the checked-out branch from origin, fetching every remote (2452ca0)
+- fix(app): open token pages, sign-in links and folders again (46fac54)
+
 ## v1.0.5 - 2026-11-24
 
 Thay đổi từ v1.0.4.
