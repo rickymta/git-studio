@@ -185,7 +185,7 @@ export const useWorkspaces = create<WorkspaceStore>((set, get) => {
     activate: async (id) => {
       if (get().data.active === id) {
         // Re-selecting the active workspace shows its overview.
-        if (id) useRepo.getState().newTab();
+        if (id) useRepo.getState().showOverview();
         return;
       }
       set({ addTarget: '' });

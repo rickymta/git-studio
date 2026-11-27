@@ -46,6 +46,7 @@ export function TabBar({
 }) {
   const tabs = useRepo((s) => s.tabs);
   const path = useRepo((s) => s.path);
+  const newTabOpen = useRepo((s) => s.newTabOpen);
   const { user, signOut } = useGitHub();
   const theme = useUi((s) => s.theme);
   const toggleTheme = useUi((s) => s.toggleTheme);
@@ -165,16 +166,16 @@ export function TabBar({
           aria-label={t('Workspace overview')}
           onClick={() => {
             onNavigate();
-            useRepo.getState().newTab();
+            useRepo.getState().showOverview();
           }}
           className={cn(
             'relative flex w-10 shrink-0 items-center justify-center border-r border-border',
-            !path && !covered
+            !path && !newTabOpen && !covered
               ? 'bg-surface text-foreground'
               : 'text-muted-foreground hover:bg-surface-hover',
           )}
         >
-          {!path && !covered && (
+          {!path && !newTabOpen && !covered && (
             <span className="absolute inset-x-0 top-0 h-0.5" style={{ background: ws.color }} />
           )}
           <LayoutGrid className="size-4" />
@@ -182,7 +183,7 @@ export function TabBar({
       )}
       <RepoTabs
         onNavigate={onNavigate}
-        showNewTabPlaceholder={!path && !ws}
+        showNewTabPlaceholder={!path && (newTabOpen || !ws)}
         inWorkspace={inWorkspace}
         workspaceName={ws?.name ?? null}
         covered={covered}

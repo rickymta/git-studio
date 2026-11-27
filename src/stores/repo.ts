@@ -210,8 +210,17 @@ interface RepoStore {
     info: RepoInfo,
     opts?: { keepOutOfWorkspace?: boolean; saved?: Promise<SavedPage | null> },
   ) => Promise<void>;
+  /**
+   * The "New tab" tab is shown: the start page, as a tab of its own that can be closed. Opening
+   * a repository from it puts the repository in its place.
+   */
+  newTabOpen: boolean;
   /** Show the start page in a new tab (current repository tab stays open). */
   newTab: () => void;
+  /** Close the "New tab" tab and go back to the tab shown before it. */
+  closeNewTab: () => void;
+  /** Show the active workspace's overview (no repository, no "New tab"). */
+  showOverview: () => void;
   closeTab: (path: string) => void;
   /** Close several tabs at once (one save, one switch if the shown tab is among them). */
   closeTabs: (paths: string[]) => void;
@@ -457,6 +466,7 @@ const emptyRepo = {
   diff: null,
   undoStack: [],
   redoStack: [],
+  newTabOpen: false,
 };
 
 /** Re-focusing a window within this long of a full load only re-reads the status. */
@@ -704,6 +714,7 @@ export const useRepo = create<RepoStore>((set, get) => ({
   },
   settings: null,
   tabs: loadTabs(),
+  newTabOpen: false,
   path: null,
   info: null,
   commits: [],
@@ -733,6 +744,7 @@ export const useRepo = create<RepoStore>((set, get) => ({
     if (get().path && samePath(get().path!, path)) return true;
     const seq = ++openSeq;
     const prev = get().path;
+    const fromNewTab = get().newTabOpen;
     keepJournal();
     // Seen earlier in this session: show what it had at once, then catch up with git.
     const snap = snapshots.get(pathKey(path));
@@ -776,7 +788,8 @@ export const useRepo = create<RepoStore>((set, get) => ({
     } catch (e) {
       if (seq !== openSeq) return false;
       toast('error', t('Could not open repository'), (e as Error).message);
-      set({ ...emptyRepo, loading: false });
+      // Back where it was: the previous repository, or the "New tab" it was opened from.
+      set({ ...emptyRepo, loading: false, newTabOpen: !prev && fromNewTab });
       if (prev && !samePath(prev, path)) void get().open(prev);
       return false;
     }
@@ -821,6 +834,20 @@ export const useRepo = create<RepoStore>((set, get) => ({
   },
 
   newTab: () => {
+    saveTabs(get().tabs, null);
+    keepJournal();
+    set({ ...emptyRepo, newTabOpen: true });
+    void get().loadSettings();
+  },
+
+  closeNewTab: () => {
+    if (!get().newTabOpen || get().path) return;
+    set({ newTabOpen: false });
+    const next = tabsByRecent(get().tabs)[0];
+    if (next) void get().open(next.path);
+  },
+
+  showOverview: () => {
     saveTabs(get().tabs, null);
     keepJournal();
     set({ ...emptyRepo });

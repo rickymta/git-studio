@@ -165,3 +165,36 @@ describe('refreshing', () => {
     expect(api.log).not.toHaveBeenCalled();
   });
 });
+
+describe('the "New tab" tab', () => {
+  it('shows the start page and closes back to the tab shown before it', async () => {
+    await useRepo.getState().open('D:/a');
+    await useRepo.getState().open('D:/b');
+    useRepo.getState().newTab();
+    expect(useRepo.getState()).toMatchObject({ newTabOpen: true, path: null });
+    expect(useRepo.getState().tabs).toHaveLength(2);
+
+    useRepo.getState().closeNewTab();
+    expect(useRepo.getState().newTabOpen).toBe(false);
+    await vi.waitFor(() => expect(useRepo.getState().path).toBe('D:/b'));
+  });
+
+  it('is replaced by the repository opened from it', async () => {
+    useRepo.getState().newTab();
+    await useRepo.getState().open('D:/c');
+    expect(useRepo.getState()).toMatchObject({ newTabOpen: false, path: 'D:/c' });
+  });
+
+  it('stays when the repository opened from it cannot be opened', async () => {
+    useRepo.getState().newTab();
+    api.open.mockRejectedValueOnce(new Error('not a repository'));
+    expect(await useRepo.getState().open('D:/nope')).toBe(false);
+    expect(useRepo.getState()).toMatchObject({ newTabOpen: true, path: null });
+  });
+
+  it('is not the workspace overview', () => {
+    useRepo.getState().newTab();
+    useRepo.getState().showOverview();
+    expect(useRepo.getState()).toMatchObject({ newTabOpen: false, path: null });
+  });
+});
