@@ -297,6 +297,54 @@ const Tab = memo(function Tab({
   );
 });
 
+/**
+ * The "New tab" tab, shown with the start page. It can be closed (×, middle click, Ctrl+W)
+ * when there is a repository tab or a workspace overview to go back to.
+ */
+function NewTab({ covered, onNavigate }: { covered: boolean; onNavigate: () => void }) {
+  const closable = useRepo((s) => s.newTabOpen && s.tabs.length > 0);
+  const active = !covered;
+  const close = () => {
+    onNavigate();
+    useRepo.getState().closeNewTab();
+  };
+  return (
+    <div
+      role="tab"
+      aria-selected={active}
+      data-new-tab=""
+      title={t('New tab')}
+      onClick={onNavigate}
+      onAuxClick={(e) => e.button === 1 && closable && close()}
+      onMouseDown={(e) => e.button === 1 && e.preventDefault()}
+      className={cn(
+        'relative flex w-[10.2rem] max-w-[10.2rem] min-w-[7.5rem] shrink-0 cursor-default items-center gap-1.5 border-r border-border pr-1.5 pl-2.5 select-none',
+        active
+          ? 'bg-surface font-semibold text-foreground'
+          : 'text-muted-foreground hover:bg-surface-hover hover:text-foreground',
+      )}
+    >
+      {active && <span className="absolute inset-x-0 top-0 h-0.5 bg-accent" />}
+      <Plus className={cn('size-3.5 shrink-0', active && 'text-accent')} />
+      <span className="min-w-0 flex-1 truncate">{t('New tab')}</span>
+      {closable && (
+        <button
+          type="button"
+          aria-label={t('Close {name}', { name: t('New tab') })}
+          title={`${t('Close')} (Ctrl+W)`}
+          onClick={(e) => {
+            e.stopPropagation();
+            close();
+          }}
+          className="flex size-4 shrink-0 items-center justify-center rounded font-normal hover:bg-surface-hover"
+        >
+          <X className="size-3" />
+        </button>
+      )}
+    </div>
+  );
+}
+
 const stripBtn =
   'flex w-6 shrink-0 items-center justify-center text-muted-foreground hover:bg-surface-hover hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent';
 
@@ -368,15 +416,17 @@ export function RepoTabs({
   // Re-measure when tabs come and go (the strip's own size may not change).
   useLayoutEffect(measure, [tabs.length, measure]);
 
-  // Keep the shown tab in view.
+  // Keep the shown tab (or the "New tab") in view.
   useEffect(() => {
     const el = strip.current;
-    if (!el || !path) return;
-    const tab = [...el.querySelectorAll<HTMLElement>('[data-tab-path]')].find((n) =>
-      samePath(n.dataset.tabPath!, path),
-    );
+    if (!el) return;
+    const tab = path
+      ? [...el.querySelectorAll<HTMLElement>('[data-tab-path]')].find((n) =>
+          samePath(n.dataset.tabPath!, path),
+        )
+      : el.querySelector<HTMLElement>('[data-new-tab]');
     tab?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  }, [path, tabs.length]);
+  }, [path, tabs.length, showNewTabPlaceholder]);
 
   const scrollBy = (dir: -1 | 1) => {
     const el = strip.current;
@@ -552,12 +602,7 @@ export function RepoTabs({
         className="no-scrollbar flex min-w-0 flex-1 items-stretch overflow-x-auto overflow-y-hidden"
       >
         {tabs.map((tab, i) => !tab.pinned && renderTab(tab, i))}
-        {showNewTabPlaceholder && (
-          <div className="relative flex shrink-0 items-center gap-2 border-r border-border bg-surface px-3 font-semibold">
-            <span className="absolute inset-x-0 top-0 h-0.5 bg-accent" />
-            {t('New tab')}
-          </div>
-        )}
+        {showNewTabPlaceholder && <NewTab covered={covered} onNavigate={navigate} />}
       </div>
       {overflow && (
         <button

@@ -78,6 +78,7 @@ const MemoTerminalPanel = memo(TerminalPanel);
 
 export function App() {
   const path = useRepo((s) => s.path);
+  const newTabOpen = useRepo((s) => s.newTabOpen);
   // Primitives, not the whole `info`: App re-rendering re-renders everything under it, and the
   // status is read again every few seconds.
   const hasInfo = useRepo((s) => !!s.info);
@@ -255,6 +256,9 @@ export function App() {
       } else if (mod && key === 'w' && useRepo.getState().path) {
         e.preventDefault();
         useRepo.getState().close();
+      } else if (mod && key === 'w' && useRepo.getState().newTabOpen) {
+        e.preventDefault();
+        useRepo.getState().closeNewTab();
       }
     };
     window.addEventListener('keydown', onKey);
@@ -283,7 +287,7 @@ export function App() {
         <Spinner className="size-6" />
       </div>
     );
-  } else if ((!path || !hasInfo) && ws) {
+  } else if ((!path || !hasInfo) && ws && !newTabOpen) {
     body = (
       <div className="min-h-0 flex-1">
         <WorkspaceView />
