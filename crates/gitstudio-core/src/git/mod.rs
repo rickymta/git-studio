@@ -1146,34 +1146,72 @@ impl Repo {
         self.git_opts(&a, self.net(token).await).await.map(drop)
     }
 
-    /// `remote`: pull from that remote instead of the upstream. The branch pulled is the
-    /// upstream's branch when it lives on that remote, otherwise the current branch's name.
+    /// Pull the checked-out branch: fetch every remote first (so the graph also shows what
+    /// changed on the others), then bring in the branch from `remote`, merging or rebasing as
+    /// `mode` says. Without `remote`: the remote the branch tracks, else `origin` (else the only
+    /// remote), so a branch with no upstream yet still pulls. The branch pulled is the upstream's
+    /// when it lives on that remote, otherwise the one with the current branch's name.
     pub async fn pull(&self, mode: &str, remote: Option<&str>, token: Option<&str>) -> Result<()> {
-        let flag = match mode {
-            "ff-only" => "--ff-only",
-            "rebase" => "--rebase",
-            _ => "--no-rebase",
-        };
-        let mut a: Vec<String> = vec!["pull".into(), "--no-edit".into(), flag.into()];
-        if let Some(remote) = remote {
-            check_rev(remote)?;
-            let status = self.status().await?;
-            let branch = status
-                .branch
+        let status = self.status().await?;
+        let branch = status
+            .branch
+            .clone()
+            .ok_or_else(|| Error::Invalid("HEAD is detached; nothing to pull into".into()))?;
+        let names: Vec<String> = self.remotes().await?.into_iter().map(|r| r.name).collect();
+        // `origin/feature/x` tracks remote `origin`: the longest remote name that prefixes it.
+        let tracked = status.upstream.as_deref().and_then(|u| {
+            names
+                .iter()
+                .filter(|n| u.starts_with(&format!("{n}/")))
+                .max_by_key(|n| n.len())
+                .cloned()
+        });
+        let remote = match remote {
+            Some(r) => r.to_string(),
+            None => tracked
                 .clone()
-                .ok_or_else(|| Error::Invalid("HEAD is detached; nothing to pull into".into()))?;
-            let merge = status
-                .upstream
-                .as_deref()
-                .and_then(|u| u.strip_prefix(remote)?.strip_prefix('/'))
-                .map(str::to_string)
-                .unwrap_or(branch);
-            check_rev(&merge)?;
-            a.push(remote.into());
-            a.push(merge);
+                .or_else(|| names.iter().find(|n| *n == "origin").cloned())
+                .or_else(|| (names.len() == 1).then(|| names[0].clone()))
+                .ok_or_else(|| {
+                    Error::Invalid("No remote to pull from: add a remote named origin".into())
+                })?,
+        };
+        check_rev(&remote)?;
+        let merge = status
+            .upstream
+            .as_deref()
+            .filter(|_| tracked.as_deref() == Some(remote.as_str()))
+            .and_then(|u| u.strip_prefix(remote.as_str())?.strip_prefix('/'))
+            .map(str::to_string)
+            .unwrap_or(branch);
+        check_rev(&merge)?;
+
+        // Another remote being offline must not stop the pull: then fetch just this one.
+        if self.fetch(None, token).await.is_err() {
+            self.fetch(Some(&remote), token).await?;
         }
-        let args: Vec<&str> = a.iter().map(String::as_str).collect();
-        self.git_opts(&args, self.net(token).await).await.map(drop)
+        let tip = format!("refs/remotes/{remote}/{merge}");
+        if !self.ref_exists(&tip).await {
+            return Err(Error::Invalid(format!(
+                "{remote} has no branch {merge} to pull"
+            )));
+        }
+        let a: Vec<&str> = match mode {
+            "rebase" => vec!["rebase", "--fork-point", &tip],
+            "ff-only" => vec!["merge", "--ff-only", &tip],
+            _ => vec!["merge", "--no-edit", &tip],
+        };
+        self.git(&a).await.map(drop)
+    }
+
+    async fn ref_exists(&self, full: &str) -> bool {
+        run::raw(
+            Some(&self.root),
+            &["rev-parse", "--verify", "-q", full],
+            Opts::default(),
+        )
+        .await
+        .is_ok_and(|o| o.code == 0)
     }
 
     pub async fn push(&self, req: &PushRequest, token: Option<&str>) -> Result<()> {

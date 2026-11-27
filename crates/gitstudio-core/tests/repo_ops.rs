@@ -1551,3 +1551,73 @@ async fn change_stamp_follows_refs_and_index() {
     sh(&dir, &["merge", "-q", "--no-edit", "side"]);
     assert_ne!(d.refs, r.stamp().refs);
 }
+
+#[tokio::test]
+async fn pull_fetches_every_remote_and_pulls_the_branch_from_origin() {
+    let tmp = tempfile::tempdir().unwrap();
+    let origin = tmp.path().join("origin.git");
+    let other = tmp.path().join("other.git");
+    for d in [&origin, &other] {
+        std::fs::create_dir_all(d).unwrap();
+        sh(d, &["init", "--bare", "-b", "main"]);
+    }
+
+    let a_dir = tmp.path().join("a");
+    let a = new_repo(&a_dir).await;
+    a.add_remote("origin", origin.to_str().unwrap())
+        .await
+        .unwrap();
+    a.add_remote("other", other.to_str().unwrap())
+        .await
+        .unwrap();
+    std::fs::write(a_dir.join("x"), "1").unwrap();
+    a.stage(&[]).await.unwrap();
+    a.commit("one", false).await.unwrap();
+    // `topic` goes to origin without becoming the local branch's upstream.
+    sh(&a_dir, &["switch", "-q", "-c", "topic"]);
+    sh(&a_dir, &["push", "-q", "origin", "topic"]);
+    sh(&a_dir, &["push", "-q", "other", "topic:side"]);
+    // Forget it locally, so only a fetch of "other" brings it back.
+    sh(&a_dir, &["update-ref", "-d", "refs/remotes/other/side"]);
+    assert_eq!(a.status().await.unwrap().upstream, None);
+
+    // Someone else adds a commit to origin's topic.
+    let b_dir = tmp.path().join("b");
+    sh(
+        tmp.path(),
+        &["clone", "-q", "-b", "topic", origin.to_str().unwrap(), "b"],
+    );
+    std::fs::write(b_dir.join("y"), "2").unwrap();
+    sh(&b_dir, &["add", "y"]);
+    sh(
+        &b_dir,
+        &[
+            "-c",
+            "user.name=B",
+            "-c",
+            "user.email=b@example.com",
+            "commit",
+            "-q",
+            "-m",
+            "two",
+        ],
+    );
+    sh(&b_dir, &["push", "-q", "origin", "topic"]);
+
+    // A remote that is gone must not stop the pull.
+    a.add_remote("gone", tmp.path().join("missing.git").to_str().unwrap())
+        .await
+        .unwrap();
+    a.pull("merge", None, None).await.unwrap();
+    assert!(a_dir.join("y").exists(), "topic pulled from origin/topic");
+    let out = std::process::Command::new("git")
+        .current_dir(&a_dir)
+        .args(["rev-parse", "--verify", "-q", "refs/remotes/other/side"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "the other remote was fetched too");
+
+    // Detached HEAD: nothing to pull into.
+    sh(&a_dir, &["switch", "-q", "--detach"]);
+    assert!(a.pull("merge", None, None).await.is_err());
+}
