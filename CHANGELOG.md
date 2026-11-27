@@ -2,6 +2,12 @@
 
 Các thay đổi đáng chú ý của GitStudio. File này do `pnpm release` cập nhật.
 
+## v1.0.7 - 2026-11-27
+
+Thay đổi từ v1.0.6.
+
+- feat(tabs): closable "New tab" tab opened by + (bca627d)
+
 ## v1.0.6 - 2026-11-27
 
 Thay đổi từ v1.0.5.
